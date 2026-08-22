@@ -1,4 +1,3 @@
-# docker-compose.yml — Pi Desktop kéo image công khai (không build local).
 services:
   agent:
     image: ghcr.io/cannoi/pinode-telegram-solohost:v2.2.0
@@ -15,8 +14,11 @@ services:
       - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC}
       - NODE_HOST=host.docker.internal
       - TZ=Asia/Ho_Chi_Minh
+      # Tùy chọn: chỉ định tên container cố định (để trống = tự tìm)
+      - PI_CONTAINER=${PI_CONTAINER:-}
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
       - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # ← thêm dòng này
     restart: unless-stopped
