@@ -1,4 +1,4 @@
-# docker-compose.yml — Pi Desktop kéo image công khai (không build local).
+# docker-compose.yml — bản tối giản nếu SoloHost từ chối extra_hosts
 services:
   agent:
     image: ghcr.io/cannoi/pinode-telegram-solohost:v2.2.0
@@ -15,8 +15,6 @@ services:
       - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC}
       - NODE_HOST=host.docker.internal
       - TZ=Asia/Ho_Chi_Minh
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
     volumes:
       - ./data:/data
     restart: unless-stopped

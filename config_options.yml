@@ -1,6 +1,6 @@
 # config_options.yml — form cài đặt Pi Desktop hiển thị.
 title: Pi Node Telegram Controller PRO
-description: Giám sát Pi Node 24/7 qua Telegram trên SoloHost. Cảnh báo tự động, lệnh tiếng Việt, nút tải Windows PRO. Dán Bot Token và Chat ID là xong.
+description: Giám sát Pi Node 24/7 qua Telegram trên SoloHost. Cảnh báo tự động, báo cáo định kỳ giờ VN. Dán Bot Token và Chat ID là xong.
 output_file: .env
 
 fixed_values:
@@ -24,13 +24,13 @@ fields:
     label: Bao khi app khoi dong (true/false)
     type: text
     required: false
-    help: true = gui tin Controller online khi start. Mac dinh true.
+    help: true = gui tin Controller online khi start. De true.
 
   - name: REPORT_HOURS
     label: Gio bao cao dinh ky
     type: text
     required: false
-    help: Cac gio 0-23 theo gio Viet Nam, cach nhau dau phay. Vi du 7,19.
+    help: Gio Viet Nam 0-23 cach nhau dau phay. Vi du 7,19. De trong = 7,19.
 
   - name: ALERT_COOLDOWN_SEC
     label: Chong spam canh bao (giay)

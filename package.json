@@ -1,6 +1,6 @@
 {
   "name": "pinode-telegram-solohost",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Pi Node Telegram Controller SoloHost Edition PRO",
   "main": "loader.js",
   "private": true,

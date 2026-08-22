@@ -1,5 +1,5 @@
 // ============================================================
-//  Pi Node Telegram Controller — SoloHost Edition PRO v2.1.0
+//  Pi Node Telegram Controller — SoloHost Edition PRO v2.2.0
 //  Giờ VN · tin nhắn rõ · web UI chuyên nghiệp
 // ============================================================
 'use strict';
@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const VERSION = '2.1.0-solohost-pro';
+const VERSION = '2.2.0-solohost-pro';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const NODE_HOST = process.env.NODE_HOST || 'host.docker.internal';
@@ -18,8 +18,11 @@ const REQUIRED = [31401, 31402, 31403];
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.CHAT_ID || '').trim();
 const ALERT_ON_START = String(process.env.ALERT_ON_START || 'true').toLowerCase() !== 'false';
-const REPORT_HOURS = String(process.env.REPORT_HOURS || '7,19')
-  .split(',').map(s => parseInt(s.trim(), 10)).filter(n => n >= 0 && n <= 23);
+const _rhRaw = String(process.env.REPORT_HOURS || '').trim();
+const REPORT_HOURS = (() => {
+  const arr = (_rhRaw || '7,19').split(',').map(s => parseInt(s.trim(), 10)).filter(n => n >= 0 && n <= 23);
+  return arr.length ? arr : [7, 19];
+})();
 const ALERT_COOLDOWN = Math.max(30, parseInt(process.env.ALERT_COOLDOWN_SEC || '60', 10) || 60);
 const SOCK = '/var/run/docker.sock';
 const GITHUB_PRO = 'https://github.com/cannoi/pinode-telegram-controller';
@@ -77,17 +80,57 @@ function probe(host, port, timeout) {
     const s = new net.Socket();
     let done = false;
     const fin = v => { if (done) return; done = true; try { s.destroy(); } catch (e) {} res(v); };
-    s.setTimeout(timeout || 1400);
+    s.setTimeout(timeout || 1200);
     s.once('connect', () => fin(true));
     s.once('timeout', () => fin(false));
     s.once('error', () => fin(false));
     try { s.connect(port, host); } catch (e) { fin(false); }
   });
 }
+
+// Danh sách host thử dò cổng node trên máy thật (SoloHost / Docker Desktop / Linux)
+function candidateHosts() {
+  const list = [];
+  const add = h => { if (h && list.indexOf(h) < 0) list.push(h); };
+  add(NODE_HOST);
+  add('host.docker.internal');
+  add('172.17.0.1');   // docker0 mặc định
+  add('172.18.0.1');
+  add('172.19.0.1');
+  add('172.20.0.1');
+  add('10.0.2.2');     // một số VM
+  // gateway từ /proc/net/route
+  try {
+    const rows = fs.readFileSync('/proc/net/route', 'utf8').trim().split('\n').slice(1);
+    for (const row of rows) {
+      const p = row.split('\t');
+      if (p[1] === '00000000' && p[2] && p[2] !== '00000000') {
+        const hex = p[2];
+        const ip = [hex.slice(6,8), hex.slice(4,6), hex.slice(2,4), hex.slice(0,2)]
+          .map(x => parseInt(x, 16)).join('.');
+        add(ip);
+        break;
+      }
+    }
+  } catch (e) {}
+  return list;
+}
+
+let _probeHost = null; // host đang dùng tốt nhất
 async function localOpen() {
-  const open = [];
-  await Promise.all(REQUIRED.map(async p => { if (await probe(NODE_HOST, p, 1400)) open.push(p); }));
-  return open.sort((a, b) => a - b);
+  const hosts = _probeHost ? [_probeHost].concat(candidateHosts().filter(h => h !== _probeHost)) : candidateHosts();
+  for (const host of hosts) {
+    const open = [];
+    await Promise.all(REQUIRED.map(async p => { if (await probe(host, p, 1000)) open.push(p); }));
+    if (open.length > 0) {
+      if (_probeHost !== host) {
+        _probeHost = host;
+        console.log('[probe] dùng host=' + host + ' ports=' + open.join(','));
+      }
+      return open.sort((a, b) => a - b);
+    }
+  }
+  return [];
 }
 
 function _readStat() {
@@ -190,7 +233,71 @@ async function dockerNode() {
   };
 }
 
+
+// Đọc đồng bộ qua docker exec (stellar-core /info)
+async function dockerSync(id) {
+  try {
+    const ex = await sockReq('POST', '/containers/' + id + '/exec', {
+      AttachStdout: true, AttachStderr: true, Tty: true,
+      Cmd: ['sh', '-c', 'stellar-core http-command info 2>/dev/null || curl -s localhost:11626/info 2>/dev/null || wget -qO- localhost:11626/info 2>/dev/null']
+    });
+    if (!ex || ex.status >= 400) return 'unknown';
+    let id2;
+    try { id2 = JSON.parse(ex.body).Id; } catch (e) { return 'unknown'; }
+    const out = await sockReq('POST', '/exec/' + id2 + '/start', { Detach: false, Tty: true });
+    const t = out ? (out.body || '') : '';
+    return parseSyncText(t);
+  } catch (e) { return 'unknown'; }
+}
+
+function parseSyncText(t) {
+  if (!t) return 'unknown';
+  if (/Synced!?/i.test(t)) return 'synced';
+  if (/Catching up|catchup|Joining SCP|Booting|Waiting/i.test(t)) return 'catching';
+  // JSON info
+  try {
+    const j = JSON.parse(t.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1'));
+    const state = (j && (j.state || (j.info && j.info.state))) || '';
+    const s = String(state).toLowerCase();
+    if (s.includes('synced')) return 'synced';
+    if (s.includes('catch') || s.includes('join') || s.includes('boot')) return 'catching';
+    if (s) return 'running-unknownsync';
+  } catch (e) {}
+  if (/"state"/.test(t) || /"build"/.test(t)) return 'running-unknownsync';
+  return 'unknown';
+}
+
+// Dò HTTP info trên host (cổng stellar-core 11626 nếu publish)
+function httpGet(host, port, pathName, timeout) {
+  return new Promise(function (resolve) {
+    const req = http.request({ host: host, port: port, path: pathName, method: 'GET', timeout: timeout || 2000 }, function (r) {
+      let b = '';
+      r.on('data', d => b += d);
+      r.on('end', () => resolve({ status: r.statusCode, body: b }));
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { try { req.destroy(); } catch (e) {} resolve(null); });
+    req.end();
+  });
+}
+
+async function hostSync() {
+  const hosts = _probeHost ? [_probeHost].concat(candidateHosts().filter(h => h !== _probeHost)) : candidateHosts();
+  for (const host of hosts) {
+    const r = await httpGet(host, 11626, '/info', 2000);
+    if (r && r.status === 200 && r.body) {
+      const s = parseSyncText(r.body);
+      if (s !== 'unknown') {
+        console.log('[sync] host=' + host + ':11626 → ' + s);
+        return s;
+      }
+    }
+  }
+  return null;
+}
+
 async function dockerLogs(id, tail) {
+
   const r = await sockReq('GET', '/containers/' + id + '/logs?stdout=1&stderr=1&tail=' + (tail || 40) + '&timestamps=0');
   if (!r || r.status !== 200) return null;
   let text = r.body || '';
@@ -234,6 +341,8 @@ function calcSeverity(st) {
   if (!n.running && n.localOpen.length === 0) return 'critical';
   if (!n.running) return 'warning';
   if (n.localOpen.length < REQUIRED.length) return 'warning';
+  if (n.sync === 'catching') return 'soft';
+  if (n.sync === 'down') return 'warning';
   if (st.res.ram != null && st.res.ram >= 92) return 'warning';
   if (st.disk && st.disk.pct >= 92) return 'warning';
   if (st.res.cpu != null && st.res.cpu >= 95) return 'soft';
@@ -249,7 +358,7 @@ async function collectStatus() {
   const disk = diskInfo();
   const info = await dockerInfo();
 
-  let running, docker, proto, dockerAccess, nodeName, nodeImage, nodeStatus;
+  let running, docker, proto, dockerAccess, nodeName, nodeImage, nodeStatus, sync;
   if (dn) {
     dockerAccess = true;
     docker = dn.found ? (dn.running ? 'up' : 'down') : 'notfound';
@@ -258,19 +367,27 @@ async function collectStatus() {
     nodeName = dn.name || null;
     nodeImage = dn.image || null;
     nodeStatus = dn.status || null;
+    sync = running && dn.id ? await dockerSync(dn.id) : (running ? 'unknown' : 'down');
   } else {
     dockerAccess = false;
     running = lo.length > 0;
     docker = running ? 'up' : 'down';
     proto = null;
     nodeName = nodeImage = nodeStatus = null;
+    if (running) {
+      const hs = await hostSync();
+      sync = hs || 'unknown';
+    } else {
+      sync = 'down';
+    }
   }
 
   const st = {
     version: VERSION,
     linked: !!(BOT_TOKEN && CHAT_ID),
+    probeHost: _probeHost || NODE_HOST,
     node: {
-      running, docker, proto, localOpen: lo, required: REQUIRED,
+      running, docker, proto, sync, localOpen: lo, required: REQUIRED,
       dockerAccess, name: nodeName, image: nodeImage, status: nodeStatus,
       id: dn && dn.found ? dn.id : null
     },
@@ -288,6 +405,17 @@ async function collectStatus() {
 }
 
 // ---------- Tin nhắn Telegram đẹp, rõ ----------
+function syncLabel(s) {
+  const m = {
+    synced: '✅ Đã đồng bộ (Synced)',
+    catching: '🔄 Đang bắt kịp (Catching up)',
+    down: '⛔ Node tắt',
+    'running-unknownsync': '⚠️ Chạy — chưa rõ sync',
+    unknown: '❓ Không rõ'
+  };
+  return m[s] || m.unknown;
+}
+
 function formatStatus(st, opts) {
   opts = opts || {};
   const n = st.node;
@@ -305,6 +433,7 @@ function formatStatus(st, opts) {
     `• Trạng thái: <b>${n.running ? 'ONLINE' : 'OFFLINE'}</b>`,
     `• Mức độ: <b>${SEV_LABEL[sev]}</b>`,
     `• Docker: ${esc(n.docker)}${n.proto ? ' · ' + esc(n.proto) : ''}${n.name ? '\n• Container: <code>' + esc(n.name) + '</code>' : ''}`,
+    `• Đồng bộ: <b>${esc(syncLabel(n.sync))}</b>`,
     `• Cổng: ${ports}`,
     `• CPU: <b>${cpu}</b>  ·  RAM: <b>${ram}</b>`,
     `• Uptime: ${esc(st.res.uptime || '—')}`
@@ -313,6 +442,7 @@ function formatStatus(st, opts) {
     lines.push(`• Disk: ${st.disk.usedGB}/${st.disk.totalGB} GB (<b>${st.disk.pct}%</b>)`);
   }
   lines.push(`• Docker sock: ${n.dockerAccess ? 'có' : 'không (suy từ cổng)'}`);
+  if (st.probeHost) lines.push(`• Probe host: <code>${esc(st.probeHost)}</code>`);
   lines.push(`━━━━━━━━━━━━━━━━`);
   lines.push(`🕐 ${esc(nowStr())}`);
   lines.push(`📦 SoloHost PRO <code>v${esc(st.version)}</code>`);
@@ -329,12 +459,12 @@ function mainKeyboard() {
     inline_keyboard: [
       [
         { text: '📊 Status', callback_data: 'cmd_status' },
-        { text: '🔌 Ports', callback_data: 'cmd_ports' },
-        { text: '🐳 Docker', callback_data: 'cmd_docker' }
+        { text: '🔄 Sync', callback_data: 'cmd_sync' },
+        { text: '🔌 Ports', callback_data: 'cmd_ports' }
       ],
       [
+        { text: '🐳 Docker', callback_data: 'cmd_docker' },
         { text: '📋 Report', callback_data: 'cmd_report' },
-        { text: '📜 History', callback_data: 'cmd_history' },
         { text: '🔄 Reset', callback_data: 'cmd_reset' }
       ],
       [
@@ -395,14 +525,36 @@ async function tgAnswerCb(id, text) {
 }
 
 // ---------- monitor ----------
+function hourVNNow() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Ho_Chi_Minh', hour: 'numeric', hour12: false
+    }).formatToParts(new Date());
+    const h = parts.find(x => x.type === 'hour');
+    return h ? parseInt(h.value, 10) % 24 : ((new Date().getUTCHours() + 7) % 24);
+  } catch (e) {
+    return (new Date().getUTCHours() + 7) % 24;
+  }
+}
+
 async function monitorTick() {
   try {
     const st = await collectStatus();
-    const up = st.node.running;
+    const up = !!st.node.running;
     const sev = st.severity;
     const now = Date.now();
 
-    if (state.lastRunning !== null && state.lastRunning !== up) {
+    // Khởi tạo lần đầu: ghi nhận trạng thái, không spam alert
+    if (state.lastRunning === null) {
+      state.lastRunning = up;
+      state.lastSeverity = sev;
+      console.log('[monitor] init running=' + up + ' sev=' + sev + ' ports=' + (st.node.localOpen || []).join(','));
+      saveJSON(STATE_F, state);
+      return;
+    }
+
+    // Cảnh báo khi đổi ONLINE/OFFLINE
+    if (state.lastRunning !== up) {
       if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
         if (up) {
           await tgSend('🟢 <b>Node đã ONLINE trở lại</b>\n\n' + formatStatus(st), { reply_markup: mainKeyboard() });
@@ -417,9 +569,10 @@ async function monitorTick() {
       }
     }
 
-    if (state.lastSeverity === 'ok' && (sev === 'warning' || sev === 'critical') && up) {
+    // Leo thang mức cảnh báo (ok → warning/critical) khi node vẫn coi là up nhưng cổng thiếu / tài nguyên cao
+    if (state.lastSeverity === 'ok' && (sev === 'warning' || sev === 'critical')) {
       if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
-        await tgSend(`${SEV_ICON[sev]} <b>Cảnh báo: ${SEV_LABEL[sev]}</b>\n\n` + formatStatus(st), { reply_markup: mainKeyboard() });
+        await tgSend(SEV_ICON[sev] + ' <b>Cảnh báo: ' + SEV_LABEL[sev] + '</b>\n\n' + formatStatus(st), { reply_markup: mainKeyboard() });
         state.lastAlertAt = now;
         pushHist({ type: 'severity', severity: sev });
       }
@@ -428,13 +581,16 @@ async function monitorTick() {
     state.lastRunning = up;
     state.lastSeverity = sev;
 
-    // Báo cáo theo giờ VN
-    let hourVN = new Date().getUTCHours() + 7;
-    if (hourVN >= 24) hourVN -= 24;
-    if (REPORT_HOURS.includes(hourVN) && state.lastReportHour !== hourVN) {
+    // Báo cáo định kỳ theo giờ Việt Nam (mặc định 7h và 19h)
+    const hourVN = hourVNNow();
+    const dayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }); // YYYY-MM-DD
+    const reportKey = dayKey + '-' + hourVN;
+    if (REPORT_HOURS.includes(hourVN) && state.lastReportKey !== reportKey) {
+      state.lastReportKey = reportKey;
       state.lastReportHour = hourVN;
-      await tgSend('📋 <b>Báo cáo định kỳ</b>\n\n' + formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
+      await tgSend('📋 <b>Báo cáo định kỳ</b> · ' + hourVN + 'h\n\n' + formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
       pushHist({ type: 'report', severity: sev });
+      console.log('[monitor] báo cáo định kỳ giờ=' + hourVN);
     }
 
     if (state.pendingReset && now > state.pendingReset.until) state.pendingReset = null;
@@ -453,7 +609,7 @@ async function sendHelp(withKb) {
     '<b>Lệnh nhanh:</b>\n' +
     '/status — trạng thái đầy đủ\n' +
     '/monitor — quét + mức cảnh báo\n' +
-    '/ports — cổng 31401–3\n' +
+    '/ports — cổng 31401–3\n/sync — trạng thái đồng bộ\n' +
     '/docker — container node\n' +
     '/disk — dung lượng ổ\n' +
     '/logs — log container\n' +
@@ -531,6 +687,18 @@ async function runCmd(cmd) {
       '<b>Cổng node 31401–31403</b>\n━━━━━━━━━━━━━━━━\n' +
       REQUIRED.map(p => (lo.includes(p) ? '✅' : '❌') + '  <code>' + p + '</code>').join('\n') +
       (lo.length === 0 ? '\n\n⚠️ Không thấy cổng nào mở trên host.' : ''),
+      { reply_markup: mainKeyboard() }
+    );
+  }
+  if (cmd === 'sync' || cmd === 'dongbo') {
+    const st = await collectStatus();
+    const n = st.node;
+    return tgSend(
+      '<b>Đồng bộ Pi Node</b>\n━━━━━━━━━━━━━━━━\n' +
+      '• Trạng thái: <b>' + esc(syncLabel(n.sync)) + '</b>\n' +
+      '• Node: ' + (n.running ? 'ONLINE' : 'OFFLINE') + '\n' +
+      '• Nguồn: ' + (n.dockerAccess ? 'docker exec' : 'host :11626 / suy đoán') + '\n' +
+      '🕐 ' + esc(nowStr()),
       { reply_markup: mainKeyboard() }
     );
   }
@@ -736,7 +904,7 @@ srv.listen(PORT, '0.0.0.0', function () {
 
 _cpuSampler();
 monitorTick();
-setInterval(monitorTick, 20000);
+setInterval(monitorTick, 12000);
 
 if (BOT_TOKEN && CHAT_ID) {
   tgLoop();

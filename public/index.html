@@ -253,9 +253,19 @@ async function load() {
 
     const n = st.node || {};
     const up = !!n.running;
+    const syncMap = {
+      synced: '✅ Đã đồng bộ',
+      catching: '🔄 Đang bắt kịp',
+      down: '⛔ Tắt',
+      'running-unknownsync': '⚠️ Chưa rõ',
+      unknown: '❓ Không rõ'
+    };
+    const syncTxt = syncMap[n.sync] || syncMap.unknown;
     document.getElementById('nodeBody').innerHTML = `
       <div class="row"><span class="k">Node</span>
         <span class="v"><i class="dot ${up ? 'on' : 'off'}"></i>${up ? 'ONLINE' : 'OFFLINE'}</span></div>
+      <div class="row"><span class="k">Đồng bộ</span>
+        <span class="v">${esc(syncTxt)}</span></div>
       <div class="row"><span class="k">Docker</span>
         <span class="v">${esc(n.docker || '—')}${n.proto ? ' · ' + esc(n.proto) : ''}</span></div>
       <div class="row"><span class="k">Container</span>
