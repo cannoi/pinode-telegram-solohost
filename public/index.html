@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Pi Node Telegram Controller PRO</title>
+<style>
+  :root {
+    --bg: #0b1220; --panel: #121a2b; --card: #1a2438; --border: #2a3a55;
+    --txt: #e8eef8; --mut: #8b9bb8; --dim: #5a6a88;
+    --green: #2ed88a; --red: #e85c5c; --amber: #e8c040; --blue: #4da3ff; --orange: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(160deg, #0f172a 0%, #0b1220 50%, #111827 100%);
+    color: var(--txt); min-height: 100vh;
+    padding: 18px 14px 36px; display: flex; flex-direction: column; align-items: center;
+  }
+  .wrap { width: 100%; max-width: 500px; }
+  header { text-align: center; margin-bottom: 18px; }
+  header h1 { font-size: 1.3rem; font-weight: 800; }
+  header p { font-size: .8rem; color: var(--mut); margin-top: 4px; }
+  .badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+  .badge {
+    font-size: .68rem; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid; letter-spacing: .3px;
+  }
+  .badge.v { background: rgba(77,163,255,.12); color: var(--blue); border-color: rgba(77,163,255,.35); }
+  .badge.sev-ok { background: rgba(46,216,138,.12); color: var(--green); border-color: rgba(46,216,138,.4); }
+  .badge.sev-soft { background: rgba(232,192,64,.12); color: var(--amber); border-color: rgba(232,192,64,.4); }
+  .badge.sev-warning { background: rgba(245,158,11,.15); color: var(--orange); border-color: rgba(245,158,11,.45); }
+  .badge.sev-critical { background: rgba(232,92,92,.15); color: var(--red); border-color: rgba(232,92,92,.45); }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 15px; margin-bottom: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.3);
+  }
+  .card h2 {
+    font-size: .78rem; font-weight: 700; color: var(--mut); text-transform: uppercase;
+    letter-spacing: .55px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 0; border-bottom: 1px dashed rgba(42,58,85,.55); font-size: .9rem;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--mut); }
+  .row .v { font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .ports { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .port {
+    text-align: center; padding: 12px 6px; border-radius: 10px; font-weight: 700; font-size: .88rem; border: 1px solid;
+  }
+  .port.on { background: rgba(46,216,138,.1); border-color: rgba(46,216,138,.45); color: var(--green); }
+  .port.off { background: rgba(232,92,92,.1); border-color: rgba(232,92,92,.45); color: var(--red); }
+  .res { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .rc {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 11px 8px; text-align: center;
+  }
+  .rc .lab { font-size: .65rem; color: var(--mut); text-transform: uppercase; letter-spacing: .4px; }
+  .rc .val { font-size: 1.15rem; font-weight: 800; margin-top: 3px; }
+  .meter { height: 4px; border-radius: 99px; background: #0d1525; margin-top: 7px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; background: linear-gradient(90deg,#3b82f6,#2ed88a); transition: width .4s; }
+  .note { font-size: .76rem; color: var(--dim); line-height: 1.5; margin-top: 8px; }
+  .note a { color: var(--blue); word-break: break-all; }
+  .hist { font-size: .8rem; color: var(--mut); max-height: 160px; overflow-y: auto; }
+  .hist div { padding: 5px 0; border-bottom: 1px solid rgba(42,58,85,.4); }
+  .hist div:last-child { border-bottom: none; }
+  .foot { text-align: center; margin-top: 6px; font-size: .72rem; color: var(--dim); }
+  .spin {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,.15); border-top-color: var(--blue);
+    border-radius: 50%; animation: sp .7s linear infinite;
+  }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .err { color: var(--red); font-size: .85rem; text-align: center; padding: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pi Node Controller PRO</h1>
+    <p>SoloHost Edition · Telegram Monitor</p>
+    <div class="badges">
+      <span class="badge v" id="ver">…</span>
+      <span class="badge sev-ok" id="sev">—</span>
+    </div>
+  </header>
+
+  <div class="card">
+    <h2>📡 Trạng thái Node</h2>
+    <div id="nodeBody"><div style="text-align:center;padding:14px"><span class="spin"></span></div></div>
+  </div>
+
+  <div class="card">
+    <h2>🔌 Cổng 31401 – 31403</h2>
+    <div class="ports" id="ports"></div>
+  </div>
+
+  <div class="card">
+    <h2>💻 Tài nguyên</h2>
+    <div class="res" id="res"></div>
+    <p class="note">CPU/RAM đo trong container. Disk là volume app. Mount docker.sock (máy tin cậy) để /reset /logs chính xác hơn.</p>
+  </div>
+
+  <div class="card">
+    <h2>📜 Lịch sử sự cố</h2>
+    <div class="hist" id="hist">Đang tải…</div>
+  </div>
+
+  <div class="card">
+    <h2>📱 Telegram &amp; Bản Windows</h2>
+    <div id="tgInfo" class="note">…</div>
+    <p class="note" style="margin-top:12px">
+      Bản <b>Windows PRO</b> đầy đủ (CleanRAM, screenshot PiCheck, OpenHardwareMonitor, AI Gemini…):<br>
+      <a id="gh" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener">
+        github.com/cannoi/pinode-telegram-controller
+      </a>
+    </p>
+  </div>
+
+  <p class="foot">Tự làm mới mỗi 12 giây · SoloHost PRO</p>
+</div>
+
+<script>
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+const SEV_LABEL = { ok:'OK', soft:'Soft', warning:'Warning', critical:'Critical' };
+
+async function load() {
+  try {
+    const [st, info, hist] = await Promise.all([
+      fetch('/api/status').then(r => r.json()),
+      fetch('/api/info').then(r => r.json()),
+      fetch('/api/history').then(r => r.json()).catch(() => [])
+    ]);
+    document.getElementById('ver').textContent = 'v' + (info.version || st.version || '?');
+    const sev = st.severity || 'ok';
+    const sevEl = document.getElementById('sev');
+    sevEl.textContent = SEV_LABEL[sev] || sev;
+    sevEl.className = 'badge sev-' + sev;
+
+    const n = st.node || {};
+    const up = !!n.running;
+    document.getElementById('nodeBody').innerHTML = `
+      <div class="row"><span class="k">Node</span>
+        <span class="v"><i class="dot ${up?'on':'off'}"></i>${up?'ONLINE':'OFFLINE'}</span></div>
+      <div class="row"><span class="k">Docker</span>
+        <span class="v">${esc(n.docker||'—')}${n.proto?' · '+esc(n.proto):''}</span></div>
+      <div class="row"><span class="k">Container</span>
+        <span class="v">${esc(n.name||'—')}</span></div>
+      <div class="row"><span class="k">Docker sock</span>
+        <span class="v">${n.dockerAccess?'Có':'Không (suy từ cổng)'}</span></div>
+    `;
+
+    const lo = n.localOpen || [];
+    const req = n.required || [31401,31402,31403];
+    document.getElementById('ports').innerHTML = req.map(p =>
+      `<div class="port ${lo.includes(p)?'on':'off'}">${p}</div>`
+    ).join('');
+
+    const r = st.res || {};
+    const cpu = r.cpu, ram = r.ram;
+    const disk = st.disk;
+    document.getElementById('res').innerHTML = `
+      <div class="rc"><div class="lab">CPU</div><div class="val">${cpu!=null?cpu+'%':'—'}</div>
+        <div class="meter"><i style="width:${cpu||0}%"></i></div></div>
+      <div class="rc"><div class="lab">RAM</div><div class="val">${ram!=null?ram+'%':'—'}</div>
+        <div class="meter"><i style="width:${ram||0}%"></i></div></div>
+      <div class="rc"><div class="lab">Disk</div><div class="val">${disk?disk.pct+'%':'—'}</div>
+        <div class="meter"><i style="width:${disk?disk.pct:0}%"></i></div></div>
+    `;
+
+    if (Array.isArray(hist) && hist.length) {
+      document.getElementById('hist').innerHTML = hist.slice(0, 10).map(h => {
+        const t = new Date(h.t).toLocaleString('vi-VN', { hour12: false });
+        return `<div>${esc(t)} — <b>${esc(h.type)}</b> (${esc(h.severity||'')})</div>`;
+      }).join('');
+    } else {
+      document.getElementById('hist').textContent = 'Chưa có sự kiện.';
+    }
+
+    document.getElementById('tgInfo').innerHTML =
+      (info.hasBot && info.hasChat)
+        ? '✅ Bot đã cấu hình. Gửi <b>/status</b> · <b>/monitor</b> · <b>/reset</b> trên Telegram.<br>Báo cáo định kỳ: giờ ' + (info.reportHours||[]).join(', ') + '.'
+        : '⚠️ Chưa đủ BOT_TOKEN / CHAT_ID — chỉ xem web.';
+
+    if (info.githubPro) document.getElementById('gh').href = info.githubPro;
+  } catch (e) {
+    document.getElementById('nodeBody').innerHTML =
+      '<div class="err">Không lấy được trạng thái. App đang chạy?</div>';
+  }
+}
+load();
+setInterval(load, 12000);
+</script>
+</body>
+</html>
