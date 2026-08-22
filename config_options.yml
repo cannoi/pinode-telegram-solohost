@@ -1,9 +1,6 @@
+# config_options.yml — form cài đặt Pi Desktop hiển thị.
 title: Pi Node Telegram Controller PRO
-eyebrow: SoloHost Monitor
-description: >-
-  Giám sát & điều khiển Pi Node 24/7 qua Telegram ngay trên SoloHost.
-  Cảnh báo Soft/Warning/Critical, báo cáo định kỳ, reset node (khi bật Docker),
-  lệnh tiếng Việt. Bản Windows đầy đủ xem trên GitHub.
+description: Giám sát Pi Node 24/7 qua Telegram trên SoloHost. Cảnh báo tự động, lệnh tiếng Việt, nút tải Windows PRO. Dán Bot Token và Chat ID là xong.
 output_file: .env
 
 fixed_values:
@@ -15,31 +12,28 @@ fields:
     label: Telegram Bot Token
     type: password
     required: true
-    help: Tạo bot tại @BotFather → copy token (dạng 123456:ABC-DEF...).
+    help: Tạo bot tại @BotFather rồi sao chép token dán vào đây.
 
   - name: CHAT_ID
     label: Telegram Chat ID
     type: text
     required: true
-    help: ID chat/nhóm nhận cảnh báo. Dùng @userinfobot hoặc gửi tin cho bot.
+    help: ID chat hoặc nhóm nhận cảnh báo. Dùng @userinfobot để lấy ID.
 
   - name: ALERT_ON_START
-    label: Báo khi app khởi động
-    type: checkbox
+    label: Bao khi app khoi dong (true/false)
+    type: text
     required: false
-    default: true
-    help: Gửi tin "Controller online" mỗi lần container start.
+    help: true = gui tin Controller online khi start. Mac dinh true.
 
   - name: REPORT_HOURS
-    label: Giờ gửi báo cáo định kỳ (0-23, cách nhau dấu phẩy)
+    label: Gio bao cao dinh ky
     type: text
     required: false
-    default: "7,19"
-    help: Ví dụ 7,19 = báo cáo lúc 7h và 19h (giờ máy host/container).
+    help: Cac gio 0-23 theo gio Viet Nam, cach nhau dau phay. Vi du 7,19.
 
   - name: ALERT_COOLDOWN_SEC
-    label: Chống spam cảnh báo (giây)
+    label: Chong spam canh bao (giay)
     type: text
     required: false
-    default: "60"
-    help: Khoảng cách tối thiểu giữa hai lần gửi alert cùng loại.
+    help: Khoang cach toi thieu giua hai lan alert. Vi du 60.

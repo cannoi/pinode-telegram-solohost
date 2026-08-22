@@ -6,89 +6,193 @@
 <title>Pi Node Telegram Controller PRO</title>
 <style>
   :root {
-    --bg: #0b1220; --panel: #121a2b; --card: #1a2438; --border: #2a3a55;
-    --txt: #e8eef8; --mut: #8b9bb8; --dim: #5a6a88;
-    --green: #2ed88a; --red: #e85c5c; --amber: #e8c040; --blue: #4da3ff; --orange: #f59e0b;
+    --bg: #0a0e17;
+    --panel: rgba(18, 26, 43, 0.88);
+    --card: rgba(26, 36, 56, 0.75);
+    --border: rgba(77, 163, 255, 0.22);
+    --txt: #f0f4fc;
+    --mut: #9aabd0;
+    --dim: #6a7a9a;
+    --green: #2ed88a;
+    --red: #e85c5c;
+    --amber: #e8c040;
+    --blue: #4da3ff;
+    --orange: #f59e0b;
+    --gold: #d4a84b;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: linear-gradient(160deg, #0f172a 0%, #0b1220 50%, #111827 100%);
-    color: var(--txt); min-height: 100vh;
-    padding: 18px 14px 36px; display: flex; flex-direction: column; align-items: center;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Be Vietnam Pro", sans-serif;
+    color: var(--txt);
+    min-height: 100vh;
+    background:
+      linear-gradient(160deg, rgba(10,14,23,0.82) 0%, rgba(15,23,42,0.88) 50%, rgba(10,14,23,0.92) 100%),
+      url('/avatar.jpg') center top / cover no-repeat fixed;
+    padding: 18px 14px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
-  .wrap { width: 100%; max-width: 500px; }
-  header { text-align: center; margin-bottom: 18px; }
-  header h1 { font-size: 1.3rem; font-weight: 800; }
-  header p { font-size: .8rem; color: var(--mut); margin-top: 4px; }
-  .badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+  .wrap { width: 100%; max-width: 480px; }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    margin-bottom: 18px;
+    position: relative;
+  }
+  .avatar-ring {
+    width: 88px; height: 88px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    padding: 3px;
+    background: linear-gradient(135deg, var(--gold), var(--blue));
+    box-shadow: 0 0 0 4px rgba(212,168,75,0.15), 0 12px 32px rgba(0,0,0,0.45);
+  }
+  .avatar-ring img {
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+    border: 2px solid rgba(10,14,23,0.6);
+  }
+  .hero h1 {
+    font-size: 1.28rem; font-weight: 800;
+    letter-spacing: 0.3px;
+    background: linear-gradient(90deg, #f5e6c8, var(--gold));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero p { font-size: 0.8rem; color: var(--mut); margin-top: 4px; }
+  .badges {
+    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px;
+  }
   .badge {
-    font-size: .68rem; font-weight: 700; padding: 3px 10px; border-radius: 999px;
-    border: 1px solid; letter-spacing: .3px;
+    font-size: 0.68rem; font-weight: 700; padding: 4px 11px;
+    border-radius: 999px; border: 1px solid; letter-spacing: 0.3px;
+    backdrop-filter: blur(8px);
   }
-  .badge.v { background: rgba(77,163,255,.12); color: var(--blue); border-color: rgba(77,163,255,.35); }
-  .badge.sev-ok { background: rgba(46,216,138,.12); color: var(--green); border-color: rgba(46,216,138,.4); }
-  .badge.sev-soft { background: rgba(232,192,64,.12); color: var(--amber); border-color: rgba(232,192,64,.4); }
-  .badge.sev-warning { background: rgba(245,158,11,.15); color: var(--orange); border-color: rgba(245,158,11,.45); }
-  .badge.sev-critical { background: rgba(232,92,92,.15); color: var(--red); border-color: rgba(232,92,92,.45); }
+  .badge.v { background: rgba(77,163,255,0.15); color: var(--blue); border-color: rgba(77,163,255,0.4); }
+  .badge.sev-ok { background: rgba(46,216,138,0.15); color: var(--green); border-color: rgba(46,216,138,0.45); }
+  .badge.sev-soft { background: rgba(232,192,64,0.15); color: var(--amber); border-color: rgba(232,192,64,0.45); }
+  .badge.sev-warning { background: rgba(245,158,11,0.18); color: var(--orange); border-color: rgba(245,158,11,0.5); }
+  .badge.sev-critical { background: rgba(232,92,92,0.18); color: var(--red); border-color: rgba(232,92,92,0.5); }
+  .badge.time { background: rgba(255,255,255,0.06); color: var(--mut); border-color: rgba(255,255,255,0.12); }
+
   .card {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-    padding: 15px; margin-bottom: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.3);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 10px 36px rgba(0,0,0,0.35);
+    backdrop-filter: blur(12px);
   }
   .card h2 {
-    font-size: .78rem; font-weight: 700; color: var(--mut); text-transform: uppercase;
-    letter-spacing: .55px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    font-size: 0.76rem; font-weight: 700; color: var(--mut);
+    text-transform: uppercase; letter-spacing: 0.6px;
+    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
   }
   .row {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 0; border-bottom: 1px dashed rgba(42,58,85,.55); font-size: .9rem;
+    padding: 9px 0; border-bottom: 1px dashed rgba(77,163,255,0.12); font-size: 0.9rem;
   }
   .row:last-child { border-bottom: none; }
   .row .k { color: var(--mut); }
   .row .v { font-weight: 700; display: flex; align-items: center; gap: 7px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
-  .dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); }
-  .ports { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .dot.on { background: var(--green); box-shadow: 0 0 10px var(--green); }
+  .dot.off { background: var(--red); box-shadow: 0 0 10px var(--red); }
+
+  .ports { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .port {
-    text-align: center; padding: 12px 6px; border-radius: 10px; font-weight: 700; font-size: .88rem; border: 1px solid;
+    text-align: center; padding: 12px 6px; border-radius: 11px;
+    font-weight: 700; font-size: 0.88rem; border: 1px solid;
   }
-  .port.on { background: rgba(46,216,138,.1); border-color: rgba(46,216,138,.45); color: var(--green); }
-  .port.off { background: rgba(232,92,92,.1); border-color: rgba(232,92,92,.45); color: var(--red); }
+  .port.on { background: rgba(46,216,138,0.12); border-color: rgba(46,216,138,0.45); color: var(--green); }
+  .port.off { background: rgba(232,92,92,0.12); border-color: rgba(232,92,92,0.45); color: var(--red); }
+
   .res { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   .rc {
-    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 11px 8px; text-align: center;
+    background: var(--card); border: 1px solid rgba(77,163,255,0.12);
+    border-radius: 11px; padding: 11px 8px; text-align: center;
   }
-  .rc .lab { font-size: .65rem; color: var(--mut); text-transform: uppercase; letter-spacing: .4px; }
-  .rc .val { font-size: 1.15rem; font-weight: 800; margin-top: 3px; }
-  .meter { height: 4px; border-radius: 99px; background: #0d1525; margin-top: 7px; overflow: hidden; }
-  .meter > i { display: block; height: 100%; background: linear-gradient(90deg,#3b82f6,#2ed88a); transition: width .4s; }
-  .note { font-size: .76rem; color: var(--dim); line-height: 1.5; margin-top: 8px; }
-  .note a { color: var(--blue); word-break: break-all; }
-  .hist { font-size: .8rem; color: var(--mut); max-height: 160px; overflow-y: auto; }
-  .hist div { padding: 5px 0; border-bottom: 1px solid rgba(42,58,85,.4); }
+  .rc .lab { font-size: 0.64rem; color: var(--mut); text-transform: uppercase; letter-spacing: 0.4px; }
+  .rc .val { font-size: 1.12rem; font-weight: 800; margin-top: 3px; }
+  .meter { height: 4px; border-radius: 99px; background: rgba(0,0,0,0.35); margin-top: 7px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; background: linear-gradient(90deg, #3b82f6, #2ed88a); transition: width 0.4s; }
+
+  /* Action buttons */
+  .actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;
+  }
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 48px; border-radius: 12px; font-weight: 700; font-size: 0.88rem;
+    text-decoration: none; border: 1px solid; cursor: pointer;
+    transition: filter 0.15s, transform 0.1s;
+    font-family: inherit;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn.primary {
+    background: linear-gradient(180deg, #f0d78c, var(--gold));
+    color: #1a1206; border-color: rgba(212,168,75,0.6);
+    grid-column: 1 / -1;
+  }
+  .btn.blue {
+    background: rgba(77,163,255,0.12); color: var(--blue);
+    border-color: rgba(77,163,255,0.4);
+  }
+  .btn.ghost {
+    background: rgba(255,255,255,0.04); color: var(--mut);
+    border-color: rgba(255,255,255,0.12);
+  }
+  .btn.donate {
+    background: rgba(46,216,138,0.1); color: var(--green);
+    border-color: rgba(46,216,138,0.4);
+  }
+
+  .hist { font-size: 0.8rem; color: var(--mut); max-height: 150px; overflow-y: auto; }
+  .hist div { padding: 5px 0; border-bottom: 1px solid rgba(77,163,255,0.08); }
   .hist div:last-child { border-bottom: none; }
-  .foot { text-align: center; margin-top: 6px; font-size: .72rem; color: var(--dim); }
+
+  .note { font-size: 0.76rem; color: var(--dim); line-height: 1.55; margin-top: 8px; }
+  .note a { color: var(--blue); word-break: break-all; }
+  .foot { text-align: center; margin-top: 8px; font-size: 0.72rem; color: var(--dim); }
   .spin {
     display: inline-block; width: 14px; height: 14px;
-    border: 2px solid rgba(255,255,255,.15); border-top-color: var(--blue);
-    border-radius: 50%; animation: sp .7s linear infinite;
+    border: 2px solid rgba(255,255,255,0.15); border-top-color: var(--blue);
+    border-radius: 50%; animation: sp 0.7s linear infinite;
   }
   @keyframes sp { to { transform: rotate(360deg); } }
-  .err { color: var(--red); font-size: .85rem; text-align: center; padding: 14px; }
+  .err { color: var(--red); font-size: 0.85rem; text-align: center; padding: 14px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
+  <div class="hero">
+    <div class="avatar-ring">
+      <img src="/avatar.jpg" alt="Avatar" width="88" height="88">
+    </div>
     <h1>Pi Node Controller PRO</h1>
-    <p>SoloHost Edition · Telegram Monitor</p>
+    <p>SoloHost · Telegram Monitor · Trạm Xe Máy 1 Ái Tử</p>
     <div class="badges">
       <span class="badge v" id="ver">…</span>
       <span class="badge sev-ok" id="sev">—</span>
+      <span class="badge time" id="clock">—</span>
     </div>
-  </header>
+  </div>
+
+  <!-- Nút hành động nhanh -->
+  <div class="actions">
+    <a class="btn primary" id="btnPro" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener">
+      💻 Tải bản Windows PRO
+    </a>
+    <button class="btn blue" type="button" onclick="load()">🔄 Làm mới</button>
+    <a class="btn donate" id="btnDonate" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener">
+      ☕ Donate
+    </a>
+  </div>
 
   <div class="card">
     <h2>📡 Trạng thái Node</h2>
@@ -103,7 +207,7 @@
   <div class="card">
     <h2>💻 Tài nguyên</h2>
     <div class="res" id="res"></div>
-    <p class="note">CPU/RAM đo trong container. Disk là volume app. Mount docker.sock (máy tin cậy) để /reset /logs chính xác hơn.</p>
+    <p class="note">CPU/RAM đo trong container. Disk là volume app. Mount docker.sock (máy tin cậy) để /reset và /logs chính xác hơn.</p>
   </div>
 
   <div class="card">
@@ -112,24 +216,22 @@
   </div>
 
   <div class="card">
-    <h2>📱 Telegram &amp; Bản Windows</h2>
+    <h2>📱 Telegram</h2>
     <div id="tgInfo" class="note">…</div>
     <p class="note" style="margin-top:12px">
-      Bản <b>Windows PRO</b> đầy đủ (CleanRAM, screenshot PiCheck, OpenHardwareMonitor, AI Gemini…):<br>
-      <a id="gh" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener">
-        github.com/cannoi/pinode-telegram-controller
-      </a>
+      Gửi <b>/status</b> trên Telegram để xem trạng thái kèm nút hành động nhanh.<br>
+      Bản Windows PRO: CleanRAM · screenshot · AI Gemini · auto-reset sâu.
     </p>
   </div>
 
-  <p class="foot">Tự làm mới mỗi 12 giây · SoloHost PRO</p>
+  <p class="foot">Tự làm mới mỗi 12 giây · SoloHost PRO · Giờ Việt Nam</p>
 </div>
 
 <script>
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
-const SEV_LABEL = { ok:'OK', soft:'Soft', warning:'Warning', critical:'Critical' };
+const SEV_LABEL = { ok: 'Ổn định', soft: 'Nhẹ', warning: 'Cảnh báo', critical: 'Nghiêm trọng' };
 
 async function load() {
   try {
@@ -138,47 +240,51 @@ async function load() {
       fetch('/api/info').then(r => r.json()),
       fetch('/api/history').then(r => r.json()).catch(() => [])
     ]);
+
     document.getElementById('ver').textContent = 'v' + (info.version || st.version || '?');
     const sev = st.severity || 'ok';
     const sevEl = document.getElementById('sev');
     sevEl.textContent = SEV_LABEL[sev] || sev;
     sevEl.className = 'badge sev-' + sev;
+    document.getElementById('clock').textContent = info.time || '—';
+
+    if (info.githubPro) document.getElementById('btnPro').href = info.githubPro;
+    if (info.donateUrl) document.getElementById('btnDonate').href = info.donateUrl;
 
     const n = st.node || {};
     const up = !!n.running;
     document.getElementById('nodeBody').innerHTML = `
       <div class="row"><span class="k">Node</span>
-        <span class="v"><i class="dot ${up?'on':'off'}"></i>${up?'ONLINE':'OFFLINE'}</span></div>
+        <span class="v"><i class="dot ${up ? 'on' : 'off'}"></i>${up ? 'ONLINE' : 'OFFLINE'}</span></div>
       <div class="row"><span class="k">Docker</span>
-        <span class="v">${esc(n.docker||'—')}${n.proto?' · '+esc(n.proto):''}</span></div>
+        <span class="v">${esc(n.docker || '—')}${n.proto ? ' · ' + esc(n.proto) : ''}</span></div>
       <div class="row"><span class="k">Container</span>
-        <span class="v">${esc(n.name||'—')}</span></div>
+        <span class="v">${esc(n.name || '—')}</span></div>
       <div class="row"><span class="k">Docker sock</span>
-        <span class="v">${n.dockerAccess?'Có':'Không (suy từ cổng)'}</span></div>
+        <span class="v">${n.dockerAccess ? 'Có' : 'Không (suy từ cổng)'}</span></div>
     `;
 
     const lo = n.localOpen || [];
-    const req = n.required || [31401,31402,31403];
+    const req = n.required || [31401, 31402, 31403];
     document.getElementById('ports').innerHTML = req.map(p =>
-      `<div class="port ${lo.includes(p)?'on':'off'}">${p}</div>`
+      `<div class="port ${lo.includes(p) ? 'on' : 'off'}">${p}</div>`
     ).join('');
 
     const r = st.res || {};
-    const cpu = r.cpu, ram = r.ram;
-    const disk = st.disk;
+    const cpu = r.cpu, ram = r.ram, disk = st.disk;
     document.getElementById('res').innerHTML = `
-      <div class="rc"><div class="lab">CPU</div><div class="val">${cpu!=null?cpu+'%':'—'}</div>
-        <div class="meter"><i style="width:${cpu||0}%"></i></div></div>
-      <div class="rc"><div class="lab">RAM</div><div class="val">${ram!=null?ram+'%':'—'}</div>
-        <div class="meter"><i style="width:${ram||0}%"></i></div></div>
-      <div class="rc"><div class="lab">Disk</div><div class="val">${disk?disk.pct+'%':'—'}</div>
-        <div class="meter"><i style="width:${disk?disk.pct:0}%"></i></div></div>
+      <div class="rc"><div class="lab">CPU</div><div class="val">${cpu != null ? cpu + '%' : '—'}</div>
+        <div class="meter"><i style="width:${cpu || 0}%"></i></div></div>
+      <div class="rc"><div class="lab">RAM</div><div class="val">${ram != null ? ram + '%' : '—'}</div>
+        <div class="meter"><i style="width:${ram || 0}%"></i></div></div>
+      <div class="rc"><div class="lab">Disk</div><div class="val">${disk ? disk.pct + '%' : '—'}</div>
+        <div class="meter"><i style="width:${disk ? disk.pct : 0}%"></i></div></div>
     `;
 
     if (Array.isArray(hist) && hist.length) {
       document.getElementById('hist').innerHTML = hist.slice(0, 10).map(h => {
-        const t = new Date(h.t).toLocaleString('vi-VN', { hour12: false });
-        return `<div>${esc(t)} — <b>${esc(h.type)}</b> (${esc(h.severity||'')})</div>`;
+        const t = new Date(h.t).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
+        return `<div>${esc(t)} — <b>${esc(h.type)}</b> (${esc(h.severity || '')})</div>`;
       }).join('');
     } else {
       document.getElementById('hist').textContent = 'Chưa có sự kiện.';
@@ -186,10 +292,8 @@ async function load() {
 
     document.getElementById('tgInfo').innerHTML =
       (info.hasBot && info.hasChat)
-        ? '✅ Bot đã cấu hình. Gửi <b>/status</b> · <b>/monitor</b> · <b>/reset</b> trên Telegram.<br>Báo cáo định kỳ: giờ ' + (info.reportHours||[]).join(', ') + '.'
+        ? '✅ Bot đã cấu hình. Gửi <b>/status</b> để nhận tin + nút hành động trên Telegram.<br>Báo cáo định kỳ: giờ ' + (info.reportHours || []).join(', ') + ' (giờ VN).'
         : '⚠️ Chưa đủ BOT_TOKEN / CHAT_ID — chỉ xem web.';
-
-    if (info.githubPro) document.getElementById('gh').href = info.githubPro;
   } catch (e) {
     document.getElementById('nodeBody').innerHTML =
       '<div class="err">Không lấy được trạng thái. App đang chạy?</div>';

@@ -1,29 +1,20 @@
-# Pi Node Telegram Controller — SoloHost Edition PRO
+# docker-compose.yml — Pi Desktop kéo image công khai (không build local).
 services:
-  controller:
-    # Đổi YOUR_USER sau khi publish lên ghcr.io
-    image: ghcr.io/cannoi/pinode-telegram-solohost:latest
-    # Hoặc build local:
-    # build: .
+  agent:
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.1.0
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"
     ports:
-      - "127.0.0.1:18780:8080"
+      - '127.0.0.1:18780:8080'
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
-      - ALERT_ON_START=${ALERT_ON_START:-true}
-      - REPORT_HOURS=${REPORT_HOURS:-7,19}
-      - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC:-60}
+      - ALERT_ON_START=${ALERT_ON_START}
+      - REPORT_HOURS=${REPORT_HOURS}
+      - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC}
       - NODE_HOST=host.docker.internal
-      - DATA_DIR=/data
-      - TZ=${TZ:-Asia/Ho_Chi_Minh}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data
-      # ⚠ BẢO MẬT: Chỉ bật trên máy TIN CẬY nếu cần /reset /logs /docker thật.
-      # Container có sock có thể quản lý Docker host.
-      # - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

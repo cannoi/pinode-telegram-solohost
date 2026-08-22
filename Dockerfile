@@ -1,14 +1,17 @@
 FROM node:20-alpine
 WORKDIR /app
 
-RUN apk add --no-cache wget
+RUN apk add --no-cache wget tzdata \
+ && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
+ && echo "Asia/Ho_Chi_Minh" > /etc/timezone
 
 COPY package.json app.js loader.js ./
 COPY public/ ./public/
 
 ENV DATA_DIR=/data \
     PORT=8080 \
-    NODE_HOST=host.docker.internal
+    NODE_HOST=host.docker.internal \
+    TZ=Asia/Ho_Chi_Minh
 
 VOLUME ["/data"]
 EXPOSE 8080

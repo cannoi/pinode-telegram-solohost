@@ -1,6 +1,6 @@
 // ============================================================
-//  Pi Node Telegram Controller — SoloHost Edition PRO v2.0.0
-//  Tối đa hóa tính năng bản Windows PRO vào container SoloHost
+//  Pi Node Telegram Controller — SoloHost Edition PRO v2.1.0
+//  Giờ VN · tin nhắn rõ · web UI chuyên nghiệp
 // ============================================================
 'use strict';
 const http = require('http');
@@ -9,9 +9,8 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const crypto = require('crypto');
 
-const VERSION = '2.0.0-solohost-pro';
+const VERSION = '2.1.0-solohost-pro';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const NODE_HOST = process.env.NODE_HOST || 'host.docker.internal';
@@ -24,12 +23,12 @@ const REPORT_HOURS = String(process.env.REPORT_HOURS || '7,19')
 const ALERT_COOLDOWN = Math.max(30, parseInt(process.env.ALERT_COOLDOWN_SEC || '60', 10) || 60);
 const SOCK = '/var/run/docker.sock';
 const GITHUB_PRO = 'https://github.com/cannoi/pinode-telegram-controller';
+const DONATE_URL = 'https://github.com/cannoi/pinode-telegram-controller#donate';
 
 const STATE_F = path.join(DATA, 'state.json');
 const HIST_F = path.join(DATA, 'history.json');
 const MAX_HIST = 80;
 
-// ---------- persistence ----------
 function loadJSON(f, def) {
   try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return def; }
 }
@@ -43,12 +42,8 @@ function saveJSON(f, obj) {
 }
 
 let state = loadJSON(STATE_F, {
-  lastRunning: null,
-  lastSeverity: 'ok',
-  lastAlertAt: 0,
-  lastReportHour: -1,
-  alertCount: 0,
-  pendingReset: null
+  lastRunning: null, lastSeverity: 'ok', lastAlertAt: 0,
+  lastReportHour: -1, alertCount: 0, pendingReset: null
 });
 let history = loadJSON(HIST_F, []);
 
@@ -58,16 +53,25 @@ function pushHist(ev) {
   saveJSON(HIST_F, history);
 }
 
-// ---------- utils ----------
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// Giờ Việt Nam cố định (không phụ thuộc TZ container)
 function nowStr() {
-  try { return new Date().toLocaleString('vi-VN', { hour12: false }); } catch (e) { return new Date().toISOString(); }
+  try {
+    return new Date().toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  } catch (e) {
+    return new Date().toISOString();
+  }
 }
 
-// ---------- port probe ----------
 function probe(host, port, timeout) {
   return new Promise(function (res) {
     const s = new net.Socket();
@@ -86,7 +90,6 @@ async function localOpen() {
   return open.sort((a, b) => a - b);
 }
 
-// ---------- resources ----------
 function _readStat() {
   try {
     const line = fs.readFileSync('/proc/stat', 'utf8').split('\n')[0];
@@ -114,7 +117,7 @@ function hostRes() {
   try {
     const s = parseFloat(fs.readFileSync('/proc/uptime', 'utf8').split(' ')[0]);
     const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-    up = (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
+    up = (d > 0 ? d + ' ngày ' : '') + h + ' giờ ' + m + ' phút';
   } catch (e) {}
   try {
     const mi = fs.readFileSync('/proc/meminfo', 'utf8');
@@ -127,7 +130,6 @@ function hostRes() {
 
 function diskInfo() {
   try {
-    // df -k /data or /
     const { execSync } = require('child_process');
     const out = execSync('df -k /data 2>/dev/null || df -k /', { encoding: 'utf8', timeout: 3000 });
     const lines = out.trim().split('\n');
@@ -144,7 +146,6 @@ function diskInfo() {
   } catch (e) { return null; }
 }
 
-// ---------- docker.sock ----------
 function sockReq(method, pathname, body) {
   return new Promise(function (resolve) {
     let has = false;
@@ -192,7 +193,6 @@ async function dockerNode() {
 async function dockerLogs(id, tail) {
   const r = await sockReq('GET', '/containers/' + id + '/logs?stdout=1&stderr=1&tail=' + (tail || 40) + '&timestamps=0');
   if (!r || r.status !== 200) return null;
-  // Docker multiplex stream: strip 8-byte headers roughly
   let text = r.body || '';
   try {
     const buf = Buffer.from(text, 'binary');
@@ -229,7 +229,6 @@ async function dockerInfo() {
   } catch (e) { return null; }
 }
 
-// ---------- severity ----------
 function calcSeverity(st) {
   const n = st.node;
   if (!n.running && n.localOpen.length === 0) return 'critical';
@@ -241,9 +240,8 @@ function calcSeverity(st) {
   return 'ok';
 }
 const SEV_ICON = { ok: '🟢', soft: '🟡', warning: '🟠', critical: '🔴' };
-const SEV_LABEL = { ok: 'OK', soft: 'Soft', warning: 'Warning', critical: 'Critical' };
+const SEV_LABEL = { ok: 'Ổn định', soft: 'Nhẹ', warning: 'Cảnh báo', critical: 'Nghiêm trọng' };
 
-// ---------- collect ----------
 async function collectStatus() {
   const lo = await localOpen();
   const dn = await dockerNode();
@@ -289,29 +287,62 @@ async function collectStatus() {
   return st;
 }
 
+// ---------- Tin nhắn Telegram đẹp, rõ ----------
 function formatStatus(st, opts) {
   opts = opts || {};
   const n = st.node;
   const sev = st.severity || 'ok';
   const icon = SEV_ICON[sev] || '⚪';
-  const ports = n.required.map(p => (n.localOpen.includes(p) ? '✅' : '❌') + ' ' + p).join('  ');
+  const ports = n.required.map(p =>
+    (n.localOpen.includes(p) ? '✅' : '❌') + ' <code>' + p + '</code>'
+  ).join('   ');
   const cpu = st.res.cpu != null ? st.res.cpu + '%' : '—';
   const ram = st.res.ram != null ? st.res.ram + '%' : '—';
+
   const lines = [
-    `${icon} <b>Pi Node · ${SEV_LABEL[sev]}</b>`,
-    ``,
-    `Node: <b>${n.running ? 'ONLINE' : 'OFFLINE'}</b>`,
-    `Docker: ${esc(n.docker)}${n.proto ? ' · ' + esc(n.proto) : ''}${n.name ? ' · ' + esc(n.name) : ''}`,
-    `Cổng: ${ports}`,
-    `CPU ${cpu} · RAM ${ram} · Up ${esc(st.res.uptime || '—')}`
+    `${icon} <b>PI NODE STATUS</b>`,
+    `━━━━━━━━━━━━━━━━`,
+    `• Trạng thái: <b>${n.running ? 'ONLINE' : 'OFFLINE'}</b>`,
+    `• Mức độ: <b>${SEV_LABEL[sev]}</b>`,
+    `• Docker: ${esc(n.docker)}${n.proto ? ' · ' + esc(n.proto) : ''}${n.name ? '\n• Container: <code>' + esc(n.name) + '</code>' : ''}`,
+    `• Cổng: ${ports}`,
+    `• CPU: <b>${cpu}</b>  ·  RAM: <b>${ram}</b>`,
+    `• Uptime: ${esc(st.res.uptime || '—')}`
   ];
-  if (st.disk) lines.push(`Disk: ${st.disk.usedGB}/${st.disk.totalGB} GB (${st.disk.pct}%)`);
-  if (n.dockerAccess) lines.push(`Docker sock: có`);
-  else lines.push(`Docker sock: không (suy từ cổng)`);
-  if (opts.detail && n.image) lines.push(`Image: <code>${esc(n.image)}</code>`);
-  lines.push(``, `<i>SoloHost PRO v${esc(st.version)} · ${esc(nowStr())}</i>`);
-  if (opts.withLink) lines.push(`Windows PRO: ${GITHUB_PRO}`);
+  if (st.disk) {
+    lines.push(`• Disk: ${st.disk.usedGB}/${st.disk.totalGB} GB (<b>${st.disk.pct}%</b>)`);
+  }
+  lines.push(`• Docker sock: ${n.dockerAccess ? 'có' : 'không (suy từ cổng)'}`);
+  lines.push(`━━━━━━━━━━━━━━━━`);
+  lines.push(`🕐 ${esc(nowStr())}`);
+  lines.push(`📦 SoloHost PRO <code>v${esc(st.version)}</code>`);
+  if (opts.withLink !== false) {
+    lines.push('');
+    lines.push(`💻 <b>Bản Windows PRO</b> (đầy đủ hơn):`);
+    lines.push(GITHUB_PRO);
+  }
   return lines.join('\n');
+}
+
+function mainKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '📊 Status', callback_data: 'cmd_status' },
+        { text: '🔌 Ports', callback_data: 'cmd_ports' },
+        { text: '🐳 Docker', callback_data: 'cmd_docker' }
+      ],
+      [
+        { text: '📋 Report', callback_data: 'cmd_report' },
+        { text: '📜 History', callback_data: 'cmd_history' },
+        { text: '🔄 Reset', callback_data: 'cmd_reset' }
+      ],
+      [
+        { text: '💻 Tải Windows PRO', url: GITHUB_PRO },
+        { text: '☕ Donate', url: DONATE_URL }
+      ]
+    ]
+  };
 }
 
 // ---------- Telegram API ----------
@@ -348,7 +379,22 @@ async function tgSend(text, extra) {
   return tgApi('sendMessage', body);
 }
 
-// ---------- monitor + scheduler ----------
+async function tgEdit(chatId, messageId, text, extra) {
+  const body = Object.assign({
+    chat_id: chatId,
+    message_id: messageId,
+    text: text.slice(0, 4000),
+    parse_mode: 'HTML',
+    disable_web_page_preview: true
+  }, extra || {});
+  return tgApi('editMessageText', body);
+}
+
+async function tgAnswerCb(id, text) {
+  return tgApi('answerCallbackQuery', { callback_query_id: id, text: text || '', show_alert: false });
+}
+
+// ---------- monitor ----------
 async function monitorTick() {
   try {
     const st = await collectStatus();
@@ -356,15 +402,14 @@ async function monitorTick() {
     const sev = st.severity;
     const now = Date.now();
 
-    // state change alert
     if (state.lastRunning !== null && state.lastRunning !== up) {
       if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
         if (up) {
-          await tgSend('🟢 <b>Node đã ONLINE trở lại</b>\n\n' + formatStatus(st));
+          await tgSend('🟢 <b>Node đã ONLINE trở lại</b>\n\n' + formatStatus(st), { reply_markup: mainKeyboard() });
           pushHist({ type: 'online', severity: sev });
         } else {
           await tgSend('🔴 <b>Node OFFLINE / cổng đóng</b>\n\n' + formatStatus(st) +
-            '\n\nKiểm tra Docker / Pi Desktop · mở port 31401–31403.');
+            '\n\n⚠️ Kiểm tra Docker / Pi Desktop và mở port 31401–31403.', { reply_markup: mainKeyboard() });
           pushHist({ type: 'offline', severity: 'critical' });
         }
         state.lastAlertAt = now;
@@ -372,10 +417,9 @@ async function monitorTick() {
       }
     }
 
-    // severity escalate (ok → warning/critical)
     if (state.lastSeverity === 'ok' && (sev === 'warning' || sev === 'critical') && up) {
       if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
-        await tgSend(`${SEV_ICON[sev]} <b>Cảnh báo ${SEV_LABEL[sev]}</b>\n\n` + formatStatus(st));
+        await tgSend(`${SEV_ICON[sev]} <b>Cảnh báo: ${SEV_LABEL[sev]}</b>\n\n` + formatStatus(st), { reply_markup: mainKeyboard() });
         state.lastAlertAt = now;
         pushHist({ type: 'severity', severity: sev });
       }
@@ -384,152 +428,69 @@ async function monitorTick() {
     state.lastRunning = up;
     state.lastSeverity = sev;
 
-    // daily reports
-    const hour = new Date().getHours();
-    if (REPORT_HOURS.includes(hour) && state.lastReportHour !== hour) {
-      state.lastReportHour = hour;
-      await tgSend('📋 <b>Báo cáo định kỳ</b>\n\n' + formatStatus(st, { detail: true, withLink: true }));
+    // Báo cáo theo giờ VN
+    let hourVN = new Date().getUTCHours() + 7;
+    if (hourVN >= 24) hourVN -= 24;
+    if (REPORT_HOURS.includes(hourVN) && state.lastReportHour !== hourVN) {
+      state.lastReportHour = hourVN;
+      await tgSend('📋 <b>Báo cáo định kỳ</b>\n\n' + formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
       pushHist({ type: 'report', severity: sev });
     }
 
-    // clear pending reset timeout
-    if (state.pendingReset && now > state.pendingReset.until) {
-      state.pendingReset = null;
-    }
-
+    if (state.pendingReset && now > state.pendingReset.until) state.pendingReset = null;
     saveJSON(STATE_F, state);
   } catch (e) {
     console.log('[monitor] ' + (e && e.message));
   }
 }
 
-// ---------- command handlers ----------
-async function handleCommand(text, chatId) {
-  const raw = (text || '').trim();
-  const lower = raw.toLowerCase();
-  const cmd = lower.split(/\s+/)[0].replace(/@\w+$/, '');
-
-  // natural language (simple)
-  if (!cmd.startsWith('/') && raw.length > 0) {
-    if (/node|trạng thái|status|thế nào|ra sao|online|offline/i.test(raw)) {
-      const st = await collectStatus();
-      return tgSend(formatStatus(st, { withLink: true }));
-    }
-    if (/cổng|port/i.test(raw)) {
-      const lo = await localOpen();
-      return tgSend('<b>Cổng node</b>\n' + REQUIRED.map(p => (lo.includes(p) ? '✅' : '❌') + ' ' + p).join('\n'));
-    }
-    if (/reset|khởi động lại|restart/i.test(raw)) {
-      return handleReset(true);
-    }
-    if (/giúp|help|lệnh/i.test(raw)) {
-      return sendHelp();
-    }
-    return null;
-  }
-
-  if (cmd === '/start' || cmd === '/help') return sendHelp();
-  if (cmd === '/ping') return tgSend('🏓 pong · SoloHost PRO v' + VERSION + '\n' + nowStr());
-  if (cmd === '/status' || cmd === '/s') {
-    const st = await collectStatus();
-    return tgSend(formatStatus(st, { detail: true, withLink: true }));
-  }
-  if (cmd === '/monitor' || cmd === '/m') {
-    const st = await collectStatus();
-    return tgSend('🔍 <b>Monitor</b>\n\n' + formatStatus(st) +
-      `\n\nMức: <b>${SEV_LABEL[st.severity]}</b> · Alert đã gửi: ${state.alertCount || 0}`);
-  }
-  if (cmd === '/ports') {
-    const lo = await localOpen();
-    return tgSend('<b>Cổng 31401–31403</b>\n' +
-      REQUIRED.map(p => (lo.includes(p) ? '✅' : '❌') + ' ' + p).join('\n') +
-      (lo.length === 0 ? '\n\n⚠️ Không thấy cổng nào mở trên host.' : ''));
-  }
-  if (cmd === '/docker') {
-    const dn = await dockerNode();
-    if (!dn) {
-      return tgSend('Docker sock <b>không</b> được mount.\nTrạng thái đang suy từ cổng nội bộ.\n\nMuốn /docker /logs /reset: mount sock (máy tin cậy).');
-    }
-    if (!dn.found) return tgSend('Không tìm thấy container Pi Node / stellar / testnet.');
-    return tgSend(
-      `<b>Docker node</b>\n` +
-      `Tên: <code>${esc(dn.name)}</code>\n` +
-      `State: <b>${dn.running ? 'running' : 'stopped'}</b>\n` +
-      `Status: ${esc(dn.status)}\n` +
-      `Proto: ${esc(dn.proto || '—')}\n` +
-      `Image: <code>${esc(dn.image)}</code>`
-    );
-  }
-  if (cmd === '/disk') {
-    const d = diskInfo();
-    if (!d) return tgSend('Không đọc được disk.');
-    return tgSend(`<b>Disk</b>\n${d.usedGB} / ${d.totalGB} GB (<b>${d.pct}%</b>)\nCòn trống: ${d.availGB} GB`);
-  }
-  if (cmd === '/logs') {
-    const dn = await dockerNode();
-    if (!dn || !dn.found) return tgSend('Không có docker sock hoặc không thấy container node.');
-    const logs = await dockerLogs(dn.id, 35);
-    if (!logs) return tgSend('Không lấy được logs.');
-    const clipped = logs.length > 3500 ? logs.slice(-3500) : logs;
-    return tgSend('<b>Logs gần nhất</b>\n<pre>' + esc(clipped) + '</pre>');
-  }
-  if (cmd === '/reset') return handleReset(false);
-  if (cmd === '/yes' || cmd === '/confirm') return handleResetConfirm();
-  if (cmd === '/report') {
-    const st = await collectStatus();
-    return tgSend('📋 <b>Báo cáo</b>\n\n' + formatStatus(st, { detail: true, withLink: true }));
-  }
-  if (cmd === '/history') {
-    if (!history.length) return tgSend('Chưa có sự kiện.');
-    const lines = history.slice(0, 12).map(h => {
-      const t = new Date(h.t).toLocaleString('vi-VN', { hour12: false });
-      return `• ${esc(t)} — ${esc(h.type)} (${esc(h.severity || '')})`;
-    });
-    return tgSend('<b>Lịch sử gần đây</b>\n' + lines.join('\n'));
-  }
-  if (cmd.startsWith('/')) return tgSend('Không rõ lệnh. Gõ /help');
-  return null;
-}
-
-async function sendHelp() {
-  return tgSend(
-    '<b>Pi Node Telegram Controller PRO</b>\n' +
-    '<i>SoloHost Edition v' + VERSION + '</i>\n\n' +
-    '<b>Lệnh:</b>\n' +
+// ---------- commands ----------
+async function sendHelp(withKb) {
+  const text =
+    '<b>PI NODE TELEGRAM CONTROLLER</b>\n' +
+    '<i>SoloHost Edition PRO</i>\n' +
+    '━━━━━━━━━━━━━━━━\n' +
+    '<b>Lệnh nhanh:</b>\n' +
     '/status — trạng thái đầy đủ\n' +
     '/monitor — quét + mức cảnh báo\n' +
     '/ports — cổng 31401–3\n' +
     '/docker — container node\n' +
     '/disk — dung lượng ổ\n' +
-    '/logs — log container (cần sock)\n' +
-    '/reset — restart node (cần sock + xác nhận)\n' +
+    '/logs — log container\n' +
+    '/reset — restart node (cần xác nhận)\n' +
     '/report — báo cáo ngay\n' +
     '/history — lịch sử sự cố\n' +
-    '/ping — kiểm tra bot\n\n' +
-    'Chat tự nhiên: “node thế nào”, “cổng mở chưa”…\n\n' +
-    'Bản <b>Windows PRO</b> (CleanRAM, screenshot, AI…):\n' +
-    GITHUB_PRO
-  );
+    '/ping — kiểm tra bot\n' +
+    '━━━━━━━━━━━━━━━━\n' +
+    '💬 Chat tự nhiên: <i>“node thế nào”</i>, <i>“cổng mở chưa”</i>\n\n' +
+    '💻 <b>Bản Windows PRO</b> (CleanRAM, screenshot, AI…):\n' +
+    GITHUB_PRO;
+  return tgSend(text, withKb !== false ? { reply_markup: mainKeyboard() } : {});
 }
 
-async function handleReset(fromNatural) {
+async function handleReset() {
   const dn = await dockerNode();
   if (!dn || !dn.found) {
     return tgSend(
-      'Không thể reset: chưa mount docker.sock hoặc không thấy container node.\n\n' +
-      'Trên máy tin cậy, bỏ comment dòng sock trong docker-compose.yml rồi tạo lại container.'
+      '⚠️ <b>Không thể reset</b>\n\n' +
+      'Chưa mount docker.sock hoặc không thấy container node.\n' +
+      'Trên máy tin cậy: bỏ comment dòng sock trong docker-compose.yml.'
     );
-  }
-  if (!dn.running && !fromNatural) {
-    // still allow restart stopped container
   }
   state.pendingReset = { id: dn.id, name: dn.name, until: Date.now() + 60000 };
   saveJSON(STATE_F, state);
   return tgSend(
     `⚠️ <b>Xác nhận RESET node</b>\n` +
     `Container: <code>${esc(dn.name)}</code>\n\n` +
-    `Gửi <b>/yes</b> trong 60 giây để restart.\n` +
-    `Bỏ qua nếu không muốn.`
+    `Gửi <b>/yes</b> trong 60 giây để restart.\nBỏ qua nếu không muốn.`,
+    {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Xác nhận /yes', callback_data: 'cmd_yes' },
+          { text: '❌ Hủy', callback_data: 'cmd_cancel' }
+        ]]
+      }
+    }
   );
 }
 
@@ -548,26 +509,142 @@ async function handleResetConfirm() {
   if (ok) {
     await wait(4000);
     const st = await collectStatus();
-    return tgSend('✅ Đã gửi lệnh restart.\n\n' + formatStatus(st));
+    return tgSend('✅ Đã gửi lệnh restart.\n\n' + formatStatus(st), { reply_markup: mainKeyboard() });
   }
-  return tgSend('❌ Restart thất bại. Kiểm tra quyền docker.sock / tên container.');
+  return tgSend('❌ Restart thất bại. Kiểm tra quyền docker.sock.');
 }
 
-// ---------- long poll ----------
+async function runCmd(cmd) {
+  if (cmd === 'status' || cmd === 's') {
+    const st = await collectStatus();
+    return tgSend(formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'monitor' || cmd === 'm') {
+    const st = await collectStatus();
+    return tgSend('🔍 <b>Monitor</b>\n\n' + formatStatus(st) +
+      `\n\nMức: <b>${SEV_LABEL[st.severity]}</b> · Alert đã gửi: ${state.alertCount || 0}`,
+      { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'ports') {
+    const lo = await localOpen();
+    return tgSend(
+      '<b>Cổng node 31401–31403</b>\n━━━━━━━━━━━━━━━━\n' +
+      REQUIRED.map(p => (lo.includes(p) ? '✅' : '❌') + '  <code>' + p + '</code>').join('\n') +
+      (lo.length === 0 ? '\n\n⚠️ Không thấy cổng nào mở trên host.' : ''),
+      { reply_markup: mainKeyboard() }
+    );
+  }
+  if (cmd === 'docker') {
+    const dn = await dockerNode();
+    if (!dn) {
+      return tgSend('Docker sock <b>không</b> được mount.\nTrạng thái đang suy từ cổng nội bộ.', { reply_markup: mainKeyboard() });
+    }
+    if (!dn.found) return tgSend('Không tìm thấy container Pi Node.', { reply_markup: mainKeyboard() });
+    return tgSend(
+      `<b>Docker node</b>\n━━━━━━━━━━━━━━━━\n` +
+      `• Tên: <code>${esc(dn.name)}</code>\n` +
+      `• State: <b>${dn.running ? 'running' : 'stopped'}</b>\n` +
+      `• Status: ${esc(dn.status)}\n` +
+      `• Proto: ${esc(dn.proto || '—')}\n` +
+      `• Image: <code>${esc(dn.image)}</code>`,
+      { reply_markup: mainKeyboard() }
+    );
+  }
+  if (cmd === 'disk') {
+    const d = diskInfo();
+    if (!d) return tgSend('Không đọc được disk.');
+    return tgSend(
+      `<b>Disk</b>\n━━━━━━━━━━━━━━━━\n` +
+      `• Đã dùng: <b>${d.usedGB}</b> / ${d.totalGB} GB (<b>${d.pct}%</b>)\n` +
+      `• Còn trống: ${d.availGB} GB`,
+      { reply_markup: mainKeyboard() }
+    );
+  }
+  if (cmd === 'logs') {
+    const dn = await dockerNode();
+    if (!dn || !dn.found) return tgSend('Không có docker sock hoặc không thấy container.');
+    const logs = await dockerLogs(dn.id, 35);
+    if (!logs) return tgSend('Không lấy được logs.');
+    const clipped = logs.length > 3500 ? logs.slice(-3500) : logs;
+    return tgSend('<b>Logs gần nhất</b>\n<pre>' + esc(clipped) + '</pre>');
+  }
+  if (cmd === 'reset') return handleReset();
+  if (cmd === 'yes' || cmd === 'confirm') return handleResetConfirm();
+  if (cmd === 'cancel') {
+    state.pendingReset = null;
+    saveJSON(STATE_F, state);
+    return tgSend('Đã hủy reset.', { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'report') {
+    const st = await collectStatus();
+    return tgSend('📋 <b>Báo cáo</b>\n\n' + formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'history') {
+    if (!history.length) return tgSend('Chưa có sự kiện.', { reply_markup: mainKeyboard() });
+    const lines = history.slice(0, 12).map(h => {
+      let t;
+      try {
+        t = new Date(h.t).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
+      } catch (e) { t = new Date(h.t).toISOString(); }
+      return `• ${esc(t)} — <b>${esc(h.type)}</b> (${esc(h.severity || '')})`;
+    });
+    return tgSend('<b>Lịch sử gần đây</b>\n━━━━━━━━━━━━━━━━\n' + lines.join('\n'), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'ping') {
+    return tgSend('🏓 <b>pong</b>\nSoloHost PRO <code>v' + VERSION + '</code>\n🕐 ' + esc(nowStr()), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'start' || cmd === 'help') return sendHelp(true);
+  return null;
+}
+
+async function handleText(text) {
+  const raw = (text || '').trim();
+  const lower = raw.toLowerCase();
+  const cmd = lower.split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
+
+  if (raw.startsWith('/')) {
+    const r = await runCmd(cmd);
+    if (r) return r;
+    return tgSend('Không rõ lệnh. Gõ /help', { reply_markup: mainKeyboard() });
+  }
+
+  // ngôn ngữ tự nhiên
+  if (/node|trạng thái|status|thế nào|ra sao|online|offline/i.test(raw)) return runCmd('status');
+  if (/cổng|port/i.test(raw)) return runCmd('ports');
+  if (/reset|khởi động lại|restart/i.test(raw)) return runCmd('reset');
+  if (/giúp|help|lệnh/i.test(raw)) return runCmd('help');
+  return null;
+}
+
+// ---------- long poll (message + callback) ----------
 let offset = 0;
 async function pollTelegram() {
   if (!BOT_TOKEN) return;
   try {
     const r = await tgApi('getUpdates', {
-      offset, timeout: 25, allowed_updates: ['message']
+      offset, timeout: 25,
+      allowed_updates: ['message', 'callback_query']
     });
     if (!r || !r.ok || !Array.isArray(r.result)) return;
     for (const u of r.result) {
       offset = u.update_id + 1;
+
+      if (u.callback_query) {
+        const cq = u.callback_query;
+        if (CHAT_ID && String(cq.message && cq.message.chat && cq.message.chat.id) !== String(CHAT_ID)) continue;
+        const data = cq.data || '';
+        await tgAnswerCb(cq.id);
+        if (data.startsWith('cmd_')) {
+          const c = data.slice(4);
+          try { await runCmd(c); } catch (e) { console.log('[cb] ' + (e && e.message)); }
+        }
+        continue;
+      }
+
       const msg = u.message;
       if (!msg || !msg.text) continue;
       if (CHAT_ID && String(msg.chat.id) !== String(CHAT_ID)) continue;
-      try { await handleCommand(msg.text, msg.chat.id); } catch (e) {
+      try { await handleText(msg.text); } catch (e) {
         console.log('[cmd] ' + (e && e.message));
       }
     }
@@ -589,13 +666,16 @@ const MIME = {
   '.js': 'text/javascript',
   '.css': 'text/css',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
-  '.json': 'application/json'
+  '.json': 'application/json',
+  '.ico': 'image/x-icon'
 };
 
 let INDEX_HTML = '';
 try { INDEX_HTML = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'); } catch (e) {
-  INDEX_HTML = '<h1>Pi Node Controller</h1><p>UI missing</p>';
+  INDEX_HTML = '<h1>Pi Node Controller</h1>';
 }
 
 const srv = http.createServer(async function (req, res) {
@@ -619,10 +699,12 @@ const srv = http.createServer(async function (req, res) {
       res.end(JSON.stringify({
         version: VERSION,
         githubPro: GITHUB_PRO,
+        donateUrl: DONATE_URL,
         hasBot: !!BOT_TOKEN,
         hasChat: !!CHAT_ID,
         reportHours: REPORT_HOURS,
-        alertCooldown: ALERT_COOLDOWN
+        alertCooldown: ALERT_COOLDOWN,
+        time: nowStr()
       }));
       return;
     }
@@ -636,7 +718,8 @@ const srv = http.createServer(async function (req, res) {
     const f = path.join(PUBLIC, rel);
     fs.readFile(f, function (err, data) {
       if (err) { res.statusCode = 404; return res.end('not found'); }
-      res.setHeader('Content-Type', MIME[path.extname(f)] || 'application/octet-stream');
+      res.setHeader('Content-Type', MIME[path.extname(f).toLowerCase()] || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
       res.end(data);
     });
   } catch (e) {
@@ -645,11 +728,10 @@ const srv = http.createServer(async function (req, res) {
   }
 });
 
-// ---------- boot ----------
 srv.listen(PORT, '0.0.0.0', function () {
   console.log('[pinode-tg] SoloHost PRO v' + VERSION + ' :' + PORT);
   console.log('[pinode-tg] bot=' + (BOT_TOKEN ? 'yes' : 'NO') + ' chat=' + (CHAT_ID || 'NO'));
-  console.log('[pinode-tg] reportHours=' + REPORT_HOURS.join(',') + ' cooldown=' + ALERT_COOLDOWN + 's');
+  console.log('[pinode-tg] time=' + nowStr());
 });
 
 _cpuSampler();
@@ -661,7 +743,10 @@ if (BOT_TOKEN && CHAT_ID) {
   if (ALERT_ON_START) {
     setTimeout(async () => {
       const st = await collectStatus();
-      await tgSend('✅ <b>Controller SoloHost PRO online</b>\n\n' + formatStatus(st, { withLink: true }));
+      await tgSend(
+        '✅ <b>Controller SoloHost PRO đã online</b>\n\n' + formatStatus(st, { withLink: true }),
+        { reply_markup: mainKeyboard() }
+      );
     }, 2500);
   }
 } else {
