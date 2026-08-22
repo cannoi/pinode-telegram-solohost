@@ -37,3 +37,9 @@ fields:
     type: text
     required: false
     help: Khoang cach toi thieu giua hai lan alert. Vi du 60.
+
+  - name: PI_CONTAINER
+    label: Ten container Pi Node (tuy chon)
+    type: text
+    required: false
+    help: De trong = tu dong tim testnet2/mainnet. Chi dien khi muon chi dinh bat buoc.

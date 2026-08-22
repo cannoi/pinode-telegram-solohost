@@ -1,6 +1,8 @@
+# docker-compose.yml — Pi Desktop / SoloHost
+# v2.3.0: tự dò testnet2/mainnet + stellar-core info + Docker socket read-only
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.2.0
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.3.0
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"
@@ -9,16 +11,16 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
-      - ALERT_ON_START=${ALERT_ON_START}
-      - REPORT_HOURS=${REPORT_HOURS}
-      - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC}
+      - ALERT_ON_START=${ALERT_ON_START:-true}
+      - REPORT_HOURS=${REPORT_HOURS:-7,19}
+      - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC:-60}
       - NODE_HOST=host.docker.internal
       - TZ=Asia/Ho_Chi_Minh
-      # Tùy chọn: chỉ định tên container cố định (để trống = tự tìm)
+      # Để trống = tự dò testnet2 / mainnet / pi-node-docker
       - PI_CONTAINER=${PI_CONTAINER:-}
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
       - ./data:/data
-      - /var/run/docker.sock:/var/run/docker.sock:ro   # ← thêm dòng này
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped

@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const VERSION = '2.2.0-solohost-pro';
+const VERSION = '2.3.0-solohost-pro';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const NODE_HOST = process.env.NODE_HOST || 'host.docker.internal';
@@ -216,45 +216,152 @@ async function dockerNode() {
   if (!r || r.status !== 200) return null;
   let arr;
   try { arr = JSON.parse(r.body); } catch (e) { return null; }
-  const n = arr.find(c =>
-    (c.Names || []).some(x => /testnet|pi-node|stellar|mainnet/i.test(x)) ||
-    /pi-node|stellar-core|pi.network/i.test(c.Image || '')
-  );
-  if (!n) return { found: false };
-  const m = (n.Image || '').match(/p(\d+)\./i);
+
+  const PI_CONTAINER_ENV = (process.env.PI_CONTAINER || '').trim();
+
+  // Chấm điểm container để tự chọn đúng testnet2 / mainnet
+  function scoreContainer(c) {
+    let score = 0;
+    const names = (c.Names || []).map(n => String(n).replace(/^\//, ''));
+    const nameJoined = names.join(' ').toLowerCase();
+    const image = String(c.Image || '').toLowerCase();
+    const running = c.State === 'running';
+
+    if (PI_CONTAINER_ENV) {
+      if (names.some(n => n.toLowerCase() === PI_CONTAINER_ENV.toLowerCase())) score += 1000;
+      else return -1; // override: bỏ container không khớp
+    }
+
+    if (running) score += 30;
+    if (/pi-node-docker|pinetwork\/pi-node|stellar-core/.test(image)) score += 50;
+    if (/^testnet2$|^mainnet$|^testnet$|^pi-node$|^pi_node$/.test(nameJoined)) score += 25;
+    else if (/testnet|mainnet|pi-node|stellar/.test(nameJoined)) score += 15;
+    if (/pi\.network|pinetwork/.test(image)) score += 10;
+    return score;
+  }
+
+  const ranked = arr
+    .map(c => ({ c, score: scoreContainer(c) }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (!ranked.length) return { found: false };
+
+  const best = ranked[0].c;
+  const name = ((best.Names && best.Names[0]) || '').replace(/^\//, '');
+  const m = (best.Image || '').match(/p(\d+)\./i);
+  console.log('[dockerNode] chọn ' + name + ' score=' + ranked[0].score + (ranked.length > 1 ? ' (trong ' + ranked.length + ' ứng viên)' : ''));
   return {
     found: true,
-    running: n.State === 'running',
-    id: n.Id,
-    name: ((n.Names && n.Names[0]) || '').replace(/^\//, ''),
-    image: n.Image || '',
+    running: best.State === 'running',
+    id: best.Id,
+    name: name,
+    image: best.Image || '',
     proto: m ? ('v' + m[1]) : null,
-    status: n.Status || n.State || ''
+    status: best.Status || best.State || '',
+    score: ranked[0].score
   };
 }
 
-
-// Đọc đồng bộ qua docker exec (stellar-core /info)
-async function dockerSync(id) {
+// Giải mã Docker multiplexed stream (stdout/stderr frames)
+function decodeDockerStream(raw) {
+  if (!raw) return '';
   try {
+    const buf = Buffer.from(raw, 'binary');
+    // Nếu không có header 8-byte chuẩn, trả raw text
+    if (buf.length < 8) return raw.toString ? raw.toString('utf8') : String(raw);
+    let out = '';
+    let i = 0;
+    let frames = 0;
+    while (i + 8 <= buf.length) {
+      const size = buf.readUInt32BE(i + 4);
+      i += 8;
+      if (size <= 0 || i + size > buf.length) break;
+      out += buf.slice(i, i + size).toString('utf8');
+      i += size;
+      frames++;
+    }
+    if (frames > 0 && out) return out;
+  } catch (e) {}
+  return typeof raw === 'string' ? raw : String(raw);
+}
+
+// Lấy stellar-core info đầy đủ qua docker exec
+// Thứ tự: stellar-core http-command info → fallback curl 127.0.0.1:11626/info
+async function dockerSyncFull(id) {
+  try {
+    const cmd = 'stellar-core http-command info 2>/dev/null || curl -s http://127.0.0.1:11626/info 2>/dev/null || wget -qO- http://127.0.0.1:11626/info 2>/dev/null';
     const ex = await sockReq('POST', '/containers/' + id + '/exec', {
-      AttachStdout: true, AttachStderr: true, Tty: true,
-      Cmd: ['sh', '-c', 'stellar-core http-command info 2>/dev/null || curl -s localhost:11626/info 2>/dev/null || wget -qO- localhost:11626/info 2>/dev/null']
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+      Cmd: ['sh', '-c', cmd]
     });
-    if (!ex || ex.status >= 400) return 'unknown';
-    let id2;
-    try { id2 = JSON.parse(ex.body).Id; } catch (e) { return 'unknown'; }
-    const out = await sockReq('POST', '/exec/' + id2 + '/start', { Detach: false, Tty: true });
-    const t = out ? (out.body || '') : '';
-    return parseSyncText(t);
-  } catch (e) { return 'unknown'; }
+    if (!ex || ex.status >= 400) return null;
+    let execId;
+    try { execId = JSON.parse(ex.body).Id; } catch (e) { return null; }
+    const out = await sockReq('POST', '/exec/' + execId + '/start', { Detach: false, Tty: false });
+    if (!out || out.body == null) return null;
+
+    const text = decodeDockerStream(out.body);
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    let j;
+    try { j = JSON.parse(match[0]); } catch (e) { return null; }
+    const info = j.info || j;
+    if (!info || typeof info !== 'object') return null;
+
+    const ledger = info.ledger || {};
+    const peers = info.peers || {};
+    const qset = (info.quorum && info.quorum.qset) || {};
+
+    // Chỉ giữ trường hữu ích cho người dùng / Controller
+    return {
+      state: info.state || 'unknown',
+      network: info.network || null,
+      build: info.build || null,
+      protocol: info.protocol_version || null,
+      ledger: {
+        num: ledger.num != null ? ledger.num : null,
+        age: ledger.age != null ? ledger.age : null
+      },
+      peers: {
+        authenticated: peers.authenticated_count != null ? peers.authenticated_count : 0,
+        pending: peers.pending_count != null ? peers.pending_count : 0
+      },
+      quorum: {
+        phase: qset.phase || null,
+        agree: qset.agree != null ? qset.agree : null,
+        missing: qset.missing != null ? qset.missing : null
+      },
+      startedOn: info.startedOn || null,
+      rawState: String(info.state || '').toLowerCase()
+    };
+  } catch (e) {
+    console.log('[dockerSyncFull] ' + (e && e.message));
+    return null;
+  }
+}
+
+function parseSyncFromFull(full) {
+  if (!full) return 'unknown';
+  const s = (full.rawState || full.state || '').toLowerCase();
+  if (s.includes('synced')) return 'synced';
+  if (s.includes('catch') || s.includes('join') || s.includes('boot') || s.includes('waiting')) return 'catching';
+  if (s) return 'running-unknownsync';
+  return 'unknown';
+}
+
+// Giữ tương thích gọi cũ
+async function dockerSync(id) {
+  const full = await dockerSyncFull(id);
+  return parseSyncFromFull(full);
 }
 
 function parseSyncText(t) {
   if (!t) return 'unknown';
   if (/Synced!?/i.test(t)) return 'synced';
   if (/Catching up|catchup|Joining SCP|Booting|Waiting/i.test(t)) return 'catching';
-  // JSON info
   try {
     const j = JSON.parse(t.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1'));
     const state = (j && (j.state || (j.info && j.info.state))) || '';
@@ -297,23 +404,9 @@ async function hostSync() {
 }
 
 async function dockerLogs(id, tail) {
-
   const r = await sockReq('GET', '/containers/' + id + '/logs?stdout=1&stderr=1&tail=' + (tail || 40) + '&timestamps=0');
   if (!r || r.status !== 200) return null;
-  let text = r.body || '';
-  try {
-    const buf = Buffer.from(text, 'binary');
-    let out = '';
-    let i = 0;
-    while (i + 8 <= buf.length) {
-      const size = buf.readUInt32BE(i + 4);
-      i += 8;
-      if (size <= 0 || i + size > buf.length) break;
-      out += buf.slice(i, i + size).toString('utf8');
-      i += size;
-    }
-    if (out) text = out;
-  } catch (e) {}
+  const text = decodeDockerStream(r.body || '');
   return text.split('\n').filter(Boolean).slice(-40).join('\n');
 }
 
@@ -342,7 +435,12 @@ function calcSeverity(st) {
   if (!n.running) return 'warning';
   if (n.localOpen.length < REQUIRED.length) return 'warning';
   if (n.sync === 'catching') return 'soft';
-  if (n.sync === 'down') return 'warning';
+  if (n.sync === 'down' || n.sync === 'unknown') return 'warning';
+  // Dùng chi tiết stellar-core nếu có
+  if (n.detail) {
+    if (n.detail.ledger && n.detail.ledger.age != null && n.detail.ledger.age > 30) return 'warning';
+    if (n.detail.peers && n.detail.peers.authenticated < 4) return 'soft';
+  }
   if (st.res.ram != null && st.res.ram >= 92) return 'warning';
   if (st.disk && st.disk.pct >= 92) return 'warning';
   if (st.res.cpu != null && st.res.cpu >= 95) return 'soft';
@@ -358,7 +456,10 @@ async function collectStatus() {
   const disk = diskInfo();
   const info = await dockerInfo();
 
-  let running, docker, proto, dockerAccess, nodeName, nodeImage, nodeStatus, sync;
+  let running, docker, proto, dockerAccess, nodeName, nodeImage, nodeStatus, sync, detail, nodeId;
+  detail = null;
+  nodeId = null;
+
   if (dn) {
     dockerAccess = true;
     docker = dn.found ? (dn.running ? 'up' : 'down') : 'notfound';
@@ -367,7 +468,16 @@ async function collectStatus() {
     nodeName = dn.name || null;
     nodeImage = dn.image || null;
     nodeStatus = dn.status || null;
-    sync = running && dn.id ? await dockerSync(dn.id) : (running ? 'unknown' : 'down');
+    nodeId = dn.found ? dn.id : null;
+    if (running && dn.id) {
+      const full = await dockerSyncFull(dn.id);
+      detail = full;
+      sync = parseSyncFromFull(full);
+      // Bonus điểm: đã lấy được info hợp lệ (log)
+      if (full && full.state) console.log('[sync] ' + nodeName + ' → ' + full.state + ' ledger=' + (full.ledger && full.ledger.num));
+    } else {
+      sync = running ? 'unknown' : 'down';
+    }
   } else {
     dockerAccess = false;
     running = lo.length > 0;
@@ -382,6 +492,14 @@ async function collectStatus() {
     }
   }
 
+  // Available % ước lượng từ peers authenticated (thực tế hiển thị cho user)
+  let availablePct = null;
+  if (detail && detail.peers) {
+    const auth = detail.peers.authenticated || 0;
+    // Heuristic: >= 8 peers ≈ rất tốt; công thức nhẹ nhàng
+    availablePct = Math.min(99.9, Math.round((Math.min(auth, 20) / 20 * 40 + (detail.rawState && detail.rawState.includes('synced') ? 55 : 30) + (lo.length / REQUIRED.length) * 5) * 100) / 100);
+  }
+
   const st = {
     version: VERSION,
     linked: !!(BOT_TOKEN && CHAT_ID),
@@ -389,7 +507,16 @@ async function collectStatus() {
     node: {
       running, docker, proto, sync, localOpen: lo, required: REQUIRED,
       dockerAccess, name: nodeName, image: nodeImage, status: nodeStatus,
-      id: dn && dn.found ? dn.id : null
+      id: nodeId,
+      detail: detail ? {
+        state: detail.state,
+        network: detail.network,
+        build: detail.build,
+        ledger: detail.ledger,
+        peers: detail.peers,
+        quorum: detail.quorum,
+        availablePct: availablePct
+      } : null
     },
     res: {
       cpu: res.cpu, ram: res.ram, uptime: res.uptime,
@@ -424,6 +551,23 @@ function formatStatus(st, opts) {
   const ports = n.required.map(p =>
     (n.localOpen.includes(p) ? '✅' : '❌') + ' <code>' + p + '</code>'
   ).join('   ');
+  
+  // Chi tiết stellar-core (chỉ field hữu ích)
+  let detailBlock = '';
+  if (n.detail) {
+    const d = n.detail;
+    const rows = [];
+    if (d.availablePct != null) rows.push('• Available: <b>' + d.availablePct + '%</b>');
+    if (d.state) rows.push('• Sync: <b>' + esc(d.state) + '</b>');
+    if (d.ledger && d.ledger.num != null) rows.push('• Ledger: <code>' + Number(d.ledger.num).toLocaleString('en-US') + '</code>');
+    if (d.ledger && d.ledger.age != null) rows.push('• Ledger Age: <b>' + d.ledger.age + 's</b>');
+    if (d.peers) rows.push('• Peers: <b>' + (d.peers.authenticated || 0) + '</b>  ·  Pending: ' + (d.peers.pending || 0));
+    if (d.quorum && d.quorum.phase) rows.push('• Quorum: <b>' + esc(d.quorum.phase) + '</b>  ·  Agree: ' + (d.quorum.agree != null ? d.quorum.agree : '—') + '  ·  Missing: ' + (d.quorum.missing != null ? d.quorum.missing : '—'));
+    if (d.network) rows.push('• Network: <b>' + esc(d.network) + '</b>');
+    if (d.build) rows.push('• Build: <code>' + esc(d.build) + '</code>');
+    if (rows.length) detailBlock = '\n' + rows.join('\n') + '\n';
+  }
+
   const cpu = st.res.cpu != null ? st.res.cpu + '%' : '—';
   const ram = st.res.ram != null ? st.res.ram + '%' : '—';
 
@@ -698,7 +842,7 @@ async function runCmd(cmd) {
       '• Trạng thái: <b>' + esc(syncLabel(n.sync)) + '</b>\n' +
       '• Node: ' + (n.running ? 'ONLINE' : 'OFFLINE') + '\n' +
       '• Nguồn: ' + (n.dockerAccess ? 'docker exec' : 'host :11626 / suy đoán') + '\n' +
-      '🕐 ' + esc(nowStr()),
+      '' + detailBlock + '🕐 ' + esc(nowStr()),
       { reply_markup: mainKeyboard() }
     );
   }
@@ -759,7 +903,7 @@ async function runCmd(cmd) {
     return tgSend('<b>Lịch sử gần đây</b>\n━━━━━━━━━━━━━━━━\n' + lines.join('\n'), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'ping') {
-    return tgSend('🏓 <b>pong</b>\nSoloHost PRO <code>v' + VERSION + '</code>\n🕐 ' + esc(nowStr()), { reply_markup: mainKeyboard() });
+    return tgSend('🏓 <b>pong</b>\nSoloHost PRO <code>v' + VERSION + '</code>\n' + detailBlock + '🕐 ' + esc(nowStr()), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'start' || cmd === 'help') return sendHelp(true);
   return null;
