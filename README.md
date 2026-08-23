@@ -1,24 +1,21 @@
-# Pi Node Telegram Controller — SoloHost PRO v2.4.1
+# Pi Node Telegram Controller SoloHost PRO v2.4.2
 
-## Fix v2.4.1
+## Nguồn dữ liệu (theo diagnostic máy thật)
 
-- Khôi phục đọc **stellar-core qua docker.sock** khi socket có sẵn (như v2.3)
-- Compose **SoloHost mặc định không mount sock** (hết lỗi bind-mount)
-- HTTP `/info` thử nhiều cổng: 11626, 31400, 31401–3…
-- 3 cổng node mở đủ → coi **ONLINE ổn định** (không báo “Cần theo dõi” chỉ vì thiếu /info)
+| Tầng | Nguồn | Ghi chú |
+|------|--------|---------|
+| 1 | **Horizon :31401** (`8000` trong container) | PRIMARY — ledger, network |
+| 2 | Core HTTP 11626/info | Chỉ khi publish ra host hoặc docker exec |
+| 3 | Cổng 31401–31403 | OPEN/CLOSED — không suy ra Synced |
+| 4 | docker.sock | TÙY CHỌN — SoloHost mặc định không mount |
+
+**Quan trọng (diagnostic):** Core 11626 **không** publish ra Windows host.  
+Controller SoloHost lấy ledger qua Horizon 31401.
+
+## Tin nhắn
+
+Đúng mẫu icon: Đồng bộ · Ledger · Peer · Docker · Cổng · Container · RAM/CPU · lời nhận xét.
 
 ## Image
 
-```bash
-docker pull ghcr.io/cannoi/pinode-telegram-solohost:v2.4.1
-```
-
-## SoloHost
-
-Dùng `docker-compose.yml` (không sock).
-
-Muốn sync đầy đủ như v2.3 trên máy tự quản lý Docker: xem `docker-compose.with-sock.yml`.
-
-## Lệnh
-
-`/status` `/sync` `/ports` `/diagnostic` `/analyze` `/scripts` `/donate`
+`ghcr.io/cannoi/pinode-telegram-solohost:v2.4.2`

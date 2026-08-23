@@ -1,156 +1,103 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pi Node Controller PRO</title>
 <style>
-:root {
-  --panel: rgba(18,26,43,.9); --card: rgba(26,36,56,.8);
-  --bd: rgba(77,163,255,.22); --txt:#f0f4fc; --mut:#9aabd0; --dim:#6a7a9a;
-  --g:#2ed88a; --r:#e85c5c; --a:#e8c040; --o:#f59e0b; --b:#4da3ff; --gold:#d4a84b;
-}
+:root{--p:rgba(18,26,43,.92);--bd:rgba(77,163,255,.22);--t:#f0f4fc;--m:#9aabd0;--g:#2ed88a;--r:#e85c5c;--a:#e8c040;--o:#f59e0b;--b:#4da3ff;--gold:#d4a84b}
 *{box-sizing:border-box;margin:0;padding:0}
-body{
-  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--txt);
-  min-height:100vh;
-  background:linear-gradient(160deg,rgba(10,14,23,.85),rgba(15,23,42,.9)),
-    url('/avatar.jpg') center top/cover no-repeat fixed;
-  padding:18px 14px 40px;display:flex;flex-direction:column;align-items:center;
-}
-.wrap{width:100%;max-width:460px}
-.hero{text-align:center;margin-bottom:16px}
-.ring{width:84px;height:84px;margin:0 auto 10px;border-radius:50%;padding:3px;
-  background:linear-gradient(135deg,var(--gold),var(--b));
-  box-shadow:0 12px 28px rgba(0,0,0,.4)}
+body{font-family:system-ui,sans-serif;color:var(--t);min-height:100vh;
+background:linear-gradient(160deg,rgba(10,14,23,.88),rgba(15,23,42,.92)),url('/avatar.jpg') center top/cover no-repeat fixed;
+padding:16px;display:flex;justify-content:center}
+.w{width:100%;max-width:440px}
+.hero{text-align:center;margin-bottom:14px}
+.ring{width:80px;height:80px;margin:0 auto 8px;border-radius:50%;padding:3px;background:linear-gradient(135deg,var(--gold),var(--b))}
 .ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
-h1{font-size:1.2rem;font-weight:800;
-  background:linear-gradient(90deg,#f5e6c8,var(--gold));
-  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.sub{font-size:.78rem;color:var(--mut);margin-top:4px}
-.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
-.badge{font-size:.66rem;font-weight:700;padding:4px 10px;border-radius:999px;border:1px solid}
-.badge.v{background:rgba(77,163,255,.15);color:var(--b);border-color:rgba(77,163,255,.4)}
-.badge.ok{background:rgba(46,216,138,.15);color:var(--g);border-color:rgba(46,216,138,.45)}
-.badge.soft{background:rgba(232,192,64,.15);color:var(--a);border-color:rgba(232,192,64,.45)}
-.badge.warning{background:rgba(245,158,11,.18);color:var(--o);border-color:rgba(245,158,11,.5)}
-.badge.critical{background:rgba(232,92,92,.18);color:var(--r);border-color:rgba(232,92,92,.5)}
-.badge.time{background:rgba(255,255,255,.06);color:var(--mut);border-color:rgba(255,255,255,.12)}
-.card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px;
-  box-shadow:0 8px 28px rgba(0,0,0,.3);backdrop-filter:blur(10px)}
-.card h2{font-size:.72rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
-.row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;
-  border-bottom:1px dashed rgba(77,163,255,.1);font-size:.9rem}
-.row:last-child{border-bottom:none}
-.k{color:var(--mut)}.v{font-weight:700}
-.ports{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.port{text-align:center;padding:10px 4px;border-radius:10px;font-weight:700;font-size:.85rem;border:1px solid}
-.port.on{background:rgba(46,216,138,.12);border-color:rgba(46,216,138,.45);color:var(--g)}
-.port.off{background:rgba(232,92,92,.12);border-color:rgba(232,92,92,.45);color:var(--r)}
-.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-.btn{display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;border-radius:11px;
-  font-weight:700;font-size:.84rem;text-decoration:none;border:1px solid;cursor:pointer;font-family:inherit}
-.btn.primary{grid-column:1/-1;background:linear-gradient(180deg,#f0d78c,var(--gold));color:#1a1206;border-color:rgba(212,168,75,.6)}
-.btn.blue{background:rgba(77,163,255,.12);color:var(--b);border-color:rgba(77,163,255,.4)}
-.btn.ghost{background:rgba(255,255,255,.04);color:var(--mut);border-color:rgba(255,255,255,.12)}
-.note{font-size:.75rem;color:var(--dim);line-height:1.5;margin-top:8px}
-.foot{text-align:center;font-size:.7rem;color:var(--dim);margin-top:6px}
-.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.15);
-  border-top-color:var(--b);border-radius:50%;animation:sp .7s linear infinite}
-@keyframes sp{to{transform:rotate(360deg)}}
-.reason{font-size:.85rem;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--card)}
+h1{font-size:1.15rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var(--gold));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:.75rem;color:var(--m);margin-top:4px}
+.badges{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+.badge{font-size:.65rem;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid}
+.ok{background:rgba(46,216,138,.15);color:var(--g);border-color:rgba(46,216,138,.4)}
+.soft{background:rgba(232,192,64,.15);color:var(--a);border-color:rgba(232,192,64,.4)}
+.warning{background:rgba(245,158,11,.15);color:var(--o);border-color:rgba(245,158,11,.4)}
+.critical{background:rgba(232,92,92,.15);color:var(--r);border-color:rgba(232,92,92,.4)}
+.v{background:rgba(77,163,255,.12);color:var(--b);border-color:rgba(77,163,255,.35)}
+.card{background:var(--p);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:10px;backdrop-filter:blur(10px)}
+.card h2{font-size:.7rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed rgba(77,163,255,.1);font-size:.88rem}
+.row:last-child{border-bottom:0}.k{color:var(--m)}.val{font-weight:700}
+.ports{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.port{text-align:center;padding:9px;border-radius:9px;font-weight:700;font-size:.82rem;border:1px solid}
+.on{background:rgba(46,216,138,.12);border-color:rgba(46,216,138,.4);color:var(--g)}
+.off{background:rgba(232,92,92,.12);border-color:rgba(232,92,92,.4);color:var(--r)}
+.btn{display:flex;align-items:center;justify-content:center;min-height:42px;border-radius:10px;font-weight:700;font-size:.82rem;text-decoration:none;border:1px solid;cursor:pointer;font-family:inherit}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.primary{grid-column:1/-1;background:linear-gradient(180deg,#f0d78c,var(--gold));color:#1a1206;border-color:rgba(212,168,75,.5)}
+.blue{background:rgba(77,163,255,.12);color:var(--b);border-color:rgba(77,163,255,.35)}
+.ghost{background:rgba(255,255,255,.04);color:var(--m);border-color:rgba(255,255,255,.1)}
+.note{font-size:.72rem;color:#6a7a9a;margin-top:8px;line-height:1.45}
+.reason{margin-top:8px;padding:8px;border-radius:8px;background:rgba(26,36,56,.8);font-size:.84rem}
+.foot{text-align:center;font-size:.68rem;color:#6a7a9a;margin-top:6px}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="w">
   <div class="hero">
-    <div class="ring"><img src="/avatar.jpg" alt="" width="84" height="84"></div>
+    <div class="ring"><img src="/avatar.jpg" alt="" width="80" height="80"></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · Giám sát đơn giản · Cảnh báo thông minh</p>
+    <p class="sub">SoloHost · Horizon + Core · Cảnh báo thông minh</p>
     <div class="badges">
       <span class="badge v" id="ver">…</span>
       <span class="badge ok" id="sev">—</span>
-      <span class="badge time" id="clock">—</span>
+      <span class="badge v" id="clock">—</span>
     </div>
   </div>
-
   <div class="actions">
-    <a class="btn primary" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener" id="btnPro">💻 Bản Windows PRO</a>
-    <button class="btn blue" type="button" onclick="load()">🔄 Làm mới</button>
-    <button class="btn ghost" type="button" onclick="showDonate()">❤️ Donate</button>
+    <a class="btn primary" id="btnPro" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank">💻 Windows PRO</a>
+    <button class="btn blue" onclick="load()">🔄 Làm mới</button>
+    <button class="btn ghost" onclick="document.getElementById('don').style.display='block'">❤️ Donate</button>
   </div>
-
-  <div class="card">
-    <h2>Trạng thái Node</h2>
-    <div id="body"><div style="text-align:center;padding:12px"><span class="spin"></span></div></div>
-  </div>
-
-  <div class="card">
-    <h2>Cổng 31401 – 31403</h2>
-    <div class="ports" id="ports"></div>
-  </div>
-
-  <div class="card">
-    <h2>Script bảo trì (Windows)</h2>
+  <div class="card"><h2>Trạng thái</h2><div id="body">…</div></div>
+  <div class="card"><h2>Cổng</h2><div class="ports" id="ports"></div></div>
+  <div class="card"><h2>Script Windows</h2>
     <div class="actions" style="margin:0">
-      <a class="btn blue" href="/scripts/CleanRAM.ps1">CleanRAM.ps1</a>
-      <a class="btn blue" href="/scripts/Maintenance.ps1">Maintenance.ps1</a>
-      <a class="btn blue" href="/scripts/Reset-PiNode.ps1" style="grid-column:1/-1">Reset-PiNode.ps1</a>
+      <a class="btn blue" href="/scripts/CleanRAM.ps1">CleanRAM</a>
+      <a class="btn blue" href="/scripts/Maintenance.ps1">Maintenance</a>
+      <a class="btn blue" style="grid-column:1/-1" href="/scripts/Reset-PiNode.ps1">Reset-PiNode</a>
     </div>
-    <p class="note">Tải về → mở PowerShell <b>Run as Admin</b> trên máy chạy Pi Node.</p>
+    <p class="note">Tải về → PowerShell Run as Admin trên máy chạy Node.</p>
   </div>
-
-  <div class="card" id="donateBox" style="display:none">
-    <h2>Donate</h2>
-    <div class="row"><span class="k">Ngân hàng</span><span class="v">MB Bank</span></div>
-    <div class="row"><span class="k">Số TK</span><span class="v">0905428801</span></div>
-    <div class="row"><span class="k">Tên</span><span class="v">TRAN HUU NGHI</span></div>
-    <p class="note">Cảm ơn bạn đã ủng hộ dự án.</p>
+  <div class="card" id="don" style="display:none"><h2>Donate</h2>
+    <div class="row"><span class="k">Ngân hàng</span><span class="val">MB Bank</span></div>
+    <div class="row"><span class="k">Số TK</span><span class="val">0905428801</span></div>
+    <div class="row"><span class="k">Tên</span><span class="val">TRAN HUU NGHI</span></div>
   </div>
-
-  <p class="foot">Tự làm mới 15s · Log: /api/logs · SoloHost PRO</p>
+  <p class="foot">Làm mới 15s · /api/logs · v2.4.2</p>
 </div>
 <script>
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function fmtAge(sec){
-  if(sec==null)return '—';
-  if(sec<60)return sec+'s';
-  const m=Math.floor(sec/60);return m+'m '+(sec%60)+'s';
-}
-function showDonate(){document.getElementById('donateBox').style.display='block'}
-const LEVEL={ok:'Ổn định',soft:'Theo dõi',warning:'Cảnh báo',critical:'Mất kết nối'};
+const L={ok:'Ổn định',soft:'Theo dõi',warning:'Cảnh báo',critical:'Mất kết nối'};
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 async function load(){
   try{
-    const [st,info]=await Promise.all([
-      fetch('/api/status').then(r=>r.json()),
-      fetch('/api/info').then(r=>r.json())
-    ]);
-    document.getElementById('ver').textContent='v'+(info.version||st.version||'?');
+    const [st,info]=await Promise.all([fetch('/api/status').then(r=>r.json()),fetch('/api/info').then(r=>r.json())]);
+    document.getElementById('ver').textContent='v'+(info.version||'');
     const lv=st.level||'ok';
-    const sev=document.getElementById('sev');
-    sev.textContent=LEVEL[lv]||lv;
-    sev.className='badge '+(lv==='ok'?'ok':lv);
-    document.getElementById('clock').textContent=info.time||st.time||'—';
+    const sev=document.getElementById('sev');sev.textContent=L[lv]||lv;sev.className='badge '+(lv==='ok'?'ok':lv);
+    document.getElementById('clock').textContent=st.time||info.time||'—';
     if(info.githubPro)document.getElementById('btnPro').href=info.githubPro;
-    const c=st.core||{};
-    const sync=c.sync==='synced'?'✅ Đã đồng bộ':c.sync==='catching'?'🔄 Đang đồng bộ':st.reachable?'⚠️ Chưa rõ':'⛔ Không phản hồi';
+    const peer=(st.peerIn!=null||st.peerOut!=null)?('In '+(st.peerIn??'—')+' / Out '+(st.peerOut??'—')):'—';
     document.getElementById('body').innerHTML=
-      '<div class="row"><span class="k">Trạng thái</span><span class="v">'+esc(LEVEL[lv])+'</span></div>'+
-      '<div class="row"><span class="k">Đồng bộ</span><span class="v">'+sync+'</span></div>'+
-      '<div class="row"><span class="k">Ledger</span><span class="v">'+(c.ledger!=null?Number(c.ledger).toLocaleString('en-US'):'—')+'</span></div>'+
-      '<div class="row"><span class="k">Peers</span><span class="v">'+(c.peersAuth!=null?c.peersAuth:'—')+'</span></div>'+
-      '<div class="row"><span class="k">Ledger Age</span><span class="v">'+fmtAge(c.ledgerAge)+'</span></div>'+
-      (st.reason?'<div class="reason">'+esc(st.reason)+'</div>':'');
-    const ports=st.ports||[];
+      '<div class="row"><span class="k">Đồng bộ</span><span class="val">'+esc(st.syncLabel||'—')+'</span></div>'+
+      '<div class="row"><span class="k">Ledger</span><span class="val">'+(st.ledger!=null?Number(st.ledger).toLocaleString('en-US'):'—')+(st.ledgerAge!=null?' · age '+st.ledgerAge+'s':'')+'</span></div>'+
+      '<div class="row"><span class="k">Peer</span><span class="val">'+esc(peer)+'</span></div>'+
+      '<div class="row"><span class="k">Docker</span><span class="val">'+(st.dockerRunning===true?'RUNNING ✅':st.dockerRunning===false?'STOPPED ❌':'—')+'</span></div>'+
+      '<div class="row"><span class="k">Container</span><span class="val">'+esc(st.containerName||'—')+'</span></div>'+
+      (st.reason?'<div class="reason">💬 '+esc(st.reason)+'</div>':'');
     document.getElementById('ports').innerHTML=[31401,31402,31403].map(p=>
-      '<div class="port '+(ports.indexOf(p)>=0?'on':'off')+'">'+p+'</div>'
-    ).join('');
-  }catch(e){
-    document.getElementById('body').innerHTML='<div style="color:#e85c5c;text-align:center;padding:12px">Không lấy được trạng thái</div>';
-  }
+      '<div class="port '+((st.ports||[]).indexOf(p)>=0?'on':'off')+'">'+p+'</div>').join('');
+  }catch(e){document.getElementById('body').innerHTML='<div style="color:#e85c5c;text-align:center">Lỗi tải trạng thái</div>';}
 }
-load();
-setInterval(load,15000);
+load();setInterval(load,15000);
 </script>
 </body>
 </html>
