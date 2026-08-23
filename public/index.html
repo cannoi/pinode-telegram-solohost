@@ -260,18 +260,26 @@ async function load() {
       'running-unknownsync': '⚠️ Chưa rõ',
       unknown: '❓ Không rõ'
     };
-    const syncTxt = syncMap[n.sync] || syncMap.unknown;
+    const syncTxt = syncMap[n.sync] || (n.detail && n.detail.state) || syncMap.unknown;
+    const d = n.detail || {};
+    const ledger = d.ledger || {};
+    const peers = d.peers || {};
+    const quorum = d.quorum || {};
     document.getElementById('nodeBody').innerHTML = `
       <div class="row"><span class="k">Node</span>
         <span class="v"><i class="dot ${up ? 'on' : 'off'}"></i>${up ? 'ONLINE' : 'OFFLINE'}</span></div>
       <div class="row"><span class="k">Đồng bộ</span>
         <span class="v">${esc(syncTxt)}</span></div>
-      <div class="row"><span class="k">Docker</span>
-        <span class="v">${esc(n.docker || '—')}${n.proto ? ' · ' + esc(n.proto) : ''}</span></div>
+      <div class="row"><span class="k">Ledger</span>
+        <span class="v">${ledger.num != null ? Number(ledger.num).toLocaleString('en-US') : '—'}${ledger.age != null ? ' · age ' + ledger.age + 's' : ''}</span></div>
+      <div class="row"><span class="k">Peers</span>
+        <span class="v">${peers.authenticated != null ? peers.authenticated : '—'} auth · ${peers.pending != null ? peers.pending : '—'} pending</span></div>
+      <div class="row"><span class="k">Quorum</span>
+        <span class="v">${esc(quorum.phase || '—')}${quorum.agree != null ? ' · agree ' + quorum.agree : ''}</span></div>
       <div class="row"><span class="k">Container</span>
         <span class="v">${esc(n.name || '—')}</span></div>
       <div class="row"><span class="k">Docker sock</span>
-        <span class="v">${n.dockerAccess ? 'Có' : 'Không (suy từ cổng)'}</span></div>
+        <span class="v">${n.dockerAccess ? 'Có' : 'Không'}</span></div>
     `;
 
     const lo = n.localOpen || [];

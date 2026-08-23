@@ -388,19 +388,46 @@ function httpGet(host, port, pathName, timeout) {
   });
 }
 
-async function hostSync() {
+async function hostSyncFull() {
   const hosts = _probeHost ? [_probeHost].concat(candidateHosts().filter(h => h !== _probeHost)) : candidateHosts();
   for (const host of hosts) {
-    const r = await httpGet(host, 11626, '/info', 2000);
-    if (r && r.status === 200 && r.body) {
-      const s = parseSyncText(r.body);
-      if (s !== 'unknown') {
-        console.log('[sync] host=' + host + ':11626 → ' + s);
-        return s;
-      }
-    }
+    const r = await httpGet(host, 11626, '/info', 2500);
+    if (!r || r.status !== 200 || !r.body) continue;
+    try {
+      const match = r.body.match(/\{[\s\S]*\}/);
+      if (!match) continue;
+      const j = JSON.parse(match[0]);
+      const info = j.info || j;
+      if (!info || typeof info !== 'object') continue;
+      const ledger = info.ledger || {};
+      const peers = info.peers || {};
+      const qset = (info.quorum && info.quorum.qset) || {};
+      return {
+        state: info.state || 'unknown',
+        network: info.network || null,
+        build: info.build || null,
+        protocol: info.protocol_version || null,
+        ledger: { num: ledger.num != null ? ledger.num : null, age: ledger.age != null ? ledger.age : null },
+        peers: {
+          authenticated: peers.authenticated_count != null ? peers.authenticated_count : 0,
+          pending: peers.pending_count != null ? peers.pending_count : 0
+        },
+        quorum: {
+          phase: qset.phase || null,
+          agree: qset.agree != null ? qset.agree : null,
+          missing: qset.missing != null ? qset.missing : null
+        },
+        startedOn: info.startedOn || null,
+        rawState: String(info.state || '').toLowerCase()
+      };
+    } catch (e) {}
   }
   return null;
+}
+
+async function hostSync() {
+  const full = await hostSyncFull();
+  return full ? parseSyncFromFull(full) : null;
 }
 
 async function dockerLogs(id, tail) {
@@ -435,7 +462,8 @@ function calcSeverity(st) {
   if (!n.running) return 'warning';
   if (n.localOpen.length < REQUIRED.length) return 'warning';
   if (n.sync === 'catching') return 'soft';
-  if (n.sync === 'down' || n.sync === 'unknown') return 'warning';
+  if (n.sync === 'down') return 'warning';
+  if (n.sync === 'unknown' && n.dockerAccess) return 'soft';
   // Dùng chi tiết stellar-core nếu có
   if (n.detail) {
     if (n.detail.ledger && n.detail.ledger.age != null && n.detail.ledger.age > 30) return 'warning';
@@ -485,8 +513,9 @@ async function collectStatus() {
     proto = null;
     nodeName = nodeImage = nodeStatus = null;
     if (running) {
-      const hs = await hostSync();
-      sync = hs || 'unknown';
+      const full = await hostSyncFull();
+      if (full) { detail = full; sync = parseSyncFromFull(full); }
+      else { sync = 'unknown'; }
     } else {
       sync = 'down';
     }
@@ -582,6 +611,10 @@ function formatStatus(st, opts) {
     `• CPU: <b>${cpu}</b>  ·  RAM: <b>${ram}</b>`,
     `• Uptime: ${esc(st.res.uptime || '—')}`
   ];
+  if (detailBlock) {
+    lines.push('──── stellar-core ────');
+    detailBlock.trim().split('\n').forEach(function (row) { if (row.trim()) lines.push(row); });
+  }
   if (st.disk) {
     lines.push(`• Disk: ${st.disk.usedGB}/${st.disk.totalGB} GB (<b>${st.disk.pct}%</b>)`);
   }
@@ -836,15 +869,7 @@ async function runCmd(cmd) {
   }
   if (cmd === 'sync' || cmd === 'dongbo') {
     const st = await collectStatus();
-    const n = st.node;
-    return tgSend(
-      '<b>Đồng bộ Pi Node</b>\n━━━━━━━━━━━━━━━━\n' +
-      '• Trạng thái: <b>' + esc(syncLabel(n.sync)) + '</b>\n' +
-      '• Node: ' + (n.running ? 'ONLINE' : 'OFFLINE') + '\n' +
-      '• Nguồn: ' + (n.dockerAccess ? 'docker exec' : 'host :11626 / suy đoán') + '\n' +
-      '' + detailBlock + '🕐 ' + esc(nowStr()),
-      { reply_markup: mainKeyboard() }
-    );
+    return tgSend(formatStatus(st, { withLink: false }), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'docker') {
     const dn = await dockerNode();
