@@ -1,5 +1,5 @@
 // ============================================================
-//  Pi Node Telegram Controller — SoloHost Edition PRO v2.4.0
+//  Pi Node Telegram Controller — SoloHost Edition PRO v2.4.1
 //  Không docker.sock · HTTP đa nguồn · cảnh báo thông minh
 //  Báo cáo đơn giản · lịch sử · log · AI · script PowerShell
 // ============================================================
@@ -11,13 +11,16 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const VERSION = '2.4.0-solohost-pro';
+const VERSION = '2.4.1-solohost-pro';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const NODE_HOST = (process.env.NODE_HOST || 'host.docker.internal').trim();
 const STELLAR_CORE_PORT = parseInt(process.env.STELLAR_CORE_PORT || '11626', 10) || 11626;
-const CORE_PORTS_TRY = uniqueInts([STELLAR_CORE_PORT, 11626, 31400]);
+// Thử nhiều cổng HTTP info phổ biến của Pi Node / stellar-core
+const CORE_PORTS_TRY = uniqueInts([STELLAR_CORE_PORT, 11626, 31400, 8000, 8080, 11625, 11627]);
 const NODE_PORTS = [31401, 31402, 31403];
+const SOCK = '/var/run/docker.sock'; // tùy chọn — nếu SoloHost/host mount thì dùng được như v2.3
+const PI_CONTAINER_ENV = (process.env.PI_CONTAINER || '').trim();
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.CHAT_ID || '').trim();
 const ALERT_ON_START = String(process.env.ALERT_ON_START || 'true').toLowerCase() !== 'false';
@@ -194,6 +197,119 @@ function httpGet(host, port, pathname, timeout) {
   });
 }
 
+
+// ---------- Docker socket (tùy chọn, giống v2.3) ----------
+function sockReq(method, pathname, body) {
+  return new Promise(function (resolve) {
+    let has = false;
+    try { has = fs.existsSync(SOCK); } catch (e) {}
+    if (!has) return resolve(null);
+    const data = body != null ? JSON.stringify(body) : null;
+    const opt = {
+      socketPath: SOCK, path: pathname, method,
+      headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}
+    };
+    const req = http.request(opt, function (r) {
+      let b = '';
+      r.on('data', d => b += d);
+      r.on('end', () => resolve({ status: r.statusCode, body: b }));
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(8000, () => { try { req.destroy(); } catch (e) {} resolve(null); });
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+function decodeDockerStream(raw) {
+  if (!raw) return '';
+  try {
+    const buf = Buffer.from(raw, 'binary');
+    if (buf.length < 8) return String(raw);
+    let out = '', i = 0, frames = 0;
+    while (i + 8 <= buf.length) {
+      const size = buf.readUInt32BE(i + 4);
+      i += 8;
+      if (size <= 0 || i + size > buf.length) break;
+      out += buf.slice(i, i + size).toString('utf8');
+      i += size;
+      frames++;
+    }
+    if (frames > 0 && out) return out;
+  } catch (e) {}
+  return typeof raw === 'string' ? raw : String(raw);
+}
+
+async function dockerFindNode() {
+  const r = await sockReq('GET', '/containers/json?all=1');
+  if (!r || r.status !== 200) return null;
+  let arr;
+  try { arr = JSON.parse(r.body); } catch (e) { return null; }
+
+  function scoreContainer(c) {
+    let score = 0;
+    const names = (c.Names || []).map(n => String(n).replace(/^\//, ''));
+    const nameJoined = names.join(' ').toLowerCase();
+    const image = String(c.Image || '').toLowerCase();
+    if (PI_CONTAINER_ENV) {
+      if (names.some(n => n.toLowerCase() === PI_CONTAINER_ENV.toLowerCase())) score += 1000;
+      else return -1;
+    }
+    if (c.State === 'running') score += 30;
+    if (/pi-node-docker|pinetwork\/pi-node|stellar-core/.test(image)) score += 50;
+    if (/^testnet2$|^mainnet$|^testnet$|^pi-node$|^pi_node$/.test(nameJoined)) score += 25;
+    else if (/testnet|mainnet|pi-node|stellar/.test(nameJoined)) score += 15;
+    if (/pi\.network|pinetwork/.test(image)) score += 10;
+    return score;
+  }
+
+  const ranked = arr
+    .map(c => ({ c, score: scoreContainer(c) }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!ranked.length) return { found: false, access: true };
+
+  const best = ranked[0].c;
+  const name = ((best.Names && best.Names[0]) || '').replace(/^\//, '');
+  const m = (best.Image || '').match(/p(\d+)\./i);
+  log('dockerNode chọn ' + name + ' score=' + ranked[0].score);
+  return {
+    found: true,
+    access: true,
+    running: best.State === 'running',
+    id: best.Id,
+    name: name,
+    image: best.Image || '',
+    proto: m ? ('v' + m[1]) : null,
+    status: best.Status || best.State || ''
+  };
+}
+
+async function dockerCoreInfo(id) {
+  try {
+    const cmd = 'stellar-core http-command info 2>/dev/null || curl -s http://127.0.0.1:11626/info 2>/dev/null || wget -qO- http://127.0.0.1:11626/info 2>/dev/null || curl -s http://127.0.0.1:31400/info 2>/dev/null';
+    const ex = await sockReq('POST', '/containers/' + id + '/exec', {
+      AttachStdout: true, AttachStderr: true, Tty: false,
+      Cmd: ['sh', '-c', cmd]
+    });
+    if (!ex || ex.status >= 400) return null;
+    let execId;
+    try { execId = JSON.parse(ex.body).Id; } catch (e) { return null; }
+    const out = await sockReq('POST', '/exec/' + execId + '/start', { Detach: false, Tty: false });
+    if (!out || out.body == null) return null;
+    const text = decodeDockerStream(out.body);
+    const info = parseCoreInfo(text);
+    if (info) {
+      info.source = 'docker-exec';
+      log('core via docker-exec state=' + info.state + ' ledger=' + info.ledger);
+    }
+    return info;
+  } catch (e) {
+    log('dockerCoreInfo ' + (e && e.message), 'error');
+    return null;
+  }
+}
+
 // ---------- Core /info ----------
 function parseCoreInfo(body) {
   if (!body) return null;
@@ -232,28 +348,54 @@ function parseCoreInfo(body) {
   }
 }
 
-async function fetchCoreInfo() {
+async function fetchCoreInfoHttp() {
   const hosts = _bestHost
     ? [_bestHost].concat(candidateHosts().filter(h => h !== _bestHost))
     : candidateHosts();
+  // Cổng info chuyên dụng + chính các cổng node (đôi khi proxy /info)
+  const ports = CORE_PORTS_TRY.concat(NODE_PORTS);
+  const paths = ['/info', '/'];
 
   for (const host of hosts) {
-    for (const port of CORE_PORTS_TRY) {
-      const r = await httpGet(host, port, '/info', 2500);
-      if (r && r.status === 200 && r.body) {
-        const info = parseCoreInfo(r.body);
-        if (info) {
-          if (_bestHost !== host) {
-            _bestHost = host;
-            log('core host=' + host + ':' + port);
+    for (const port of ports) {
+      for (const pathName of paths) {
+        const r = await httpGet(host, port, pathName, 2000);
+        if (r && r.status === 200 && r.body && /state|ledger|Synced/i.test(r.body)) {
+          const info = parseCoreInfo(r.body);
+          if (info) {
+            if (_bestHost !== host) {
+              _bestHost = host;
+              log('core HTTP host=' + host + ':' + port + pathName);
+            }
+            info.source = host + ':' + port;
+            return info;
           }
-          info.source = host + ':' + port;
-          return info;
         }
       }
     }
   }
   return null;
+}
+
+// Ưu tiên: docker.sock (như v2.3) → HTTP /info
+async function fetchCoreInfo() {
+  // 1) Docker exec nếu có socket
+  try {
+    if (fs.existsSync(SOCK)) {
+      const dn = await dockerFindNode();
+      if (dn && dn.found && dn.running && dn.id) {
+        const info = await dockerCoreInfo(dn.id);
+        if (info) {
+          info._docker = dn;
+          return info;
+        }
+      }
+    }
+  } catch (e) {
+    log('docker path ' + (e && e.message), 'warn');
+  }
+  // 2) HTTP đa cổng
+  return fetchCoreInfoHttp();
 }
 
 async function checkPorts() {
@@ -281,11 +423,15 @@ async function checkPorts() {
 async function collectOnce() {
   const [core, ports] = await Promise.all([fetchCoreInfo(), checkPorts()]);
   const portsOk = ports.length;
-  const coreOk = !!(core && core.sync !== 'unknown');
+  const coreOk = !!(core && core.sync && core.sync !== 'unknown');
 
   // reachable: core OK or enough ports
   let reachable = coreOk || portsOk >= 2;
   if (!coreOk && portsOk === 0) reachable = false;
+
+  // Tên hiển thị: docker container > env label
+  let label = NODE_LABEL;
+  if (core && core._docker && core._docker.name) label = core._docker.name;
 
   let level = 'ok';
   let reason = '';
@@ -293,14 +439,10 @@ async function collectOnce() {
   if (!reachable) {
     level = 'critical';
     reason = 'Node không phản hồi (Core API + cổng đóng)';
-  } else if (!coreOk && portsOk > 0) {
-    level = 'soft';
-    reason = 'Cổng còn mở nhưng chưa đọc được Core /info';
   } else if (core && core.sync === 'catching') {
     level = 'soft';
     reason = 'Node đang bắt kịp đồng bộ';
   } else if (core && core.ledgerAge != null && core.ledgerAge > 300) {
-    // > 5 phút mới coi là vấn đề thật (trước đây 30s gây spam)
     level = 'warning';
     reason = 'Ledger Age cao (' + fmtAge(core.ledgerAge) + ')';
   } else if (core && core.peersAuth != null && core.peersAuth < 2) {
@@ -309,6 +451,13 @@ async function collectOnce() {
   } else if (core && core.sync === 'synced') {
     level = 'ok';
     reason = 'Node hoạt động bình thường';
+  } else if (!coreOk && portsOk === NODE_PORTS.length) {
+    // Cả 3 cổng mở — coi là OK dù chưa parse được /info (tránh báo "Cần theo dõi" gây hoang mang)
+    level = 'ok';
+    reason = 'Cổng node mở đủ — chưa đọc chi tiết Core /info';
+  } else if (!coreOk && portsOk > 0) {
+    level = 'soft';
+    reason = 'Cổng còn mở nhưng chưa đọc được Core /info';
   } else {
     level = 'ok';
     reason = 'Node đang phản hồi';
@@ -325,7 +474,7 @@ async function collectOnce() {
 
   return {
     version: VERSION,
-    label: NODE_LABEL,
+    label: label,
     reachable,
     level,
     reason,
@@ -333,6 +482,7 @@ async function collectOnce() {
     ports,
     portsOk,
     coreOk,
+    dockerAccess: !!(core && core._docker),
     ts: Date.now(),
     time: nowStr()
   };
@@ -584,6 +734,7 @@ function formatDiagnostic(st) {
     'Port 31402     ' + ok(st.ports.indexOf(31402) >= 0),
     'Port 31403     ' + ok(st.ports.indexOf(31403) >= 0),
     'Nguồn Core     ' + esc(core.source || '—'),
+    'Docker sock    ' + (st.dockerAccess ? '✅' : '❌ (HTTP only)'),
     '',
     st.level === 'ok' ? '🟢 Không phát hiện vấn đề.' : (LEVEL_ICON[st.level] + ' ' + esc(st.reason))
   ];

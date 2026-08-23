@@ -1,5 +1,5 @@
-# docker-compose.yml — SoloHost / Pi Desktop v2.4.1
-# KHÔNG mount docker.sock (SoloHost cấm path ngoài thư mục cài)
+# Bản có docker.sock — dùng ngoài SoloHost hoặc khi host cho phép.
+# SoloHost sẽ TỪ CHỐI file này (bind-mount ngoài thư mục cài).
 services:
   agent:
     image: ghcr.io/cannoi/pinode-telegram-solohost:v2.4.1
@@ -19,6 +19,9 @@ services:
       - PI_CONTAINER=${PI_CONTAINER}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - TZ=Asia/Ho_Chi_Minh
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped

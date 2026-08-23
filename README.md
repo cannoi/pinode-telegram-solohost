@@ -1,41 +1,24 @@
-# Pi Node Telegram Controller — SoloHost PRO v2.4.0
+# Pi Node Telegram Controller — SoloHost PRO v2.4.1
 
-Giám sát Pi Node 24/7 trên SoloHost / Pi Desktop qua Telegram.
+## Fix v2.4.1
 
-## Điểm mới v2.4
-
-- **Không docker.sock** → hết lỗi SoloHost bind-mount
-- Đọc dữ liệu **HTTP đa nguồn** (`/info` + cổng 31401–3), chống báo OFFLINE giả
-- **`/status` ngắn gọn** — đúng nhu cầu người dùng thường
-- Cảnh báo **thông minh** (chỉ khi thật sự cần)
-- **Lịch sử dài hạn** `/data/history/YYYY-MM-DD.jsonl`
-- **`/analyze`** phân tích lịch sử (+ Gemini AI tùy chọn)
-- **Log** `/data/logs/controller.log`
-- **Donate** số tài khoản MB Bank (không chỉ link)
-- Script Windows: CleanRAM / Maintenance / Reset-PiNode (tải về tự chạy)
+- Khôi phục đọc **stellar-core qua docker.sock** khi socket có sẵn (như v2.3)
+- Compose **SoloHost mặc định không mount sock** (hết lỗi bind-mount)
+- HTTP `/info` thử nhiều cổng: 11626, 31400, 31401–3…
+- 3 cổng node mở đủ → coi **ONLINE ổn định** (không báo “Cần theo dõi” chỉ vì thiếu /info)
 
 ## Image
 
 ```bash
-docker pull ghcr.io/cannoi/pinode-telegram-solohost:v2.4.0
+docker pull ghcr.io/cannoi/pinode-telegram-solohost:v2.4.1
 ```
 
-## Cài SoloHost
+## SoloHost
 
-Dùng `docker-compose.yml` + `config_options.yml` trong repo.
+Dùng `docker-compose.yml` (không sock).
 
-## Lệnh Telegram
+Muốn sync đầy đủ như v2.3 trên máy tự quản lý Docker: xem `docker-compose.with-sock.yml`.
 
-| Lệnh | Ý nghĩa |
-|------|---------|
-| `/status` | Trạng thái ngắn |
-| `/sync` | Đồng bộ |
-| `/ports` | Cổng node |
-| `/diagnostic` | Kiểm tra sâu |
-| `/analyze` | Phân tích lịch sử / AI |
-| `/scripts` | Script bảo trì Windows |
-| `/donate` | Ủng hộ MB Bank |
+## Lệnh
 
-## Windows PRO
-
-https://github.com/cannoi/pinode-telegram-controller
+`/status` `/sync` `/ports` `/diagnostic` `/analyze` `/scripts` `/donate`
