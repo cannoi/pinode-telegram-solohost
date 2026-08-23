@@ -1,7 +1,7 @@
 {
   "name": "pinode-telegram-solohost",
-  "version": "2.3.0",
-  "description": "Pi Node Telegram Controller SoloHost Edition PRO — auto-detect testnet2/mainnet + stellar-core detail",
+  "version": "2.4.0",
+  "description": "Pi Node Telegram Controller SoloHost PRO — HTTP multi-source, smart alerts, history, AI",
   "main": "loader.js",
   "private": true,
   "engines": { "node": ">=18" }

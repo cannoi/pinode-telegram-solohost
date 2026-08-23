@@ -1,8 +1,8 @@
-# docker-compose.yml — Pi Desktop / SoloHost v2.3.0
-# Tự dò testnet2/mainnet + stellar-core info (cần docker.sock)
+# docker-compose.yml — SoloHost / Pi Desktop v2.4.0
+# KHÔNG mount docker.sock (SoloHost cấm path ngoài thư mục cài)
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.3.0
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.4.0
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"
@@ -15,11 +15,10 @@ services:
       - REPORT_HOURS=${REPORT_HOURS}
       - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC}
       - NODE_HOST=host.docker.internal
-      - TZ=Asia/Ho_Chi_Minh
+      - STELLAR_CORE_PORT=${STELLAR_CORE_PORT}
       - PI_CONTAINER=${PI_CONTAINER}
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped

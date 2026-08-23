@@ -2,323 +2,155 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Pi Node Telegram Controller PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pi Node Controller PRO</title>
 <style>
-  :root {
-    --bg: #0a0e17;
-    --panel: rgba(18, 26, 43, 0.88);
-    --card: rgba(26, 36, 56, 0.75);
-    --border: rgba(77, 163, 255, 0.22);
-    --txt: #f0f4fc;
-    --mut: #9aabd0;
-    --dim: #6a7a9a;
-    --green: #2ed88a;
-    --red: #e85c5c;
-    --amber: #e8c040;
-    --blue: #4da3ff;
-    --orange: #f59e0b;
-    --gold: #d4a84b;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Be Vietnam Pro", sans-serif;
-    color: var(--txt);
-    min-height: 100vh;
-    background:
-      linear-gradient(160deg, rgba(10,14,23,0.82) 0%, rgba(15,23,42,0.88) 50%, rgba(10,14,23,0.92) 100%),
-      url('/avatar.jpg') center top / cover no-repeat fixed;
-    padding: 18px 14px 40px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .wrap { width: 100%; max-width: 480px; }
-
-  /* Hero */
-  .hero {
-    text-align: center;
-    margin-bottom: 18px;
-    position: relative;
-  }
-  .avatar-ring {
-    width: 88px; height: 88px;
-    margin: 0 auto 12px;
-    border-radius: 50%;
-    padding: 3px;
-    background: linear-gradient(135deg, var(--gold), var(--blue));
-    box-shadow: 0 0 0 4px rgba(212,168,75,0.15), 0 12px 32px rgba(0,0,0,0.45);
-  }
-  .avatar-ring img {
-    width: 100%; height: 100%;
-    border-radius: 50%;
-    object-fit: cover;
-    display: block;
-    border: 2px solid rgba(10,14,23,0.6);
-  }
-  .hero h1 {
-    font-size: 1.28rem; font-weight: 800;
-    letter-spacing: 0.3px;
-    background: linear-gradient(90deg, #f5e6c8, var(--gold));
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-  .hero p { font-size: 0.8rem; color: var(--mut); margin-top: 4px; }
-  .badges {
-    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px;
-  }
-  .badge {
-    font-size: 0.68rem; font-weight: 700; padding: 4px 11px;
-    border-radius: 999px; border: 1px solid; letter-spacing: 0.3px;
-    backdrop-filter: blur(8px);
-  }
-  .badge.v { background: rgba(77,163,255,0.15); color: var(--blue); border-color: rgba(77,163,255,0.4); }
-  .badge.sev-ok { background: rgba(46,216,138,0.15); color: var(--green); border-color: rgba(46,216,138,0.45); }
-  .badge.sev-soft { background: rgba(232,192,64,0.15); color: var(--amber); border-color: rgba(232,192,64,0.45); }
-  .badge.sev-warning { background: rgba(245,158,11,0.18); color: var(--orange); border-color: rgba(245,158,11,0.5); }
-  .badge.sev-critical { background: rgba(232,92,92,0.18); color: var(--red); border-color: rgba(232,92,92,0.5); }
-  .badge.time { background: rgba(255,255,255,0.06); color: var(--mut); border-color: rgba(255,255,255,0.12); }
-
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 16px;
-    margin-bottom: 12px;
-    box-shadow: 0 10px 36px rgba(0,0,0,0.35);
-    backdrop-filter: blur(12px);
-  }
-  .card h2 {
-    font-size: 0.76rem; font-weight: 700; color: var(--mut);
-    text-transform: uppercase; letter-spacing: 0.6px;
-    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
-  }
-  .row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 0; border-bottom: 1px dashed rgba(77,163,255,0.12); font-size: 0.9rem;
-  }
-  .row:last-child { border-bottom: none; }
-  .row .k { color: var(--mut); }
-  .row .v { font-weight: 700; display: flex; align-items: center; gap: 7px; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-  .dot.on { background: var(--green); box-shadow: 0 0 10px var(--green); }
-  .dot.off { background: var(--red); box-shadow: 0 0 10px var(--red); }
-
-  .ports { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .port {
-    text-align: center; padding: 12px 6px; border-radius: 11px;
-    font-weight: 700; font-size: 0.88rem; border: 1px solid;
-  }
-  .port.on { background: rgba(46,216,138,0.12); border-color: rgba(46,216,138,0.45); color: var(--green); }
-  .port.off { background: rgba(232,92,92,0.12); border-color: rgba(232,92,92,0.45); color: var(--red); }
-
-  .res { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-  .rc {
-    background: var(--card); border: 1px solid rgba(77,163,255,0.12);
-    border-radius: 11px; padding: 11px 8px; text-align: center;
-  }
-  .rc .lab { font-size: 0.64rem; color: var(--mut); text-transform: uppercase; letter-spacing: 0.4px; }
-  .rc .val { font-size: 1.12rem; font-weight: 800; margin-top: 3px; }
-  .meter { height: 4px; border-radius: 99px; background: rgba(0,0,0,0.35); margin-top: 7px; overflow: hidden; }
-  .meter > i { display: block; height: 100%; background: linear-gradient(90deg, #3b82f6, #2ed88a); transition: width 0.4s; }
-
-  /* Action buttons */
-  .actions {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;
-  }
-  .btn {
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    min-height: 48px; border-radius: 12px; font-weight: 700; font-size: 0.88rem;
-    text-decoration: none; border: 1px solid; cursor: pointer;
-    transition: filter 0.15s, transform 0.1s;
-    font-family: inherit;
-  }
-  .btn:active { transform: scale(0.98); }
-  .btn.primary {
-    background: linear-gradient(180deg, #f0d78c, var(--gold));
-    color: #1a1206; border-color: rgba(212,168,75,0.6);
-    grid-column: 1 / -1;
-  }
-  .btn.blue {
-    background: rgba(77,163,255,0.12); color: var(--blue);
-    border-color: rgba(77,163,255,0.4);
-  }
-  .btn.ghost {
-    background: rgba(255,255,255,0.04); color: var(--mut);
-    border-color: rgba(255,255,255,0.12);
-  }
-  .btn.donate {
-    background: rgba(46,216,138,0.1); color: var(--green);
-    border-color: rgba(46,216,138,0.4);
-  }
-
-  .hist { font-size: 0.8rem; color: var(--mut); max-height: 150px; overflow-y: auto; }
-  .hist div { padding: 5px 0; border-bottom: 1px solid rgba(77,163,255,0.08); }
-  .hist div:last-child { border-bottom: none; }
-
-  .note { font-size: 0.76rem; color: var(--dim); line-height: 1.55; margin-top: 8px; }
-  .note a { color: var(--blue); word-break: break-all; }
-  .foot { text-align: center; margin-top: 8px; font-size: 0.72rem; color: var(--dim); }
-  .spin {
-    display: inline-block; width: 14px; height: 14px;
-    border: 2px solid rgba(255,255,255,0.15); border-top-color: var(--blue);
-    border-radius: 50%; animation: sp 0.7s linear infinite;
-  }
-  @keyframes sp { to { transform: rotate(360deg); } }
-  .err { color: var(--red); font-size: 0.85rem; text-align: center; padding: 14px; }
+:root {
+  --panel: rgba(18,26,43,.9); --card: rgba(26,36,56,.8);
+  --bd: rgba(77,163,255,.22); --txt:#f0f4fc; --mut:#9aabd0; --dim:#6a7a9a;
+  --g:#2ed88a; --r:#e85c5c; --a:#e8c040; --o:#f59e0b; --b:#4da3ff; --gold:#d4a84b;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--txt);
+  min-height:100vh;
+  background:linear-gradient(160deg,rgba(10,14,23,.85),rgba(15,23,42,.9)),
+    url('/avatar.jpg') center top/cover no-repeat fixed;
+  padding:18px 14px 40px;display:flex;flex-direction:column;align-items:center;
+}
+.wrap{width:100%;max-width:460px}
+.hero{text-align:center;margin-bottom:16px}
+.ring{width:84px;height:84px;margin:0 auto 10px;border-radius:50%;padding:3px;
+  background:linear-gradient(135deg,var(--gold),var(--b));
+  box-shadow:0 12px 28px rgba(0,0,0,.4)}
+.ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+h1{font-size:1.2rem;font-weight:800;
+  background:linear-gradient(90deg,#f5e6c8,var(--gold));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:.78rem;color:var(--mut);margin-top:4px}
+.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.badge{font-size:.66rem;font-weight:700;padding:4px 10px;border-radius:999px;border:1px solid}
+.badge.v{background:rgba(77,163,255,.15);color:var(--b);border-color:rgba(77,163,255,.4)}
+.badge.ok{background:rgba(46,216,138,.15);color:var(--g);border-color:rgba(46,216,138,.45)}
+.badge.soft{background:rgba(232,192,64,.15);color:var(--a);border-color:rgba(232,192,64,.45)}
+.badge.warning{background:rgba(245,158,11,.18);color:var(--o);border-color:rgba(245,158,11,.5)}
+.badge.critical{background:rgba(232,92,92,.18);color:var(--r);border-color:rgba(232,92,92,.5)}
+.badge.time{background:rgba(255,255,255,.06);color:var(--mut);border-color:rgba(255,255,255,.12)}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px;
+  box-shadow:0 8px 28px rgba(0,0,0,.3);backdrop-filter:blur(10px)}
+.card h2{font-size:.72rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;
+  border-bottom:1px dashed rgba(77,163,255,.1);font-size:.9rem}
+.row:last-child{border-bottom:none}
+.k{color:var(--mut)}.v{font-weight:700}
+.ports{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.port{text-align:center;padding:10px 4px;border-radius:10px;font-weight:700;font-size:.85rem;border:1px solid}
+.port.on{background:rgba(46,216,138,.12);border-color:rgba(46,216,138,.45);color:var(--g)}
+.port.off{background:rgba(232,92,92,.12);border-color:rgba(232,92,92,.45);color:var(--r)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;border-radius:11px;
+  font-weight:700;font-size:.84rem;text-decoration:none;border:1px solid;cursor:pointer;font-family:inherit}
+.btn.primary{grid-column:1/-1;background:linear-gradient(180deg,#f0d78c,var(--gold));color:#1a1206;border-color:rgba(212,168,75,.6)}
+.btn.blue{background:rgba(77,163,255,.12);color:var(--b);border-color:rgba(77,163,255,.4)}
+.btn.ghost{background:rgba(255,255,255,.04);color:var(--mut);border-color:rgba(255,255,255,.12)}
+.note{font-size:.75rem;color:var(--dim);line-height:1.5;margin-top:8px}
+.foot{text-align:center;font-size:.7rem;color:var(--dim);margin-top:6px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.15);
+  border-top-color:var(--b);border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.reason{font-size:.85rem;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--card)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="hero">
-    <div class="avatar-ring">
-      <img src="/avatar.jpg" alt="Avatar" width="88" height="88">
-    </div>
+    <div class="ring"><img src="/avatar.jpg" alt="" width="84" height="84"></div>
     <h1>Pi Node Controller PRO</h1>
-    <p>SoloHost · Telegram Monitor · Trạm Xe Máy 1 Ái Tử</p>
+    <p class="sub">SoloHost · Giám sát đơn giản · Cảnh báo thông minh</p>
     <div class="badges">
       <span class="badge v" id="ver">…</span>
-      <span class="badge sev-ok" id="sev">—</span>
+      <span class="badge ok" id="sev">—</span>
       <span class="badge time" id="clock">—</span>
     </div>
   </div>
 
-  <!-- Nút hành động nhanh -->
   <div class="actions">
-    <a class="btn primary" id="btnPro" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener">
-      💻 Tải bản Windows PRO
-    </a>
+    <a class="btn primary" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener" id="btnPro">💻 Bản Windows PRO</a>
     <button class="btn blue" type="button" onclick="load()">🔄 Làm mới</button>
-    <a class="btn donate" id="btnDonate" href="https://github.com/cannoi/pinode-telegram-controller" target="_blank" rel="noopener">
-      ☕ Donate
-    </a>
+    <button class="btn ghost" type="button" onclick="showDonate()">❤️ Donate</button>
   </div>
 
   <div class="card">
-    <h2>📡 Trạng thái Node</h2>
-    <div id="nodeBody"><div style="text-align:center;padding:14px"><span class="spin"></span></div></div>
+    <h2>Trạng thái Node</h2>
+    <div id="body"><div style="text-align:center;padding:12px"><span class="spin"></span></div></div>
   </div>
 
   <div class="card">
-    <h2>🔌 Cổng 31401 – 31403</h2>
+    <h2>Cổng 31401 – 31403</h2>
     <div class="ports" id="ports"></div>
   </div>
 
   <div class="card">
-    <h2>💻 Tài nguyên</h2>
-    <div class="res" id="res"></div>
-    <p class="note">CPU/RAM đo trong container. Disk là volume app. Mount docker.sock (máy tin cậy) để /reset và /logs chính xác hơn.</p>
+    <h2>Script bảo trì (Windows)</h2>
+    <div class="actions" style="margin:0">
+      <a class="btn blue" href="/scripts/CleanRAM.ps1">CleanRAM.ps1</a>
+      <a class="btn blue" href="/scripts/Maintenance.ps1">Maintenance.ps1</a>
+      <a class="btn blue" href="/scripts/Reset-PiNode.ps1" style="grid-column:1/-1">Reset-PiNode.ps1</a>
+    </div>
+    <p class="note">Tải về → mở PowerShell <b>Run as Admin</b> trên máy chạy Pi Node.</p>
   </div>
 
-  <div class="card">
-    <h2>📜 Lịch sử sự cố</h2>
-    <div class="hist" id="hist">Đang tải…</div>
+  <div class="card" id="donateBox" style="display:none">
+    <h2>Donate</h2>
+    <div class="row"><span class="k">Ngân hàng</span><span class="v">MB Bank</span></div>
+    <div class="row"><span class="k">Số TK</span><span class="v">0905428801</span></div>
+    <div class="row"><span class="k">Tên</span><span class="v">TRAN HUU NGHI</span></div>
+    <p class="note">Cảm ơn bạn đã ủng hộ dự án.</p>
   </div>
 
-  <div class="card">
-    <h2>📱 Telegram</h2>
-    <div id="tgInfo" class="note">…</div>
-    <p class="note" style="margin-top:12px">
-      Gửi <b>/status</b> trên Telegram để xem trạng thái kèm nút hành động nhanh.<br>
-      Bản Windows PRO: CleanRAM · screenshot · AI Gemini · auto-reset sâu.
-    </p>
-  </div>
-
-  <p class="foot">Tự làm mới mỗi 12 giây · SoloHost PRO · Giờ Việt Nam</p>
+  <p class="foot">Tự làm mới 15s · Log: /api/logs · SoloHost PRO</p>
 </div>
-
 <script>
-function esc(s) {
-  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function fmtAge(sec){
+  if(sec==null)return '—';
+  if(sec<60)return sec+'s';
+  const m=Math.floor(sec/60);return m+'m '+(sec%60)+'s';
 }
-const SEV_LABEL = { ok: 'Ổn định', soft: 'Nhẹ', warning: 'Cảnh báo', critical: 'Nghiêm trọng' };
-
-async function load() {
-  try {
-    const [st, info, hist] = await Promise.all([
-      fetch('/api/status').then(r => r.json()),
-      fetch('/api/info').then(r => r.json()),
-      fetch('/api/history').then(r => r.json()).catch(() => [])
+function showDonate(){document.getElementById('donateBox').style.display='block'}
+const LEVEL={ok:'Ổn định',soft:'Theo dõi',warning:'Cảnh báo',critical:'Mất kết nối'};
+async function load(){
+  try{
+    const [st,info]=await Promise.all([
+      fetch('/api/status').then(r=>r.json()),
+      fetch('/api/info').then(r=>r.json())
     ]);
-
-    document.getElementById('ver').textContent = 'v' + (info.version || st.version || '?');
-    const sev = st.severity || 'ok';
-    const sevEl = document.getElementById('sev');
-    sevEl.textContent = SEV_LABEL[sev] || sev;
-    sevEl.className = 'badge sev-' + sev;
-    document.getElementById('clock').textContent = info.time || '—';
-
-    if (info.githubPro) document.getElementById('btnPro').href = info.githubPro;
-    if (info.donateUrl) document.getElementById('btnDonate').href = info.donateUrl;
-
-    const n = st.node || {};
-    const up = !!n.running;
-    const syncMap = {
-      synced: '✅ Đã đồng bộ',
-      catching: '🔄 Đang bắt kịp',
-      down: '⛔ Tắt',
-      'running-unknownsync': '⚠️ Chưa rõ',
-      unknown: '❓ Không rõ'
-    };
-    const syncTxt = syncMap[n.sync] || (n.detail && n.detail.state) || syncMap.unknown;
-    const d = n.detail || {};
-    const ledger = d.ledger || {};
-    const peers = d.peers || {};
-    const quorum = d.quorum || {};
-    document.getElementById('nodeBody').innerHTML = `
-      <div class="row"><span class="k">Node</span>
-        <span class="v"><i class="dot ${up ? 'on' : 'off'}"></i>${up ? 'ONLINE' : 'OFFLINE'}</span></div>
-      <div class="row"><span class="k">Đồng bộ</span>
-        <span class="v">${esc(syncTxt)}</span></div>
-      <div class="row"><span class="k">Ledger</span>
-        <span class="v">${ledger.num != null ? Number(ledger.num).toLocaleString('en-US') : '—'}${ledger.age != null ? ' · age ' + ledger.age + 's' : ''}</span></div>
-      <div class="row"><span class="k">Peers</span>
-        <span class="v">${peers.authenticated != null ? peers.authenticated : '—'} auth · ${peers.pending != null ? peers.pending : '—'} pending</span></div>
-      <div class="row"><span class="k">Quorum</span>
-        <span class="v">${esc(quorum.phase || '—')}${quorum.agree != null ? ' · agree ' + quorum.agree : ''}</span></div>
-      <div class="row"><span class="k">Container</span>
-        <span class="v">${esc(n.name || '—')}</span></div>
-      <div class="row"><span class="k">Docker sock</span>
-        <span class="v">${n.dockerAccess ? 'Có' : 'Không'}</span></div>
-    `;
-
-    const lo = n.localOpen || [];
-    const req = n.required || [31401, 31402, 31403];
-    document.getElementById('ports').innerHTML = req.map(p =>
-      `<div class="port ${lo.includes(p) ? 'on' : 'off'}">${p}</div>`
+    document.getElementById('ver').textContent='v'+(info.version||st.version||'?');
+    const lv=st.level||'ok';
+    const sev=document.getElementById('sev');
+    sev.textContent=LEVEL[lv]||lv;
+    sev.className='badge '+(lv==='ok'?'ok':lv);
+    document.getElementById('clock').textContent=info.time||st.time||'—';
+    if(info.githubPro)document.getElementById('btnPro').href=info.githubPro;
+    const c=st.core||{};
+    const sync=c.sync==='synced'?'✅ Đã đồng bộ':c.sync==='catching'?'🔄 Đang đồng bộ':st.reachable?'⚠️ Chưa rõ':'⛔ Không phản hồi';
+    document.getElementById('body').innerHTML=
+      '<div class="row"><span class="k">Trạng thái</span><span class="v">'+esc(LEVEL[lv])+'</span></div>'+
+      '<div class="row"><span class="k">Đồng bộ</span><span class="v">'+sync+'</span></div>'+
+      '<div class="row"><span class="k">Ledger</span><span class="v">'+(c.ledger!=null?Number(c.ledger).toLocaleString('en-US'):'—')+'</span></div>'+
+      '<div class="row"><span class="k">Peers</span><span class="v">'+(c.peersAuth!=null?c.peersAuth:'—')+'</span></div>'+
+      '<div class="row"><span class="k">Ledger Age</span><span class="v">'+fmtAge(c.ledgerAge)+'</span></div>'+
+      (st.reason?'<div class="reason">'+esc(st.reason)+'</div>':'');
+    const ports=st.ports||[];
+    document.getElementById('ports').innerHTML=[31401,31402,31403].map(p=>
+      '<div class="port '+(ports.indexOf(p)>=0?'on':'off')+'">'+p+'</div>'
     ).join('');
-
-    const r = st.res || {};
-    const cpu = r.cpu, ram = r.ram, disk = st.disk;
-    document.getElementById('res').innerHTML = `
-      <div class="rc"><div class="lab">CPU</div><div class="val">${cpu != null ? cpu + '%' : '—'}</div>
-        <div class="meter"><i style="width:${cpu || 0}%"></i></div></div>
-      <div class="rc"><div class="lab">RAM</div><div class="val">${ram != null ? ram + '%' : '—'}</div>
-        <div class="meter"><i style="width:${ram || 0}%"></i></div></div>
-      <div class="rc"><div class="lab">Disk</div><div class="val">${disk ? disk.pct + '%' : '—'}</div>
-        <div class="meter"><i style="width:${disk ? disk.pct : 0}%"></i></div></div>
-    `;
-
-    if (Array.isArray(hist) && hist.length) {
-      document.getElementById('hist').innerHTML = hist.slice(0, 10).map(h => {
-        const t = new Date(h.t).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
-        return `<div>${esc(t)} — <b>${esc(h.type)}</b> (${esc(h.severity || '')})</div>`;
-      }).join('');
-    } else {
-      document.getElementById('hist').textContent = 'Chưa có sự kiện.';
-    }
-
-    document.getElementById('tgInfo').innerHTML =
-      (info.hasBot && info.hasChat)
-        ? '✅ Bot đã cấu hình. Gửi <b>/status</b> để nhận tin + nút hành động trên Telegram.<br>Báo cáo định kỳ: giờ ' + (info.reportHours || []).join(', ') + ' (giờ VN).'
-        : '⚠️ Chưa đủ BOT_TOKEN / CHAT_ID — chỉ xem web.';
-  } catch (e) {
-    document.getElementById('nodeBody').innerHTML =
-      '<div class="err">Không lấy được trạng thái. App đang chạy?</div>';
+  }catch(e){
+    document.getElementById('body').innerHTML='<div style="color:#e85c5c;text-align:center;padding:12px">Không lấy được trạng thái</div>';
   }
 }
 load();
-setInterval(load, 12000);
+setInterval(load,15000);
 </script>
 </body>
 </html>

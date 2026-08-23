@@ -1,6 +1,7 @@
 // ============================================================
-//  Pi Node Telegram Controller — SoloHost Edition PRO v2.2.0
-//  Giờ VN · tin nhắn rõ · web UI chuyên nghiệp
+//  Pi Node Telegram Controller — SoloHost Edition PRO v2.4.0
+//  Không docker.sock · HTTP đa nguồn · cảnh báo thông minh
+//  Báo cáo đơn giản · lịch sử · log · AI · script PowerShell
 // ============================================================
 'use strict';
 const http = require('http');
@@ -10,27 +11,49 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const VERSION = '2.3.0-solohost-pro';
+const VERSION = '2.4.0-solohost-pro';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const NODE_HOST = process.env.NODE_HOST || 'host.docker.internal';
-const REQUIRED = [31401, 31402, 31403];
+const NODE_HOST = (process.env.NODE_HOST || 'host.docker.internal').trim();
+const STELLAR_CORE_PORT = parseInt(process.env.STELLAR_CORE_PORT || '11626', 10) || 11626;
+const CORE_PORTS_TRY = uniqueInts([STELLAR_CORE_PORT, 11626, 31400]);
+const NODE_PORTS = [31401, 31402, 31403];
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.CHAT_ID || '').trim();
 const ALERT_ON_START = String(process.env.ALERT_ON_START || 'true').toLowerCase() !== 'false';
-const _rhRaw = String(process.env.REPORT_HOURS || '').trim();
+const NODE_LABEL = (process.env.PI_CONTAINER || process.env.NODE_LABEL || 'Pi Node').trim() || 'Pi Node';
+const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
+const _rh = String(process.env.REPORT_HOURS || '').trim();
 const REPORT_HOURS = (() => {
-  const arr = (_rhRaw || '7,19').split(',').map(s => parseInt(s.trim(), 10)).filter(n => n >= 0 && n <= 23);
-  return arr.length ? arr : [7, 19];
+  const a = (_rh || '7,19').split(',').map(s => parseInt(s.trim(), 10)).filter(n => n >= 0 && n <= 23);
+  return a.length ? a : [7, 19];
 })();
-const ALERT_COOLDOWN = Math.max(30, parseInt(process.env.ALERT_COOLDOWN_SEC || '60', 10) || 60);
-const SOCK = '/var/run/docker.sock';
+const ALERT_COOLDOWN = Math.max(60, parseInt(process.env.ALERT_COOLDOWN_SEC || '180', 10) || 180);
+const OFFLINE_CONFIRM = Math.max(2, parseInt(process.env.OFFLINE_CONFIRM_COUNT || '3', 10) || 3);
 const GITHUB_PRO = 'https://github.com/cannoi/pinode-telegram-controller';
-const DONATE_URL = 'https://github.com/cannoi/pinode-telegram-controller#donate';
+const GITHUB_SOLO = 'https://github.com/cannoi/pinode-telegram-solohost';
 
-const STATE_F = path.join(DATA, 'state.json');
-const HIST_F = path.join(DATA, 'history.json');
-const MAX_HIST = 80;
+const DIR_HIST = path.join(DATA, 'history');
+const DIR_STATE = path.join(DATA, 'state');
+const DIR_LOGS = path.join(DATA, 'logs');
+const STATE_F = path.join(DIR_STATE, 'node-state.json');
+const LOG_F = path.join(DIR_LOGS, 'controller.log');
+const PUBLIC = path.join(__dirname, 'public');
+const SCRIPTS = path.join(__dirname, 'scripts');
+
+function uniqueInts(arr) {
+  const o = [];
+  arr.forEach(n => { if (n && o.indexOf(n) < 0) o.push(n); });
+  return o;
+}
+
+// ---------- dirs ----------
+function ensureDirs() {
+  [DIR_HIST, DIR_STATE, DIR_LOGS].forEach(d => {
+    try { fs.mkdirSync(d, { recursive: true }); } catch (e) {}
+  });
+}
+ensureDirs();
 
 function loadJSON(f, def) {
   try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return def; }
@@ -39,43 +62,84 @@ function saveJSON(f, obj) {
   try {
     fs.mkdirSync(path.dirname(f), { recursive: true });
     const tmp = f + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(obj));
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 0));
     fs.renameSync(tmp, f);
+  } catch (e) { log('saveJSON err ' + (e && e.message)); }
+}
+
+// ---------- logging ----------
+function log(msg, level) {
+  level = level || 'info';
+  const line = '[' + nowISO() + '] [' + level + '] ' + msg;
+  console.log(line);
+  try {
+    fs.appendFileSync(LOG_F, line + '\n');
+    // rotate ~2MB
+    const st = fs.statSync(LOG_F);
+    if (st.size > 2 * 1024 * 1024) {
+      try { fs.renameSync(LOG_F, LOG_F + '.1'); } catch (e) {}
+    }
   } catch (e) {}
 }
 
-let state = loadJSON(STATE_F, {
-  lastRunning: null, lastSeverity: 'ok', lastAlertAt: 0,
-  lastReportHour: -1, alertCount: 0, pendingReset: null
-});
-let history = loadJSON(HIST_F, []);
-
-function pushHist(ev) {
-  history.unshift(Object.assign({ t: Date.now() }, ev));
-  if (history.length > MAX_HIST) history = history.slice(0, MAX_HIST);
-  saveJSON(HIST_F, history);
+// ---------- time VN ----------
+function nowISO() {
+  try {
+    return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }).replace(' ', 'T') + '+07:00';
+  } catch (e) { return new Date().toISOString(); }
 }
-
+function nowStr() {
+  try {
+    return new Date().toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh', hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  } catch (e) { return new Date().toISOString(); }
+}
+function hourVNNow() {
+  try {
+    const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: 'numeric', hour12: false }).formatToParts(new Date());
+    const h = p.find(x => x.type === 'hour');
+    return h ? parseInt(h.value, 10) % 24 : ((new Date().getUTCHours() + 7) % 24);
+  } catch (e) { return (new Date().getUTCHours() + 7) % 24; }
+}
+function dayVN() {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  } catch (e) { return new Date().toISOString().slice(0, 10); }
+}
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-
-// Giờ Việt Nam cố định (không phụ thuộc TZ container)
-function nowStr() {
-  try {
-    return new Date().toLocaleString('vi-VN', {
-      timeZone: 'Asia/Ho_Chi_Minh',
-      hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    });
-  } catch (e) {
-    return new Date().toISOString();
-  }
+function fmtLedger(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('en-US');
+}
+function fmtAge(sec) {
+  if (sec == null) return '—';
+  if (sec < 60) return sec + 's';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  if (m < 60) return m + 'm ' + s + 's';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
 }
 
-function probe(host, port, timeout) {
+// ---------- state ----------
+let state = loadJSON(STATE_F, {
+  lastLevel: null,          // ok | soft | warning | critical
+  lastAlertAt: 0,
+  lastReportKey: '',
+  offlineStreak: 0,
+  onlineStreak: 0,
+  lastLedger: null,
+  lastLedgerAt: 0,
+  alertCount: 0
+});
+
+// ---------- network helpers ----------
+function probeTcp(host, port, timeout) {
   return new Promise(function (res) {
     const s = new net.Socket();
     let done = false;
@@ -88,25 +152,22 @@ function probe(host, port, timeout) {
   });
 }
 
-// Danh sách host thử dò cổng node trên máy thật (SoloHost / Docker Desktop / Linux)
 function candidateHosts() {
   const list = [];
   const add = h => { if (h && list.indexOf(h) < 0) list.push(h); };
   add(NODE_HOST);
   add('host.docker.internal');
-  add('172.17.0.1');   // docker0 mặc định
+  add('172.17.0.1');
   add('172.18.0.1');
   add('172.19.0.1');
-  add('172.20.0.1');
-  add('10.0.2.2');     // một số VM
-  // gateway từ /proc/net/route
+  add('10.0.2.2');
   try {
     const rows = fs.readFileSync('/proc/net/route', 'utf8').trim().split('\n').slice(1);
     for (const row of rows) {
       const p = row.split('\t');
       if (p[1] === '00000000' && p[2] && p[2] !== '00000000') {
         const hex = p[2];
-        const ip = [hex.slice(6,8), hex.slice(4,6), hex.slice(2,4), hex.slice(0,2)]
+        const ip = [hex.slice(6, 8), hex.slice(4, 6), hex.slice(2, 4), hex.slice(0, 2)]
           .map(x => parseInt(x, 16)).join('.');
         add(ip);
         break;
@@ -116,268 +177,13 @@ function candidateHosts() {
   return list;
 }
 
-let _probeHost = null; // host đang dùng tốt nhất
-async function localOpen() {
-  const hosts = _probeHost ? [_probeHost].concat(candidateHosts().filter(h => h !== _probeHost)) : candidateHosts();
-  for (const host of hosts) {
-    const open = [];
-    await Promise.all(REQUIRED.map(async p => { if (await probe(host, p, 1000)) open.push(p); }));
-    if (open.length > 0) {
-      if (_probeHost !== host) {
-        _probeHost = host;
-        console.log('[probe] dùng host=' + host + ' ports=' + open.join(','));
-      }
-      return open.sort((a, b) => a - b);
-    }
-  }
-  return [];
-}
+let _bestHost = null;
 
-function _readStat() {
-  try {
-    const line = fs.readFileSync('/proc/stat', 'utf8').split('\n')[0];
-    const p = line.trim().split(/\s+/).slice(1).map(Number);
-    const idle = (p[3] || 0) + (p[4] || 0);
-    const total = p.reduce((a, b) => a + (b || 0), 0);
-    return { idle, total };
-  } catch (e) { return null; }
-}
-let _cpuPct = null;
-async function _cpuSampler() {
-  let prev = _readStat();
-  while (true) {
-    await wait(2000);
-    const cur = _readStat();
-    if (prev && cur) {
-      const dt = cur.total - prev.total, di = cur.idle - prev.idle;
-      if (dt > 0) _cpuPct = Math.max(0, Math.min(100, Math.round((1 - di / dt) * 100)));
-    }
-    prev = cur;
-  }
-}
-function hostRes() {
-  let ram = null, up = null, memGB = null;
-  try {
-    const s = parseFloat(fs.readFileSync('/proc/uptime', 'utf8').split(' ')[0]);
-    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-    up = (d > 0 ? d + ' ngày ' : '') + h + ' giờ ' + m + ' phút';
-  } catch (e) {}
-  try {
-    const mi = fs.readFileSync('/proc/meminfo', 'utf8');
-    const g = k => { const m = mi.match(new RegExp(k + ':\\s+(\\d+)')); return m ? parseInt(m[1], 10) : 0; };
-    const tot = g('MemTotal'), av = g('MemAvailable');
-    if (tot) { ram = Math.round((1 - av / tot) * 100); memGB = +(tot / 1048576).toFixed(1); }
-  } catch (e) {}
-  return { cpu: _cpuPct, ram, uptime: up, memGB, cores: (os.cpus() || []).length };
-}
-
-function diskInfo() {
-  try {
-    const { execSync } = require('child_process');
-    const out = execSync('df -k /data 2>/dev/null || df -k /', { encoding: 'utf8', timeout: 3000 });
-    const lines = out.trim().split('\n');
-    if (lines.length < 2) return null;
-    const parts = lines[1].split(/\s+/);
-    const totalK = parseInt(parts[1], 10), usedK = parseInt(parts[2], 10), availK = parseInt(parts[3], 10);
-    const pct = parseInt(String(parts[4]).replace('%', ''), 10);
-    return {
-      totalGB: +(totalK / 1048576).toFixed(1),
-      usedGB: +(usedK / 1048576).toFixed(1),
-      availGB: +(availK / 1048576).toFixed(1),
-      pct: isNaN(pct) ? Math.round(usedK / totalK * 100) : pct
-    };
-  } catch (e) { return null; }
-}
-
-function sockReq(method, pathname, body) {
+function httpGet(host, port, pathname, timeout) {
   return new Promise(function (resolve) {
-    let has = false;
-    try { has = fs.existsSync(SOCK); } catch (e) {}
-    if (!has) return resolve(null);
-    const data = body != null ? JSON.stringify(body) : null;
-    const opt = {
-      socketPath: SOCK, path: pathname, method,
-      headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}
-    };
-    const req = http.request(opt, function (r) {
-      let b = '';
-      r.on('data', d => b += d);
-      r.on('end', () => resolve({ status: r.statusCode, body: b }));
-    });
-    req.on('error', () => resolve(null));
-    req.setTimeout(8000, () => { try { req.destroy(); } catch (e) {} resolve(null); });
-    if (data) req.write(data);
-    req.end();
-  });
-}
-
-async function dockerNode() {
-  const r = await sockReq('GET', '/containers/json?all=1');
-  if (!r || r.status !== 200) return null;
-  let arr;
-  try { arr = JSON.parse(r.body); } catch (e) { return null; }
-
-  const PI_CONTAINER_ENV = (process.env.PI_CONTAINER || '').trim();
-
-  // Chấm điểm container để tự chọn đúng testnet2 / mainnet
-  function scoreContainer(c) {
-    let score = 0;
-    const names = (c.Names || []).map(n => String(n).replace(/^\//, ''));
-    const nameJoined = names.join(' ').toLowerCase();
-    const image = String(c.Image || '').toLowerCase();
-    const running = c.State === 'running';
-
-    if (PI_CONTAINER_ENV) {
-      if (names.some(n => n.toLowerCase() === PI_CONTAINER_ENV.toLowerCase())) score += 1000;
-      else return -1; // override: bỏ container không khớp
-    }
-
-    if (running) score += 30;
-    if (/pi-node-docker|pinetwork\/pi-node|stellar-core/.test(image)) score += 50;
-    if (/^testnet2$|^mainnet$|^testnet$|^pi-node$|^pi_node$/.test(nameJoined)) score += 25;
-    else if (/testnet|mainnet|pi-node|stellar/.test(nameJoined)) score += 15;
-    if (/pi\.network|pinetwork/.test(image)) score += 10;
-    return score;
-  }
-
-  const ranked = arr
-    .map(c => ({ c, score: scoreContainer(c) }))
-    .filter(x => x.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  if (!ranked.length) return { found: false };
-
-  const best = ranked[0].c;
-  const name = ((best.Names && best.Names[0]) || '').replace(/^\//, '');
-  const m = (best.Image || '').match(/p(\d+)\./i);
-  console.log('[dockerNode] chọn ' + name + ' score=' + ranked[0].score + (ranked.length > 1 ? ' (trong ' + ranked.length + ' ứng viên)' : ''));
-  return {
-    found: true,
-    running: best.State === 'running',
-    id: best.Id,
-    name: name,
-    image: best.Image || '',
-    proto: m ? ('v' + m[1]) : null,
-    status: best.Status || best.State || '',
-    score: ranked[0].score
-  };
-}
-
-// Giải mã Docker multiplexed stream (stdout/stderr frames)
-function decodeDockerStream(raw) {
-  if (!raw) return '';
-  try {
-    const buf = Buffer.from(raw, 'binary');
-    // Nếu không có header 8-byte chuẩn, trả raw text
-    if (buf.length < 8) return raw.toString ? raw.toString('utf8') : String(raw);
-    let out = '';
-    let i = 0;
-    let frames = 0;
-    while (i + 8 <= buf.length) {
-      const size = buf.readUInt32BE(i + 4);
-      i += 8;
-      if (size <= 0 || i + size > buf.length) break;
-      out += buf.slice(i, i + size).toString('utf8');
-      i += size;
-      frames++;
-    }
-    if (frames > 0 && out) return out;
-  } catch (e) {}
-  return typeof raw === 'string' ? raw : String(raw);
-}
-
-// Lấy stellar-core info đầy đủ qua docker exec
-// Thứ tự: stellar-core http-command info → fallback curl 127.0.0.1:11626/info
-async function dockerSyncFull(id) {
-  try {
-    const cmd = 'stellar-core http-command info 2>/dev/null || curl -s http://127.0.0.1:11626/info 2>/dev/null || wget -qO- http://127.0.0.1:11626/info 2>/dev/null';
-    const ex = await sockReq('POST', '/containers/' + id + '/exec', {
-      AttachStdout: true,
-      AttachStderr: true,
-      Tty: false,
-      Cmd: ['sh', '-c', cmd]
-    });
-    if (!ex || ex.status >= 400) return null;
-    let execId;
-    try { execId = JSON.parse(ex.body).Id; } catch (e) { return null; }
-    const out = await sockReq('POST', '/exec/' + execId + '/start', { Detach: false, Tty: false });
-    if (!out || out.body == null) return null;
-
-    const text = decodeDockerStream(out.body);
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    let j;
-    try { j = JSON.parse(match[0]); } catch (e) { return null; }
-    const info = j.info || j;
-    if (!info || typeof info !== 'object') return null;
-
-    const ledger = info.ledger || {};
-    const peers = info.peers || {};
-    const qset = (info.quorum && info.quorum.qset) || {};
-
-    // Chỉ giữ trường hữu ích cho người dùng / Controller
-    return {
-      state: info.state || 'unknown',
-      network: info.network || null,
-      build: info.build || null,
-      protocol: info.protocol_version || null,
-      ledger: {
-        num: ledger.num != null ? ledger.num : null,
-        age: ledger.age != null ? ledger.age : null
-      },
-      peers: {
-        authenticated: peers.authenticated_count != null ? peers.authenticated_count : 0,
-        pending: peers.pending_count != null ? peers.pending_count : 0
-      },
-      quorum: {
-        phase: qset.phase || null,
-        agree: qset.agree != null ? qset.agree : null,
-        missing: qset.missing != null ? qset.missing : null
-      },
-      startedOn: info.startedOn || null,
-      rawState: String(info.state || '').toLowerCase()
-    };
-  } catch (e) {
-    console.log('[dockerSyncFull] ' + (e && e.message));
-    return null;
-  }
-}
-
-function parseSyncFromFull(full) {
-  if (!full) return 'unknown';
-  const s = (full.rawState || full.state || '').toLowerCase();
-  if (s.includes('synced')) return 'synced';
-  if (s.includes('catch') || s.includes('join') || s.includes('boot') || s.includes('waiting')) return 'catching';
-  if (s) return 'running-unknownsync';
-  return 'unknown';
-}
-
-// Giữ tương thích gọi cũ
-async function dockerSync(id) {
-  const full = await dockerSyncFull(id);
-  return parseSyncFromFull(full);
-}
-
-function parseSyncText(t) {
-  if (!t) return 'unknown';
-  if (/Synced!?/i.test(t)) return 'synced';
-  if (/Catching up|catchup|Joining SCP|Booting|Waiting/i.test(t)) return 'catching';
-  try {
-    const j = JSON.parse(t.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1'));
-    const state = (j && (j.state || (j.info && j.info.state))) || '';
-    const s = String(state).toLowerCase();
-    if (s.includes('synced')) return 'synced';
-    if (s.includes('catch') || s.includes('join') || s.includes('boot')) return 'catching';
-    if (s) return 'running-unknownsync';
-  } catch (e) {}
-  if (/"state"/.test(t) || /"build"/.test(t)) return 'running-unknownsync';
-  return 'unknown';
-}
-
-// Dò HTTP info trên host (cổng stellar-core 11626 nếu publish)
-function httpGet(host, port, pathName, timeout) {
-  return new Promise(function (resolve) {
-    const req = http.request({ host: host, port: port, path: pathName, method: 'GET', timeout: timeout || 2000 }, function (r) {
+    const req = http.request({
+      host, port, path: pathname, method: 'GET', timeout: timeout || 2500
+    }, function (r) {
       let b = '';
       r.on('data', d => b += d);
       r.on('end', () => resolve({ status: r.statusCode, body: b }));
@@ -388,247 +194,431 @@ function httpGet(host, port, pathName, timeout) {
   });
 }
 
-async function hostSyncFull() {
-  const hosts = _probeHost ? [_probeHost].concat(candidateHosts().filter(h => h !== _probeHost)) : candidateHosts();
+// ---------- Core /info ----------
+function parseCoreInfo(body) {
+  if (!body) return null;
+  try {
+    const match = String(body).match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const j = JSON.parse(match[0]);
+    const info = j.info || j;
+    if (!info || typeof info !== 'object') return null;
+    const ledger = info.ledger || {};
+    const peers = info.peers || {};
+    const qset = (info.quorum && info.quorum.qset) || {};
+    const stateStr = String(info.state || '');
+    const low = stateStr.toLowerCase();
+    let sync = 'unknown';
+    if (low.includes('synced')) sync = 'synced';
+    else if (/catch|join|boot|wait/.test(low)) sync = 'catching';
+    else if (stateStr) sync = 'other';
+
+    return {
+      state: stateStr || 'unknown',
+      sync,
+      network: info.network || null,
+      build: info.build || null,
+      protocol: info.protocol_version != null ? info.protocol_version : null,
+      ledger: ledger.num != null ? Number(ledger.num) : null,
+      ledgerAge: ledger.age != null ? Number(ledger.age) : null,
+      peersAuth: peers.authenticated_count != null ? Number(peers.authenticated_count) : null,
+      peersPending: peers.pending_count != null ? Number(peers.pending_count) : null,
+      quorumPhase: qset.phase || null,
+      quorumAgree: qset.agree != null ? Number(qset.agree) : null,
+      source: null
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchCoreInfo() {
+  const hosts = _bestHost
+    ? [_bestHost].concat(candidateHosts().filter(h => h !== _bestHost))
+    : candidateHosts();
+
   for (const host of hosts) {
-    const r = await httpGet(host, 11626, '/info', 2500);
-    if (!r || r.status !== 200 || !r.body) continue;
-    try {
-      const match = r.body.match(/\{[\s\S]*\}/);
-      if (!match) continue;
-      const j = JSON.parse(match[0]);
-      const info = j.info || j;
-      if (!info || typeof info !== 'object') continue;
-      const ledger = info.ledger || {};
-      const peers = info.peers || {};
-      const qset = (info.quorum && info.quorum.qset) || {};
-      return {
-        state: info.state || 'unknown',
-        network: info.network || null,
-        build: info.build || null,
-        protocol: info.protocol_version || null,
-        ledger: { num: ledger.num != null ? ledger.num : null, age: ledger.age != null ? ledger.age : null },
-        peers: {
-          authenticated: peers.authenticated_count != null ? peers.authenticated_count : 0,
-          pending: peers.pending_count != null ? peers.pending_count : 0
-        },
-        quorum: {
-          phase: qset.phase || null,
-          agree: qset.agree != null ? qset.agree : null,
-          missing: qset.missing != null ? qset.missing : null
-        },
-        startedOn: info.startedOn || null,
-        rawState: String(info.state || '').toLowerCase()
-      };
-    } catch (e) {}
+    for (const port of CORE_PORTS_TRY) {
+      const r = await httpGet(host, port, '/info', 2500);
+      if (r && r.status === 200 && r.body) {
+        const info = parseCoreInfo(r.body);
+        if (info) {
+          if (_bestHost !== host) {
+            _bestHost = host;
+            log('core host=' + host + ':' + port);
+          }
+          info.source = host + ':' + port;
+          return info;
+        }
+      }
+    }
   }
   return null;
 }
 
-async function hostSync() {
-  const full = await hostSyncFull();
-  return full ? parseSyncFromFull(full) : null;
-}
-
-async function dockerLogs(id, tail) {
-  const r = await sockReq('GET', '/containers/' + id + '/logs?stdout=1&stderr=1&tail=' + (tail || 40) + '&timestamps=0');
-  if (!r || r.status !== 200) return null;
-  const text = decodeDockerStream(r.body || '');
-  return text.split('\n').filter(Boolean).slice(-40).join('\n');
-}
-
-async function dockerRestart(id) {
-  const r = await sockReq('POST', '/containers/' + id + '/restart?t=15');
-  return r && r.status >= 200 && r.status < 300;
-}
-
-async function dockerInfo() {
-  const r = await sockReq('GET', '/info');
-  if (!r || r.status !== 200) return null;
-  try {
-    const j = JSON.parse(r.body);
-    return {
-      os: j.OperatingSystem || '',
-      ncpu: j.NCPU || null,
-      memGB: j.MemTotal ? +(j.MemTotal / 1073741824).toFixed(1) : null,
-      isDesktop: /Docker Desktop/i.test(j.OperatingSystem || '')
-    };
-  } catch (e) { return null; }
-}
-
-function calcSeverity(st) {
-  const n = st.node;
-  if (!n.running && n.localOpen.length === 0) return 'critical';
-  if (!n.running) return 'warning';
-  if (n.localOpen.length < REQUIRED.length) return 'warning';
-  if (n.sync === 'catching') return 'soft';
-  if (n.sync === 'down') return 'warning';
-  if (n.sync === 'unknown' && n.dockerAccess) return 'soft';
-  // Dùng chi tiết stellar-core nếu có
-  if (n.detail) {
-    if (n.detail.ledger && n.detail.ledger.age != null && n.detail.ledger.age > 30) return 'warning';
-    if (n.detail.peers && n.detail.peers.authenticated < 4) return 'soft';
+async function checkPorts() {
+  const hosts = _bestHost
+    ? [_bestHost].concat(candidateHosts().filter(h => h !== _bestHost))
+    : candidateHosts();
+  let open = [];
+  let usedHost = null;
+  for (const host of hosts) {
+    const got = [];
+    await Promise.all(NODE_PORTS.map(async p => {
+      if (await probeTcp(host, p, 1000)) got.push(p);
+    }));
+    if (got.length > open.length) {
+      open = got;
+      usedHost = host;
+      if (got.length === NODE_PORTS.length) break;
+    }
   }
-  if (st.res.ram != null && st.res.ram >= 92) return 'warning';
-  if (st.disk && st.disk.pct >= 92) return 'warning';
-  if (st.res.cpu != null && st.res.cpu >= 95) return 'soft';
-  return 'ok';
+  if (usedHost && !_bestHost) _bestHost = usedHost;
+  return open.sort((a, b) => a - b);
 }
-const SEV_ICON = { ok: '🟢', soft: '🟡', warning: '🟠', critical: '🔴' };
-const SEV_LABEL = { ok: 'Ổn định', soft: 'Nhẹ', warning: 'Cảnh báo', critical: 'Nghiêm trọng' };
 
+// ---------- collect ----------
+async function collectOnce() {
+  const [core, ports] = await Promise.all([fetchCoreInfo(), checkPorts()]);
+  const portsOk = ports.length;
+  const coreOk = !!(core && core.sync !== 'unknown');
+
+  // reachable: core OK or enough ports
+  let reachable = coreOk || portsOk >= 2;
+  if (!coreOk && portsOk === 0) reachable = false;
+
+  let level = 'ok';
+  let reason = '';
+
+  if (!reachable) {
+    level = 'critical';
+    reason = 'Node không phản hồi (Core API + cổng đóng)';
+  } else if (!coreOk && portsOk > 0) {
+    level = 'soft';
+    reason = 'Cổng còn mở nhưng chưa đọc được Core /info';
+  } else if (core && core.sync === 'catching') {
+    level = 'soft';
+    reason = 'Node đang bắt kịp đồng bộ';
+  } else if (core && core.ledgerAge != null && core.ledgerAge > 300) {
+    // > 5 phút mới coi là vấn đề thật (trước đây 30s gây spam)
+    level = 'warning';
+    reason = 'Ledger Age cao (' + fmtAge(core.ledgerAge) + ')';
+  } else if (core && core.peersAuth != null && core.peersAuth < 2) {
+    level = 'soft';
+    reason = 'Peers rất thấp (' + core.peersAuth + ')';
+  } else if (core && core.sync === 'synced') {
+    level = 'ok';
+    reason = 'Node hoạt động bình thường';
+  } else {
+    level = 'ok';
+    reason = 'Node đang phản hồi';
+  }
+
+  // ledger stalled (history)
+  if (core && core.ledger != null && state.lastLedger != null && state.lastLedgerAt) {
+    const elapsed = Date.now() - state.lastLedgerAt;
+    if (core.ledger === state.lastLedger && elapsed > 10 * 60 * 1000 && core.sync === 'synced') {
+      level = level === 'ok' ? 'warning' : level;
+      reason = 'Ledger không tăng trong ' + Math.round(elapsed / 60000) + ' phút';
+    }
+  }
+
+  return {
+    version: VERSION,
+    label: NODE_LABEL,
+    reachable,
+    level,
+    reason,
+    core,
+    ports,
+    portsOk,
+    coreOk,
+    ts: Date.now(),
+    time: nowStr()
+  };
+}
+
+// Collect with anti-false-offline
 async function collectStatus() {
-  const lo = await localOpen();
-  const dn = await dockerNode();
-  const res = hostRes();
-  const disk = diskInfo();
-  const info = await dockerInfo();
-
-  let running, docker, proto, dockerAccess, nodeName, nodeImage, nodeStatus, sync, detail, nodeId;
-  detail = null;
-  nodeId = null;
-
-  if (dn) {
-    dockerAccess = true;
-    docker = dn.found ? (dn.running ? 'up' : 'down') : 'notfound';
-    running = !!(dn.found && dn.running);
-    proto = running ? (dn.proto || null) : null;
-    nodeName = dn.name || null;
-    nodeImage = dn.image || null;
-    nodeStatus = dn.status || null;
-    nodeId = dn.found ? dn.id : null;
-    if (running && dn.id) {
-      const full = await dockerSyncFull(dn.id);
-      detail = full;
-      sync = parseSyncFromFull(full);
-      // Bonus điểm: đã lấy được info hợp lệ (log)
-      if (full && full.state) console.log('[sync] ' + nodeName + ' → ' + full.state + ' ledger=' + (full.ledger && full.ledger.num));
-    } else {
-      sync = running ? 'unknown' : 'down';
+  let st = await collectOnce();
+  if (!st.reachable) {
+    state.offlineStreak = (state.offlineStreak || 0) + 1;
+    state.onlineStreak = 0;
+    // chưa đủ số lần → hạ mức xuống soft thay vì critical
+    if (state.offlineStreak < OFFLINE_CONFIRM) {
+      st.level = 'soft';
+      st.reason = 'Đang xác nhận mất kết nối (' + state.offlineStreak + '/' + OFFLINE_CONFIRM + ')';
+      log('offline streak ' + state.offlineStreak, 'warn');
     }
   } else {
-    dockerAccess = false;
-    running = lo.length > 0;
-    docker = running ? 'up' : 'down';
-    proto = null;
-    nodeName = nodeImage = nodeStatus = null;
-    if (running) {
-      const full = await hostSyncFull();
-      if (full) { detail = full; sync = parseSyncFromFull(full); }
-      else { sync = 'unknown'; }
-    } else {
-      sync = 'down';
+    if (state.offlineStreak > 0) log('node reachable again after streak=' + state.offlineStreak);
+    state.offlineStreak = 0;
+    state.onlineStreak = (state.onlineStreak || 0) + 1;
+  }
+
+  if (st.core && st.core.ledger != null) {
+    if (state.lastLedger !== st.core.ledger) {
+      state.lastLedger = st.core.ledger;
+      state.lastLedgerAt = Date.now();
     }
   }
 
-  // Available % ước lượng từ peers authenticated (thực tế hiển thị cho user)
-  let availablePct = null;
-  if (detail && detail.peers) {
-    const auth = detail.peers.authenticated || 0;
-    // Heuristic: >= 8 peers ≈ rất tốt; công thức nhẹ nhàng
-    availablePct = Math.min(99.9, Math.round((Math.min(auth, 20) / 20 * 40 + (detail.rawState && detail.rawState.includes('synced') ? 55 : 30) + (lo.length / REQUIRED.length) * 5) * 100) / 100);
-  }
-
-  const st = {
-    version: VERSION,
-    linked: !!(BOT_TOKEN && CHAT_ID),
-    probeHost: _probeHost || NODE_HOST,
-    node: {
-      running, docker, proto, sync, localOpen: lo, required: REQUIRED,
-      dockerAccess, name: nodeName, image: nodeImage, status: nodeStatus,
-      id: nodeId,
-      detail: detail ? {
-        state: detail.state,
-        network: detail.network,
-        build: detail.build,
-        ledger: detail.ledger,
-        peers: detail.peers,
-        quorum: detail.quorum,
-        availablePct: availablePct
-      } : null
-    },
-    res: {
-      cpu: res.cpu, ram: res.ram, uptime: res.uptime,
-      memGB: (info && info.memGB) || res.memGB,
-      cores: (info && info.ncpu) || res.cores,
-      env: info ? (info.isDesktop ? 'docker-desktop' : 'host') : 'container'
-    },
-    disk,
-    ts: Date.now()
-  };
-  st.severity = calcSeverity(st);
+  saveJSON(STATE_F, state);
   return st;
 }
 
-// ---------- Tin nhắn Telegram đẹp, rõ ----------
-function syncLabel(s) {
-  const m = {
-    synced: '✅ Đã đồng bộ (Synced)',
-    catching: '🔄 Đang bắt kịp (Catching up)',
-    down: '⛔ Node tắt',
-    'running-unknownsync': '⚠️ Chạy — chưa rõ sync',
-    unknown: '❓ Không rõ'
-  };
-  return m[s] || m.unknown;
+// ---------- history ----------
+function appendHistory(st) {
+  try {
+    const day = dayVN();
+    const f = path.join(DIR_HIST, day + '.jsonl');
+    const row = {
+      t: nowISO(),
+      level: st.level,
+      reachable: st.reachable,
+      sync: st.core ? st.core.sync : null,
+      state: st.core ? st.core.state : null,
+      ledger: st.core ? st.core.ledger : null,
+      ledgerAge: st.core ? st.core.ledgerAge : null,
+      peers: st.core ? st.core.peersAuth : null,
+      portsOk: st.portsOk,
+      network: st.core ? st.core.network : null,
+      protocol: st.core ? st.core.protocol : null
+    };
+    fs.appendFileSync(f, JSON.stringify(row) + '\n');
+  } catch (e) {
+    log('history err ' + (e && e.message), 'error');
+  }
 }
 
-function formatStatus(st, opts) {
-  opts = opts || {};
-  const n = st.node;
-  const sev = st.severity || 'ok';
-  const icon = SEV_ICON[sev] || '⚪';
-  const ports = n.required.map(p =>
-    (n.localOpen.includes(p) ? '✅' : '❌') + ' <code>' + p + '</code>'
-  ).join('   ');
-  
-  // Chi tiết stellar-core (chỉ field hữu ích)
-  let detailBlock = '';
-  if (n.detail) {
-    const d = n.detail;
-    const rows = [];
-    if (d.availablePct != null) rows.push('• Available: <b>' + d.availablePct + '%</b>');
-    if (d.state) rows.push('• Sync: <b>' + esc(d.state) + '</b>');
-    if (d.ledger && d.ledger.num != null) rows.push('• Ledger: <code>' + Number(d.ledger.num).toLocaleString('en-US') + '</code>');
-    if (d.ledger && d.ledger.age != null) rows.push('• Ledger Age: <b>' + d.ledger.age + 's</b>');
-    if (d.peers) rows.push('• Peers: <b>' + (d.peers.authenticated || 0) + '</b>  ·  Pending: ' + (d.peers.pending || 0));
-    if (d.quorum && d.quorum.phase) rows.push('• Quorum: <b>' + esc(d.quorum.phase) + '</b>  ·  Agree: ' + (d.quorum.agree != null ? d.quorum.agree : '—') + '  ·  Missing: ' + (d.quorum.missing != null ? d.quorum.missing : '—'));
-    if (d.network) rows.push('• Network: <b>' + esc(d.network) + '</b>');
-    if (d.build) rows.push('• Build: <code>' + esc(d.build) + '</code>');
-    if (rows.length) detailBlock = '\n' + rows.join('\n') + '\n';
+function readHistoryDays(days) {
+  const out = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(Date.now() - i * 86400000);
+    let key;
+    try {
+      key = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+    } catch (e) {
+      key = d.toISOString().slice(0, 10);
+    }
+    const f = path.join(DIR_HIST, key + '.jsonl');
+    try {
+      const lines = fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean);
+      lines.forEach(line => {
+        try { out.push(JSON.parse(line)); } catch (e) {}
+      });
+    } catch (e) {}
   }
+  return out;
+}
 
-  const cpu = st.res.cpu != null ? st.res.cpu + '%' : '—';
-  const ram = st.res.ram != null ? st.res.ram + '%' : '—';
+function analyzeHistory(days) {
+  const rows = readHistoryDays(days || 1);
+  if (!rows.length) {
+    return { samples: 0, text: 'Chưa đủ dữ liệu lịch sử. App cần chạy thêm vài giờ.' };
+  }
+  const total = rows.length;
+  const offline = rows.filter(r => r.level === 'critical' || r.reachable === false).length;
+  const soft = rows.filter(r => r.level === 'soft' || r.level === 'warning').length;
+  const ok = total - offline - soft;
+  const ledgers = rows.map(r => r.ledger).filter(x => x != null);
+  const peers = rows.map(r => r.peers).filter(x => x != null);
+  const minL = ledgers.length ? Math.min.apply(null, ledgers) : null;
+  const maxL = ledgers.length ? Math.max.apply(null, ledgers) : null;
+  const avgPeers = peers.length ? Math.round(peers.reduce((a, b) => a + b, 0) / peers.length) : null;
+
+  const pctOk = Math.round((ok / total) * 1000) / 10;
+  let verdict = '🟢 Node hoạt động ổn định.';
+  if (offline > total * 0.05) verdict = '🟠 Có lúc mất kết nối — nên kiểm tra máy/mạng.';
+  if (offline > total * 0.2) verdict = '🔴 Mất kết nối khá nhiều — cần kiểm tra ngay.';
 
   const lines = [
-    `${icon} <b>PI NODE STATUS</b>`,
-    `━━━━━━━━━━━━━━━━`,
-    `• Trạng thái: <b>${n.running ? 'ONLINE' : 'OFFLINE'}</b>`,
-    `• Mức độ: <b>${SEV_LABEL[sev]}</b>`,
-    `• Docker: ${esc(n.docker)}${n.proto ? ' · ' + esc(n.proto) : ''}${n.name ? '\n• Container: <code>' + esc(n.name) + '</code>' : ''}`,
-    `• Đồng bộ: <b>${esc(syncLabel(n.sync))}</b>`,
-    `• Cổng: ${ports}`,
-    `• CPU: <b>${cpu}</b>  ·  RAM: <b>${ram}</b>`,
-    `• Uptime: ${esc(st.res.uptime || '—')}`
+    '📊 <b>PHÂN TÍCH ' + (days || 1) + ' NGÀY</b>',
+    '━━━━━━━━━━━━━━━━',
+    '• Mẫu ghi: <b>' + total + '</b>',
+    '• Ổn định: <b>' + pctOk + '%</b>',
+    '• Cảnh báo nhẹ: ' + soft,
+    '• Mất kết nối: ' + offline
   ];
-  if (detailBlock) {
-    lines.push('──── stellar-core ────');
-    detailBlock.trim().split('\n').forEach(function (row) { if (row.trim()) lines.push(row); });
+  if (minL != null && maxL != null) {
+    lines.push('• Ledger: ' + fmtLedger(minL) + ' → ' + fmtLedger(maxL));
   }
-  if (st.disk) {
-    lines.push(`• Disk: ${st.disk.usedGB}/${st.disk.totalGB} GB (<b>${st.disk.pct}%</b>)`);
+  if (avgPeers != null) lines.push('• Peers TB: ' + avgPeers);
+  lines.push('');
+  lines.push(verdict);
+  return { samples: total, pctOk, offline, soft, minL, maxL, avgPeers, text: lines.join('\n'), verdict };
+}
+
+// ---------- AI (Gemini optional) ----------
+async function aiAnalyze(st) {
+  if (!GEMINI_API_KEY) {
+    const hist = analyzeHistory(1);
+    return hist.text + '\n\n<i>Gợi ý: thêm GEMINI_API_KEY trong cấu hình để phân tích AI sâu hơn.</i>';
   }
-  lines.push(`• Docker sock: ${n.dockerAccess ? 'có' : 'không (suy từ cổng)'}`);
-  if (st.probeHost) lines.push(`• Probe host: <code>${esc(st.probeHost)}</code>`);
-  lines.push(`━━━━━━━━━━━━━━━━`);
-  lines.push(`🕐 ${esc(nowStr())}`);
-  lines.push(`📦 SoloHost PRO <code>v${esc(st.version)}</code>`);
-  if (opts.withLink !== false) {
-    lines.push('');
-    lines.push(`💻 <b>Bản Windows PRO</b> (đầy đủ hơn):`);
-    lines.push(GITHUB_PRO);
+  const hist = analyzeHistory(1);
+  const prompt =
+    'Bạn là trợ lý giám sát Pi Node cho người dùng phổ thông (không chuyên kỹ thuật). ' +
+    'Phân tích ngắn gọn bằng tiếng Việt (tối đa 8 dòng), kết luận rõ ràng, không jargon.\n\n' +
+    'Trạng thái hiện tại:\n' + JSON.stringify({
+      level: st.level, reason: st.reason, sync: st.core && st.core.sync,
+      ledger: st.core && st.core.ledger, ledgerAge: st.core && st.core.ledgerAge,
+      peers: st.core && st.core.peersAuth, portsOk: st.portsOk
+    }) + '\n\nTóm tắt lịch sử 24h: samples=' + hist.samples +
+    ' ok%=' + hist.pctOk + ' offline=' + hist.offline +
+    ' ledger ' + hist.minL + '→' + hist.maxL +
+    '\n\nTrả lời ngắn, có icon.';
+
+  try {
+    const body = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }]
+    });
+    const result = await new Promise(function (resolve) {
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY);
+      const u = new URL(url);
+      const req = https.request({
+        hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }, function (r) {
+        let b = '';
+        r.on('data', d => b += d);
+        r.on('end', () => {
+          try {
+            const j = JSON.parse(b);
+            const t = j.candidates && j.candidates[0] && j.candidates[0].content &&
+              j.candidates[0].content.parts && j.candidates[0].content.parts[0].text;
+            resolve(t || null);
+          } catch (e) { resolve(null); }
+        });
+      });
+      req.on('error', () => resolve(null));
+      req.setTimeout(20000, () => { try { req.destroy(); } catch (e) {} resolve(null); });
+      req.write(body);
+      req.end();
+    });
+    if (result) return '🤖 <b>AI phân tích</b>\n' + esc(result).slice(0, 1500);
+    return hist.text;
+  } catch (e) {
+    log('ai err ' + (e && e.message), 'error');
+    return hist.text;
   }
+}
+
+// ---------- messages (simple for normal users) ----------
+const LEVEL_ICON = { ok: '🟢', soft: '🟡', warning: '🟠', critical: '🔴' };
+const LEVEL_TEXT = {
+  ok: 'ĐANG HOẠT ĐỘNG',
+  soft: 'CẦN THEO DÕI',
+  warning: 'CẢNH BÁO',
+  critical: 'MẤT KẾT NỐI'
+};
+
+function formatStatusSimple(st) {
+  const icon = LEVEL_ICON[st.level] || '⚪';
+  const core = st.core || {};
+  const syncTxt = core.sync === 'synced' ? '✅ Đã đồng bộ'
+    : core.sync === 'catching' ? '🔄 Đang đồng bộ'
+    : st.reachable ? '⚠️ Chưa rõ' : '⛔ Không phản hồi';
+
+  const lines = [
+    icon + ' <b>PI NODE</b>' + (st.label ? ' · ' + esc(st.label) : ''),
+    '━━━━━━━━━━━━━━━━',
+    '• Trạng thái: <b>' + LEVEL_TEXT[st.level] + '</b>',
+    '• Đồng bộ: ' + syncTxt
+  ];
+  if (core.ledger != null) lines.push('• Ledger: <code>' + fmtLedger(core.ledger) + '</code>');
+  if (core.peersAuth != null) lines.push('• Peers: <b>' + core.peersAuth + '</b>');
+  if (core.ledgerAge != null) lines.push('• Ledger Age: ' + fmtAge(core.ledgerAge));
+  lines.push('');
+  if (st.level === 'ok') lines.push('🟢 Node đang hoạt động bình thường.');
+  else lines.push((LEVEL_ICON[st.level] || '⚪') + ' ' + esc(st.reason || ''));
+  lines.push('');
+  lines.push('🕐 ' + esc(st.time || nowStr()));
+  lines.push('SoloHost PRO <code>v' + VERSION + '</code>');
   return lines.join('\n');
+}
+
+function formatSync(st) {
+  const core = st.core || {};
+  const icon = core.sync === 'synced' ? '✅' : core.sync === 'catching' ? '🟠' : '⚠️';
+  const lines = [
+    '🔄 <b>PI NODE SYNC</b>',
+    '━━━━━━━━━━━━━━━━',
+    '• Trạng thái: ' + icon + ' <b>' + esc(core.state || (st.reachable ? '—' : 'Không phản hồi')) + '</b>',
+    '• Ledger: <code>' + fmtLedger(core.ledger) + '</code>',
+    '• Ledger Age: ' + fmtAge(core.ledgerAge),
+    '• Peers: ' + (core.peersAuth != null ? core.peersAuth : '—'),
+    ''
+  ];
+  if (core.sync === 'synced') lines.push('🟢 Node đang đồng bộ tốt.');
+  else if (core.sync === 'catching') lines.push('⏳ Đang chờ Node hoàn tất đồng bộ.');
+  else lines.push('⚠️ Không đọc được trạng thái đồng bộ.');
+  return lines.join('\n');
+}
+
+function formatPorts(st) {
+  const lines = ['🔌 <b>NODE PORTS</b>', '━━━━━━━━━━━━━━━━'];
+  NODE_PORTS.forEach(p => {
+    lines.push(p + '  ' + (st.ports.indexOf(p) >= 0 ? '✅' : '❌'));
+  });
+  lines.push('');
+  if (st.portsOk === NODE_PORTS.length) lines.push('Kết nối Node: Bình thường');
+  else if (st.portsOk > 0) lines.push('⚠️ Có cổng không phản hồi.');
+  else lines.push('🔴 Không có cổng nào mở.');
+  return lines.join('\n');
+}
+
+function formatDiagnostic(st) {
+  const core = st.core || {};
+  const ok = v => v ? '✅' : '❌';
+  const lines = [
+    '🔎 <b>NODE DIAGNOSTIC</b>',
+    '━━━━━━━━━━━━━━━━',
+    'Node: <b>' + esc(st.label) + '</b>',
+    '',
+    'Core API       ' + ok(st.coreOk),
+    'Sync           ' + ok(core.sync === 'synced') + (core.state ? '  ' + esc(core.state) : ''),
+    'Ledger         ' + ok(core.ledger != null) + (core.ledger != null ? '  ' + fmtLedger(core.ledger) : ''),
+    'Ledger Age     ' + (core.ledgerAge != null ? fmtAge(core.ledgerAge) : '—'),
+    'Peers          ' + (core.peersAuth != null ? core.peersAuth : '—'),
+    'Port 31401     ' + ok(st.ports.indexOf(31401) >= 0),
+    'Port 31402     ' + ok(st.ports.indexOf(31402) >= 0),
+    'Port 31403     ' + ok(st.ports.indexOf(31403) >= 0),
+    'Nguồn Core     ' + esc(core.source || '—'),
+    '',
+    st.level === 'ok' ? '🟢 Không phát hiện vấn đề.' : (LEVEL_ICON[st.level] + ' ' + esc(st.reason))
+  ];
+  return lines.join('\n');
+}
+
+function formatDonate() {
+  return [
+    '❤️ <b>DONATE</b>',
+    '━━━━━━━━━━━━━━━━',
+    'Ngân hàng: <b>MB Bank</b> (Ngân hàng Quân Đội)',
+    'Số tài khoản: <code>0905428801</code>',
+    'Tên: <b>TRAN HUU NGHI</b>',
+    '',
+    'Cảm ơn bạn đã ủng hộ dự án',
+    'Pi Node Telegram Controller PRO.'
+  ].join('\n');
+}
+
+function formatScriptsHelp() {
+  return [
+    '🛠️ <b>SCRIPT BẢO TRÌ (Windows)</b>',
+    '━━━━━━━━━━━━━━━━',
+    'Tải và chạy bằng <b>PowerShell (Run as Admin)</b> trên máy chạy Pi Node:',
+    '',
+    '• CleanRAM — giải phóng RAM',
+    '  <code>/scripts/CleanRAM.ps1</code>',
+    '• Maintenance — dọn tạm + kiểm tra disk',
+    '  <code>/scripts/Maintenance.ps1</code>',
+    '• Reset-PiNode — restart container node',
+    '  <code>/scripts/Reset-PiNode.ps1</code>',
+    '',
+    'Web UI app cũng có nút tải script.',
+    '⚠️ Chỉ chạy trên máy <b>của bạn</b>, không chia sẻ máy với người lạ.'
+  ].join('\n');
 }
 
 function mainKeyboard() {
@@ -640,19 +630,19 @@ function mainKeyboard() {
         { text: '🔌 Ports', callback_data: 'cmd_ports' }
       ],
       [
-        { text: '🐳 Docker', callback_data: 'cmd_docker' },
-        { text: '📋 Report', callback_data: 'cmd_report' },
-        { text: '🔄 Reset', callback_data: 'cmd_reset' }
+        { text: '🔎 Diagnostic', callback_data: 'cmd_diagnostic' },
+        { text: '📈 Phân tích', callback_data: 'cmd_analyze' },
+        { text: '🛠️ Scripts', callback_data: 'cmd_scripts' }
       ],
       [
-        { text: '💻 Tải Windows PRO', url: GITHUB_PRO },
-        { text: '☕ Donate', url: DONATE_URL }
+        { text: '💻 Windows PRO', url: GITHUB_PRO },
+        { text: '❤️ Donate', callback_data: 'cmd_donate' }
       ]
     ]
   };
 }
 
-// ---------- Telegram API ----------
+// ---------- Telegram ----------
 function tgApi(method, body) {
   return new Promise(function (resolve) {
     if (!BOT_TOKEN) return resolve(null);
@@ -679,258 +669,157 @@ async function tgSend(text, extra) {
   if (!BOT_TOKEN || !CHAT_ID) return null;
   const body = Object.assign({
     chat_id: CHAT_ID,
-    text: text.slice(0, 4000),
+    text: String(text).slice(0, 4000),
     parse_mode: 'HTML',
     disable_web_page_preview: true
   }, extra || {});
   return tgApi('sendMessage', body);
 }
 
-async function tgEdit(chatId, messageId, text, extra) {
-  const body = Object.assign({
-    chat_id: chatId,
-    message_id: messageId,
-    text: text.slice(0, 4000),
-    parse_mode: 'HTML',
-    disable_web_page_preview: true
-  }, extra || {});
-  return tgApi('editMessageText', body);
-}
-
 async function tgAnswerCb(id, text) {
   return tgApi('answerCallbackQuery', { callback_query_id: id, text: text || '', show_alert: false });
 }
 
-// ---------- monitor ----------
-function hourVNNow() {
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Ho_Chi_Minh', hour: 'numeric', hour12: false
-    }).formatToParts(new Date());
-    const h = parts.find(x => x.type === 'hour');
-    return h ? parseInt(h.value, 10) % 24 : ((new Date().getUTCHours() + 7) % 24);
-  } catch (e) {
-    return (new Date().getUTCHours() + 7) % 24;
-  }
-}
-
+// ---------- monitor / alerts (smart) ----------
 async function monitorTick() {
   try {
     const st = await collectStatus();
-    const up = !!st.node.running;
-    const sev = st.severity;
+    appendHistory(st);
+
     const now = Date.now();
+    const prev = state.lastLevel;
 
-    // Khởi tạo lần đầu: ghi nhận trạng thái, không spam alert
-    if (state.lastRunning === null) {
-      state.lastRunning = up;
-      state.lastSeverity = sev;
-      console.log('[monitor] init running=' + up + ' sev=' + sev + ' ports=' + (st.node.localOpen || []).join(','));
-      saveJSON(STATE_F, state);
-      return;
+    // Chỉ alert khi đổi mức theo hướng xấu hoặc hồi phục từ critical
+    const shouldAlert = (() => {
+      if (prev == null) return false; // lần đầu không spam
+      if (st.level === prev) return false;
+      if (st.level === 'ok' && (prev === 'critical' || prev === 'warning')) return true; // hồi phục
+      if (st.level === 'critical' && prev !== 'critical') return true;
+      if (st.level === 'warning' && (prev === 'ok' || prev === 'soft')) return true;
+      // soft không alert để tránh ồn
+      return false;
+    })();
+
+    if (shouldAlert && now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
+      const title = st.level === 'ok'
+        ? '🟢 <b>Node đã ổn định trở lại</b>'
+        : LEVEL_ICON[st.level] + ' <b>' + LEVEL_TEXT[st.level] + '</b>';
+      await tgSend(title + '\n\n' + formatStatusSimple(st), { reply_markup: mainKeyboard() });
+      state.lastAlertAt = now;
+      state.alertCount = (state.alertCount || 0) + 1;
+      log('alert level=' + st.level + ' reason=' + st.reason, 'warn');
     }
 
-    // Cảnh báo khi đổi ONLINE/OFFLINE
-    if (state.lastRunning !== up) {
-      if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
-        if (up) {
-          await tgSend('🟢 <b>Node đã ONLINE trở lại</b>\n\n' + formatStatus(st), { reply_markup: mainKeyboard() });
-          pushHist({ type: 'online', severity: sev });
-        } else {
-          await tgSend('🔴 <b>Node OFFLINE / cổng đóng</b>\n\n' + formatStatus(st) +
-            '\n\n⚠️ Kiểm tra Docker / Pi Desktop và mở port 31401–31403.', { reply_markup: mainKeyboard() });
-          pushHist({ type: 'offline', severity: 'critical' });
-        }
-        state.lastAlertAt = now;
-        state.alertCount = (state.alertCount || 0) + 1;
-      }
-    }
+    state.lastLevel = st.level;
 
-    // Leo thang mức cảnh báo (ok → warning/critical) khi node vẫn coi là up nhưng cổng thiếu / tài nguyên cao
-    if (state.lastSeverity === 'ok' && (sev === 'warning' || sev === 'critical')) {
-      if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
-        await tgSend(SEV_ICON[sev] + ' <b>Cảnh báo: ' + SEV_LABEL[sev] + '</b>\n\n' + formatStatus(st), { reply_markup: mainKeyboard() });
-        state.lastAlertAt = now;
-        pushHist({ type: 'severity', severity: sev });
-      }
-    }
-
-    state.lastRunning = up;
-    state.lastSeverity = sev;
-
-    // Báo cáo định kỳ theo giờ Việt Nam (mặc định 7h và 19h)
-    const hourVN = hourVNNow();
-    const dayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }); // YYYY-MM-DD
-    const reportKey = dayKey + '-' + hourVN;
-    if (REPORT_HOURS.includes(hourVN) && state.lastReportKey !== reportKey) {
+    // báo cáo định kỳ
+    const hour = hourVNNow();
+    const reportKey = dayVN() + '-' + hour;
+    if (REPORT_HOURS.indexOf(hour) >= 0 && state.lastReportKey !== reportKey) {
       state.lastReportKey = reportKey;
-      state.lastReportHour = hourVN;
-      await tgSend('📋 <b>Báo cáo định kỳ</b> · ' + hourVN + 'h\n\n' + formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
-      pushHist({ type: 'report', severity: sev });
-      console.log('[monitor] báo cáo định kỳ giờ=' + hourVN);
+      await tgSend('📋 <b>Báo cáo định kỳ</b> · ' + hour + 'h\n\n' + formatStatusSimple(st), { reply_markup: mainKeyboard() });
+      log('scheduled report hour=' + hour);
     }
 
-    if (state.pendingReset && now > state.pendingReset.until) state.pendingReset = null;
     saveJSON(STATE_F, state);
   } catch (e) {
-    console.log('[monitor] ' + (e && e.message));
+    log('monitor ' + (e && e.message), 'error');
   }
 }
 
 // ---------- commands ----------
-async function sendHelp(withKb) {
-  const text =
-    '<b>PI NODE TELEGRAM CONTROLLER</b>\n' +
-    '<i>SoloHost Edition PRO</i>\n' +
-    '━━━━━━━━━━━━━━━━\n' +
-    '<b>Lệnh nhanh:</b>\n' +
-    '/status — trạng thái đầy đủ\n' +
-    '/monitor — quét + mức cảnh báo\n' +
-    '/ports — cổng 31401–3\n/sync — trạng thái đồng bộ\n' +
-    '/docker — container node\n' +
-    '/disk — dung lượng ổ\n' +
-    '/logs — log container\n' +
-    '/reset — restart node (cần xác nhận)\n' +
-    '/report — báo cáo ngay\n' +
-    '/history — lịch sử sự cố\n' +
-    '/ping — kiểm tra bot\n' +
-    '━━━━━━━━━━━━━━━━\n' +
-    '💬 Chat tự nhiên: <i>“node thế nào”</i>, <i>“cổng mở chưa”</i>\n\n' +
-    '💻 <b>Bản Windows PRO</b> (CleanRAM, screenshot, AI…):\n' +
-    GITHUB_PRO;
-  return tgSend(text, withKb !== false ? { reply_markup: mainKeyboard() } : {});
-}
-
-async function handleReset() {
-  const dn = await dockerNode();
-  if (!dn || !dn.found) {
-    return tgSend(
-      '⚠️ <b>Không thể reset</b>\n\n' +
-      'Chưa mount docker.sock hoặc không thấy container node.\n' +
-      'Trên máy tin cậy: bỏ comment dòng sock trong docker-compose.yml.'
-    );
-  }
-  state.pendingReset = { id: dn.id, name: dn.name, until: Date.now() + 60000 };
-  saveJSON(STATE_F, state);
-  return tgSend(
-    `⚠️ <b>Xác nhận RESET node</b>\n` +
-    `Container: <code>${esc(dn.name)}</code>\n\n` +
-    `Gửi <b>/yes</b> trong 60 giây để restart.\nBỏ qua nếu không muốn.`,
-    {
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '✅ Xác nhận /yes', callback_data: 'cmd_yes' },
-          { text: '❌ Hủy', callback_data: 'cmd_cancel' }
-        ]]
-      }
-    }
-  );
-}
-
-async function handleResetConfirm() {
-  if (!state.pendingReset || Date.now() > state.pendingReset.until) {
-    state.pendingReset = null;
-    saveJSON(STATE_F, state);
-    return tgSend('Không có yêu cầu reset đang chờ (hoặc đã hết hạn). Gõ /reset trước.');
-  }
-  const { id, name } = state.pendingReset;
-  state.pendingReset = null;
-  saveJSON(STATE_F, state);
-  await tgSend('⏳ Đang restart <code>' + esc(name) + '</code>…');
-  const ok = await dockerRestart(id);
-  pushHist({ type: 'reset', severity: ok ? 'ok' : 'warning', name });
-  if (ok) {
-    await wait(4000);
-    const st = await collectStatus();
-    return tgSend('✅ Đã gửi lệnh restart.\n\n' + formatStatus(st), { reply_markup: mainKeyboard() });
-  }
-  return tgSend('❌ Restart thất bại. Kiểm tra quyền docker.sock.');
-}
-
 async function runCmd(cmd) {
   if (cmd === 'status' || cmd === 's') {
     const st = await collectStatus();
-    return tgSend(formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
-  }
-  if (cmd === 'monitor' || cmd === 'm') {
-    const st = await collectStatus();
-    return tgSend('🔍 <b>Monitor</b>\n\n' + formatStatus(st) +
-      `\n\nMức: <b>${SEV_LABEL[st.severity]}</b> · Alert đã gửi: ${state.alertCount || 0}`,
-      { reply_markup: mainKeyboard() });
-  }
-  if (cmd === 'ports') {
-    const lo = await localOpen();
-    return tgSend(
-      '<b>Cổng node 31401–31403</b>\n━━━━━━━━━━━━━━━━\n' +
-      REQUIRED.map(p => (lo.includes(p) ? '✅' : '❌') + '  <code>' + p + '</code>').join('\n') +
-      (lo.length === 0 ? '\n\n⚠️ Không thấy cổng nào mở trên host.' : ''),
-      { reply_markup: mainKeyboard() }
-    );
+    return tgSend(formatStatusSimple(st), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'sync' || cmd === 'dongbo') {
     const st = await collectStatus();
-    return tgSend(formatStatus(st, { withLink: false }), { reply_markup: mainKeyboard() });
+    return tgSend(formatSync(st), { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'docker') {
-    const dn = await dockerNode();
-    if (!dn) {
-      return tgSend('Docker sock <b>không</b> được mount.\nTrạng thái đang suy từ cổng nội bộ.', { reply_markup: mainKeyboard() });
-    }
-    if (!dn.found) return tgSend('Không tìm thấy container Pi Node.', { reply_markup: mainKeyboard() });
+  if (cmd === 'ports') {
+    const st = await collectStatus();
+    return tgSend(formatPorts(st), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'diagnostic' || cmd === 'diag' || cmd === 'check') {
+    const st = await collectStatus();
+    return tgSend(formatDiagnostic(st), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'analyze' || cmd === 'ai' || cmd === 'phan_tich') {
+    await tgSend('⏳ Đang phân tích lịch sử…');
+    const st = await collectStatus();
+    const text = await aiAnalyze(st);
+    return tgSend(text, { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'history') {
+    const hist = analyzeHistory(1);
+    return tgSend(hist.text, { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'ledger') {
+    const st = await collectStatus();
+    const core = st.core || {};
+    const lines = [
+      '📒 <b>LEDGER</b>',
+      '━━━━━━━━━━━━━━━━',
+      'Hiện tại: <code>' + fmtLedger(core.ledger) + '</code>',
+      'Ledger Age: ' + fmtAge(core.ledgerAge),
+      '',
+      core.ledgerAge != null && core.ledgerAge < 120
+        ? '🟢 Đang cập nhật'
+        : '⚠️ Ledger có thể chậm'
+    ];
+    return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'peers') {
+    const st = await collectStatus();
+    const n = st.core && st.core.peersAuth;
+    const lines = [
+      '👥 <b>PEERS</b>',
+      '━━━━━━━━━━━━━━━━',
+      'Đang kết nối: <b>' + (n != null ? n : '—') + '</b>',
+      '',
+      n != null && n >= 3 ? '🟢 Kết nối mạng đang hoạt động.' : '🟠 Peers thấp — theo dõi thêm.'
+    ];
+    return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'network') {
+    const st = await collectStatus();
+    const c = st.core || {};
     return tgSend(
-      `<b>Docker node</b>\n━━━━━━━━━━━━━━━━\n` +
-      `• Tên: <code>${esc(dn.name)}</code>\n` +
-      `• State: <b>${dn.running ? 'running' : 'stopped'}</b>\n` +
-      `• Status: ${esc(dn.status)}\n` +
-      `• Proto: ${esc(dn.proto || '—')}\n` +
-      `• Image: <code>${esc(dn.image)}</code>`,
+      '🌐 <b>NETWORK</b>\n━━━━━━━━━━━━━━━━\n' +
+      esc(c.network || '—') + '\n' +
+      'Protocol: ' + (c.protocol != null ? c.protocol : '—') + '\n' +
+      'Build: ' + esc(c.build || '—'),
       { reply_markup: mainKeyboard() }
     );
   }
-  if (cmd === 'disk') {
-    const d = diskInfo();
-    if (!d) return tgSend('Không đọc được disk.');
-    return tgSend(
-      `<b>Disk</b>\n━━━━━━━━━━━━━━━━\n` +
-      `• Đã dùng: <b>${d.usedGB}</b> / ${d.totalGB} GB (<b>${d.pct}%</b>)\n` +
-      `• Còn trống: ${d.availGB} GB`,
-      { reply_markup: mainKeyboard() }
-    );
-  }
-  if (cmd === 'logs') {
-    const dn = await dockerNode();
-    if (!dn || !dn.found) return tgSend('Không có docker sock hoặc không thấy container.');
-    const logs = await dockerLogs(dn.id, 35);
-    if (!logs) return tgSend('Không lấy được logs.');
-    const clipped = logs.length > 3500 ? logs.slice(-3500) : logs;
-    return tgSend('<b>Logs gần nhất</b>\n<pre>' + esc(clipped) + '</pre>');
-  }
-  if (cmd === 'reset') return handleReset();
-  if (cmd === 'yes' || cmd === 'confirm') return handleResetConfirm();
-  if (cmd === 'cancel') {
-    state.pendingReset = null;
-    saveJSON(STATE_F, state);
-    return tgSend('Đã hủy reset.', { reply_markup: mainKeyboard() });
+  if (cmd === 'donate') return tgSend(formatDonate());
+  if (cmd === 'scripts' || cmd === 'script') return tgSend(formatScriptsHelp(), { reply_markup: mainKeyboard() });
+  if (cmd === 'ping') {
+    return tgSend('🏓 <b>pong</b>\nv' + VERSION + '\n🕐 ' + esc(nowStr()), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'report') {
     const st = await collectStatus();
-    return tgSend('📋 <b>Báo cáo</b>\n\n' + formatStatus(st, { withLink: true }), { reply_markup: mainKeyboard() });
+    return tgSend('📋 <b>Báo cáo</b>\n\n' + formatStatusSimple(st), { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'history') {
-    if (!history.length) return tgSend('Chưa có sự kiện.', { reply_markup: mainKeyboard() });
-    const lines = history.slice(0, 12).map(h => {
-      let t;
-      try {
-        t = new Date(h.t).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
-      } catch (e) { t = new Date(h.t).toISOString(); }
-      return `• ${esc(t)} — <b>${esc(h.type)}</b> (${esc(h.severity || '')})`;
-    });
-    return tgSend('<b>Lịch sử gần đây</b>\n━━━━━━━━━━━━━━━━\n' + lines.join('\n'), { reply_markup: mainKeyboard() });
+  if (cmd === 'start' || cmd === 'help') {
+    return tgSend(
+      '<b>PI NODE CONTROLLER</b>\n' +
+      '<i>SoloHost PRO v' + VERSION + '</i>\n' +
+      '━━━━━━━━━━━━━━━━\n' +
+      '/status — trạng thái ngắn\n' +
+      '/sync — đồng bộ\n' +
+      '/ports — cổng node\n' +
+      '/diagnostic — kiểm tra sâu\n' +
+      '/analyze — phân tích lịch sử (+AI)\n' +
+      '/ledger · /peers · /network\n' +
+      '/scripts — script bảo trì Windows\n' +
+      '/donate — ủng hộ dự án\n' +
+      '━━━━━━━━━━━━━━━━\n' +
+      'App tự giám sát 24/7, chỉ báo khi thật sự cần.',
+      { reply_markup: mainKeyboard() }
+    );
   }
-  if (cmd === 'ping') {
-    return tgSend('🏓 <b>pong</b>\nSoloHost PRO <code>v' + VERSION + '</code>\n' + detailBlock + '🕐 ' + esc(nowStr()), { reply_markup: mainKeyboard() });
-  }
-  if (cmd === 'start' || cmd === 'help') return sendHelp(true);
   return null;
 }
 
@@ -938,22 +827,19 @@ async function handleText(text) {
   const raw = (text || '').trim();
   const lower = raw.toLowerCase();
   const cmd = lower.split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
-
   if (raw.startsWith('/')) {
     const r = await runCmd(cmd);
     if (r) return r;
     return tgSend('Không rõ lệnh. Gõ /help', { reply_markup: mainKeyboard() });
   }
-
-  // ngôn ngữ tự nhiên
-  if (/node|trạng thái|status|thế nào|ra sao|online|offline/i.test(raw)) return runCmd('status');
+  if (/node|trạng thái|status|thế nào|ra sao/i.test(raw)) return runCmd('status');
+  if (/đồng bộ|sync/i.test(raw)) return runCmd('sync');
   if (/cổng|port/i.test(raw)) return runCmd('ports');
-  if (/reset|khởi động lại|restart/i.test(raw)) return runCmd('reset');
-  if (/giúp|help|lệnh/i.test(raw)) return runCmd('help');
+  if (/phân tích|analyze|ai/i.test(raw)) return runCmd('analyze');
+  if (/donate|ủng hộ/i.test(raw)) return runCmd('donate');
   return null;
 }
 
-// ---------- long poll (message + callback) ----------
 let offset = 0;
 async function pollTelegram() {
   if (!BOT_TOKEN) return;
@@ -965,39 +851,33 @@ async function pollTelegram() {
     if (!r || !r.ok || !Array.isArray(r.result)) return;
     for (const u of r.result) {
       offset = u.update_id + 1;
-
       if (u.callback_query) {
         const cq = u.callback_query;
         if (CHAT_ID && String(cq.message && cq.message.chat && cq.message.chat.id) !== String(CHAT_ID)) continue;
         const data = cq.data || '';
         await tgAnswerCb(cq.id);
         if (data.startsWith('cmd_')) {
-          const c = data.slice(4);
-          try { await runCmd(c); } catch (e) { console.log('[cb] ' + (e && e.message)); }
+          try { await runCmd(data.slice(4)); } catch (e) { log('cb ' + (e && e.message), 'error'); }
         }
         continue;
       }
-
       const msg = u.message;
       if (!msg || !msg.text) continue;
       if (CHAT_ID && String(msg.chat.id) !== String(CHAT_ID)) continue;
-      try { await handleText(msg.text); } catch (e) {
-        console.log('[cmd] ' + (e && e.message));
-      }
+      try { await handleText(msg.text); } catch (e) { log('cmd ' + (e && e.message), 'error'); }
     }
   } catch (e) {
-    console.log('[tg] ' + (e && e.message));
+    log('tg ' + (e && e.message), 'error');
   }
 }
 async function tgLoop() {
   while (true) {
     await pollTelegram();
-    await wait(300);
+    await wait(400);
   }
 }
 
-// ---------- HTTP + UI ----------
-const PUBLIC = path.join(__dirname, 'public');
+// ---------- HTTP ----------
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript',
@@ -1005,14 +885,14 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
   '.json': 'application/json',
-  '.ico': 'image/x-icon'
+  '.ps1': 'text/plain; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8'
 };
 
 let INDEX_HTML = '';
 try { INDEX_HTML = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'); } catch (e) {
-  INDEX_HTML = '<h1>Pi Node Controller</h1>';
+  INDEX_HTML = '<h1>Pi Node Controller v' + VERSION + '</h1>';
 }
 
 const srv = http.createServer(async function (req, res) {
@@ -1027,8 +907,12 @@ const srv = http.createServer(async function (req, res) {
     }
     if (u === '/api/history') {
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Cache-Control', 'no-store');
-      res.end(JSON.stringify(history.slice(0, 30)));
+      res.end(JSON.stringify(readHistoryDays(2).slice(-100)));
+      return;
+    }
+    if (u === '/api/analyze') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(analyzeHistory(1)));
       return;
     }
     if (u === '/api/info') {
@@ -1036,13 +920,22 @@ const srv = http.createServer(async function (req, res) {
       res.end(JSON.stringify({
         version: VERSION,
         githubPro: GITHUB_PRO,
-        donateUrl: DONATE_URL,
+        githubSolo: GITHUB_SOLO,
         hasBot: !!BOT_TOKEN,
         hasChat: !!CHAT_ID,
+        hasAI: !!GEMINI_API_KEY,
         reportHours: REPORT_HOURS,
-        alertCooldown: ALERT_COOLDOWN,
+        corePorts: CORE_PORTS_TRY,
         time: nowStr()
       }));
+      return;
+    }
+    if (u === '/api/logs') {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      try {
+        const t = fs.readFileSync(LOG_F, 'utf8');
+        res.end(t.slice(-8000));
+      } catch (e) { res.end('(chưa có log)'); }
       return;
     }
     if (u === '/' || u === '/index.html') {
@@ -1050,6 +943,17 @@ const srv = http.createServer(async function (req, res) {
       res.setHeader('Cache-Control', 'no-store');
       res.end(INDEX_HTML);
       return;
+    }
+    // scripts download
+    if (u.startsWith('/scripts/')) {
+      const name = path.basename(u);
+      const f = path.join(SCRIPTS, name);
+      if (fs.existsSync(f) && fs.statSync(f).isFile()) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="' + name + '"');
+        res.end(fs.readFileSync(f));
+        return;
+      }
     }
     const rel = path.normalize(u).replace(/^(\.\.[/\\])+/, '');
     const f = path.join(PUBLIC, rel);
@@ -1060,32 +964,35 @@ const srv = http.createServer(async function (req, res) {
       res.end(data);
     });
   } catch (e) {
+    log('http ' + (e && e.message), 'error');
     res.statusCode = 500;
     res.end('error');
   }
 });
 
 srv.listen(PORT, '0.0.0.0', function () {
-  console.log('[pinode-tg] SoloHost PRO v' + VERSION + ' :' + PORT);
-  console.log('[pinode-tg] bot=' + (BOT_TOKEN ? 'yes' : 'NO') + ' chat=' + (CHAT_ID || 'NO'));
-  console.log('[pinode-tg] time=' + nowStr());
+  log('SoloHost PRO v' + VERSION + ' :' + PORT);
+  log('bot=' + (BOT_TOKEN ? 'yes' : 'NO') + ' chat=' + (CHAT_ID || 'NO') + ' ai=' + (GEMINI_API_KEY ? 'yes' : 'no'));
+  log('corePorts=' + CORE_PORTS_TRY.join(',') + ' nodeHost=' + NODE_HOST);
 });
 
-_cpuSampler();
+// start loops
 monitorTick();
-setInterval(monitorTick, 12000);
+setInterval(monitorTick, 15000);
 
 if (BOT_TOKEN && CHAT_ID) {
   tgLoop();
   if (ALERT_ON_START) {
     setTimeout(async () => {
-      const st = await collectStatus();
-      await tgSend(
-        '✅ <b>Controller SoloHost PRO đã online</b>\n\n' + formatStatus(st, { withLink: true }),
-        { reply_markup: mainKeyboard() }
-      );
-    }, 2500);
+      try {
+        const st = await collectStatus();
+        await tgSend(
+          '✅ <b>Controller đã online</b>\n\n' + formatStatusSimple(st),
+          { reply_markup: mainKeyboard() }
+        );
+      } catch (e) { log('start alert ' + (e && e.message), 'error'); }
+    }, 3000);
   }
 } else {
-  console.log('[pinode-tg] thiếu BOT_TOKEN/CHAT_ID — chỉ web UI');
+  log('thiếu BOT_TOKEN/CHAT_ID — chỉ web UI', 'warn');
 }
