@@ -1,56 +1,21 @@
-title: Pi Node Telegram Controller PRO
-description: Giam sat Pi Node 24/7 qua Telegram. Bao cao ngan gon, canh bao thong minh, lich su, AI. Dan Bot Token va Chat ID.
-output_file: .env
+telegram:
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+  chat_id: "YOUR_TELEGRAM_CHAT_ID"
 
-fixed_values:
-  - name: UID
-    detect: uid
+settings:
+  check_interval_seconds: 30
+  stellar_core_url: "http://host.docker.internal:11626"
+  container_name: "testnet2"
+  ports_to_check: [31401, 31402, 31403]
 
-fields:
-  - name: BOT_TOKEN
-    label: Telegram Bot Token
-    type: password
-    required: true
-    help: Tao bot tai @BotFather, sao chep token.
+alerts:
+  cooldown_minutes: 30
+  max_ledger_age_seconds: 120
+  max_ram_usage_percent: 90
+  max_cpu_usage_percent: 90
+  max_temp_celsius: 80
 
-  - name: CHAT_ID
-    label: Telegram Chat ID
-    type: text
-    required: true
-    help: ID chat/nhom. Dung @userinfobot.
-
-  - name: ALERT_ON_START
-    label: Bao khi app khoi dong (true/false)
-    type: text
-    required: false
-    help: true = gui tin khi start. Mac dinh true.
-
-  - name: REPORT_HOURS
-    label: Gio bao cao dinh ky
-    type: text
-    required: false
-    help: Gio VN 0-23, vi du 7,19. De trong = 7,19.
-
-  - name: ALERT_COOLDOWN_SEC
-    label: Chong spam canh bao (giay)
-    type: text
-    required: false
-    help: Khoang cach toi thieu giua hai lan alert. Vi du 180.
-
-  - name: STELLAR_CORE_PORT
-    label: Cong Stellar Core HTTP
-    type: text
-    required: false
-    help: Thuong 11626 hoac 31400. De trong = tu thu 11626,31400.
-
-  - name: PI_CONTAINER
-    label: Ten hien thi Node (tuy chon)
-    type: text
-    required: false
-    help: Vi du testnet2. Chi de hien thi, khong can Docker.
-
-  - name: GEMINI_API_KEY
-    label: Gemini API Key (AI, tuy chon)
-    type: password
-    required: false
-    help: De trong van phan tich lich su local. Co key = AI Gemini.
+donate:
+  bank_name: "Ngân hàng MB Bank (Ngân hàng Quân Đội)"
+  account_number: "0905428801"
+  account_holder: "Tran Huu Nghi"
