@@ -1,0 +1,12 @@
+Windows scripts - how to run (ExecutionPolicy)
+
+ERROR "not digitally signed" means Windows blocked .ps1.
+Do NOT run:  CleanRAM_PiNode.ps1
+DO run:      CleanRAM_PiNode.cmd   (double-click)
+         or  Run-CleanRAM_PiNode.bat
+
+Or in PowerShell:
+  powershell -ExecutionPolicy Bypass -File .\CleanRAM_PiNode.ps1
+
+Optional once per machine (Admin):
+  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned

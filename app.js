@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.6-solohost';
+const VERSION = '2.5.7-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -523,18 +523,14 @@ function formatScripts() {
   return [
     'SCRIPTS (Windows)',
     '================',
-    'Chay file .bat (khuyen nghi):',
-    '- Run-DataLive.bat',
-    '- Run-CleanRAM_PiNode.bat',
-    '- Run-Weekly_Maintenance.bat',
-    '- Run-Reset_Node_Network.bat',
-    '- Run-Pi_Node_Diagnostic_PRO.bat',
+    'Use .cmd (NOT .ps1) to avoid signed-policy error:',
+    '- CleanRAM_PiNode.cmd',
+    '- Weekly_Maintenance.cmd',
+    '- Reset_Node_Network.cmd',
+    '- Run-DataLive.bat / Start-DataLive.bat',
     '',
-    'Neu loi not digitally signed, dung file .bat o tren',
-    '(Bypass ExecutionPolicy).',
-    '',
-    'Nhiet do: MonitorLive + OpenHardwareMonitorLib.dll',
-    'xem TEMPERATURE_README.txt trong /scripts'
+    'Or: powershell -ExecutionPolicy Bypass -File script.ps1',
+    'See HOW_TO_RUN_SCRIPTS.txt'
   ].join('\n');
 }
 
@@ -551,6 +547,17 @@ function formatDonate() {
 /* aiAnalyze replaced */
 
 
+
+
+function detectUserLang(q) {
+  const s = String(q || '');
+  if (/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(s)) return 'vi';
+  if (/[\u3040-\u30ff\u3400-\u9fff]/.test(s)) return 'cjk';
+  return 'en';
+}
+function L(lang, vi, en) {
+  return lang === 'vi' ? vi : en;
+}
 
 function detectIntent(q) {
   const s = String(q || '').toLowerCase();
@@ -655,55 +662,86 @@ function rulesMetricOnly(t, intent) {
 }
 
 function localAssistantReply(t, intent, userQ) {
+  const lang = detectUserLang(userQ);
   const ev = evidenceSummary(t);
   const issues = collectIssues(t);
   const hasDL = t.sources && t.sources.data_live;
+  const chat = loadChatHistory().slice(-4);
+  const ctx = chat.length ? ('\n' + L(lang, 'Ngữ cảnh gần đây: bạn đã hỏi về node trước đó.', 'Context: you asked about the node earlier.')) : '';
 
   if (intent === 'GREETING') {
-    return 'Chào bạn. Mình là trợ lý Pi Node trên SoloHost.\nHiện node ' + (t.level === 'ok' ? 'đang hoạt động bình thường' : 'cần theo dõi') + ' (nguồn: ' + (t.source || '?') + ').\nBạn có thể hỏi trạng thái, peer, nhiệt, bonus, hoặc cách giữ node ổn định.';
+    return L(lang,
+      'Chào bạn. Mình là trợ lý Pi Node (SoloHost). Node hiện ' + (t.level === 'ok' ? 'ổn' : 'cần theo dõi') + ' (nguồn: ' + (t.source || '?') + '). Bạn hỏi tiếp về trạng thái, peer, nhiệt, bonus được.' + ctx,
+      'Hi. I am your Pi Node assistant (SoloHost). Node looks ' + (t.level === 'ok' ? 'OK' : 'needs attention') + ' (source: ' + (t.source || '?') + '). Ask about status, peers, temperature, or bonus anytime.' + ctx
+    );
   }
   if (intent === 'SMALLTALK') {
-    return 'Bây giờ khoảng ' + nowHM() + ' (giờ VN).\nMình chuyên hỗ trợ Pi Node — cứ hỏi tình trạng máy hoặc cách vận hành node nhé.';
+    return L(lang,
+      'Bây giờ khoảng ' + nowHM() + ' (VN). Mình hỗ trợ Pi Node — hỏi tình trạng máy nhé.',
+      'It is about ' + nowHM() + ' (VN time). I help with Pi Node — ask about your machine status anytime.'
+    );
   }
   if (intent === 'CLARIFY') {
-    return 'Không sao. Tóm lại:\n• Node: ' + (t.level === 'ok' ? 'OK' : String(t.level || '?')) + '\n• ' + (ev.slice(0, 4).join('\n• ') || 'Đang thu thập dữ liệu') + '\n\nBạn muốn mình giải thích đồng bộ, cổng, peer, hay điểm thưởng?';
+    return L(lang,
+      'Không sao. Tóm lại: Node ' + (t.level === 'ok' ? 'OK' : String(t.level || '?')) + '. ' + (ev.slice(0, 3).join('; ') || '') + '. Bạn muốn giải thích phần nào?' + ctx,
+      'No problem. Summary: Node ' + (t.level === 'ok' ? 'OK' : String(t.level || '?')) + '. ' + (ev.slice(0, 3).join('; ') || '') + '. Which part should I explain?' + ctx
+    );
   }
   if (intent === 'BONUS' || (intent === 'DIAGNOSIS' && /bonus|thưởng|reward/i.test(userQ || ''))) {
-    var s = 'Về điểm thưởng/bonus, mình chỉ suy luận từ dữ liệu node (không đọc ví Pi):\n';
-    if (t.level === 'ok' && t.ports_all_open) s += '• Cổng và kết nối nhìn chung ổn — ít khả năng do node offline.\n';
-    else s += '• Kết nối/cổng chưa ổn — nên xử lý trước.\n';
-    if (!hasDL) s += '• Chưa có Data Live nên thiếu peer/CPU/RAM — các yếu tố hay ảnh hưởng uptime.\n';
-    if (t.peer_in != null && t.peer_in < 3) s += '• Peer thấp có thể làm node kém gắn với mạng.\n';
-    s += '\nGợi ý:\n1) Giữ Docker/Pi Node 24/7, tắt sleep máy\n2) Mở đủ cổng 31401–31403\n3) Bật Data Live để theo dõi peer & tài nguyên\n4) Xem thông báo trên app Pi Desktop về bonus\n\nĐo được:\n• ' + ev.join('\n• ');
-    return s;
+    if (lang === 'vi') {
+      var s = 'Về bonus, mình chỉ suy luận từ dữ liệu node (không đọc ví Pi):\n';
+      if (t.level === 'ok' && t.ports_all_open) s += '• Cổng/kết nối ổn — ít khả năng do offline.\n';
+      else s += '• Kết nối/cổng chưa ổn — nên xử lý trước.\n';
+      if (!hasDL) s += '• Chưa Data Live — thiếu peer/CPU/RAM.\n';
+      s += '\nGợi ý: chạy 24/7, mở 31401-3, bật Data Live, xem app Pi Desktop.\n• ' + ev.join('\n• ');
+      return s + ctx;
+    }
+    var e = 'About rewards/bonus I only infer from node data (not wallet):\n';
+    if (t.level === 'ok' && t.ports_all_open) e += '• Ports/connectivity look OK — unlikely offline.\n';
+    else e += '• Connectivity/ports need fixing first.\n';
+    if (!hasDL) e += '• No Data Live — missing peers/CPU/RAM.\n';
+    e += '\nTips: keep 24/7, open 31401-3, enable Data Live, check Pi Desktop.\n• ' + ev.join('\n• ');
+    return e + ctx;
   }
   if (intent === 'ADVICE' || intent === 'RECOMMENDATION') {
-    var a = 'Tư vấn giữ node ổn (theo số liệu hiện có):\n';
-    if (!hasDL) a += '• Ưu tiên #1: bật Data Live trên Windows để có peer/CPU/RAM/nhiệt.\n';
-    if (t.ram != null && t.ram >= 80) a += '• RAM cao → thêm RAM hoặc giảm app nền.\n';
-    else if (t.ram == null) a += '• Chưa đo RAM — đừng vội mua thêm trước khi có số liệu Data Live.\n';
-    if (t.temp != null && t.temp >= 75) a += '• Máy ấm → thoáng khí/quạt.\n';
-    if (t.ports_all_open) a += '• Cổng node đang mở — tốt.\n';
-    else a += '• Kiểm tra firewall/router mở 31401–31403.\n';
-    a += '• Giữ máy không sleep; container ' + (t.container || 'testnet2') + ' Running.\n';
-    a += '\nĐo được:\n• ' + (ev.join('\n• ') || 'Chưa đủ telemetry');
-    return a;
+    if (lang === 'vi') {
+      var a = 'Tư vấn giữ node ổn:\n';
+      if (!hasDL) a += '• #1 Bật Data Live để có peer/CPU/RAM/nhiệt.\n';
+      if (t.ram != null && t.ram >= 80) a += '• RAM cao — thêm RAM hoặc giảm app.\n';
+      if (t.ports_all_open) a += '• Cổng đang mở — tốt.\n';
+      else a += '• Mở firewall 31401-3.\n';
+      a += '• Không sleep máy; container ' + (t.container || 'testnet2') + ' Running.\n• ' + (ev.join('\n• ') || '');
+      return a + ctx;
+    }
+    var b = 'Advice to keep the node healthy:\n';
+    if (!hasDL) b += '• #1 Enable Data Live for peers/CPU/RAM/temp.\n';
+    if (t.ram != null && t.ram >= 80) b += '• High RAM — add RAM or close apps.\n';
+    if (t.ports_all_open) b += '• Ports open — good.\n';
+    else b += '• Open firewall 31401-3.\n';
+    b += '• No sleep; container ' + (t.container || 'testnet2') + ' Running.\n• ' + (ev.join('\n• ') || '');
+    return b + ctx;
   }
   if (intent === 'NODE_HEALTH' || intent === 'DIAGNOSIS' || intent === 'GENERAL') {
     var hard = issues.filter(function (i) { return !/Data Live/.test(i); });
-    var out = '';
-    if (t.level === 'ok' && hard.length === 0) {
-      out = 'Nhìn dữ liệu hiện có, node đang chạy ổn';
-      if (t.sync) out += ' (' + t.sync + ')';
-      out += '.\n';
-    } else {
-      out = 'Có điểm cần lưu ý:\n• ' + issues.join('\n• ') + '\n\n';
+    if (lang === 'vi') {
+      var out = (t.level === 'ok' && hard.length === 0)
+        ? ('Node đang ổn' + (t.sync ? ' (' + t.sync + ')' : '') + '.\n')
+        : ('Cần lưu ý:\n• ' + issues.join('\n• ') + '\n\n');
+      out += 'Chi tiết:\n• ' + ev.join('\n• ');
+      if (!hasDL) out += '\nBật Data Live để đánh giá sâu hơn.';
+      return out + ctx;
     }
-    out += 'Chi tiết:\n• ' + ev.join('\n• ') + '\n';
-    if (!hasDL) out += '\nBật Data Live để đánh giá sâu hơn (peer, CPU, RAM, nhiệt) giống bản Windows PRO.';
-    return out;
+    var o = (t.level === 'ok' && hard.length === 0)
+      ? ('Node looks healthy' + (t.sync ? ' (' + t.sync + ')' : '') + '.\n')
+      : ('Watch items:\n• ' + issues.join('\n• ') + '\n\n');
+    o += 'Details:\n• ' + ev.join('\n• ');
+    if (!hasDL) o += '\nEnable Data Live for deeper checks.';
+    return o + ctx;
   }
-  return 'Dữ liệu hiện có:\n• ' + (ev.join('\n• ') || 'Đang thu thập') + '\n\nBạn hỏi cụ thể về đồng bộ, peer, nhiệt hoặc nâng cấp nhé.';
+  return L(lang,
+    'Dữ liệu: ' + (ev.join('; ') || 'đang thu thập') + '. Hỏi thêm về đồng bộ, peer, nhiệt nhé.' + ctx,
+    'Data: ' + (ev.join('; ') || 'collecting') + '. Ask about sync, peers, or temperature.' + ctx
+  );
 }
 
 function buildFacts(t) {
@@ -739,18 +777,19 @@ async function aiAnalyze(t, userQ) {
     const chat = loadChatHistory().slice(-8);
     const issues = collectIssues(t);
     const prompt = [
-      'Bạn là trợ lý quản lý Pi Node chuyên nghiệp cho người dùng phổ thông (SoloHost).',
-      'Giọng tiếng Việt tự nhiên, ngắn, dễ hiểu, có suy luận từ FACTS — không cứng như log hệ thống.',
-      'CẤM bịa số liệu. Thiếu field thì nói chưa đo được / cần Data Live.',
-      'Không kết luận Node Offline chỉ vì thiếu Data Live.',
-      'Bonus: chỉ tư vấn gián tiếp từ uptime, cổng, peer, tài nguyên — không bịa số bonus.',
+      'You are a professional Pi Node management assistant (SoloHost Controller).',
+      'LANGUAGE RULE (mandatory): Reply in the SAME language as the user message. If user writes English, reply English. If Vietnamese, Vietnamese. If other, match that language. Never force Vietnamese.',
+      'Be natural and contextual: use Recent chat to continue the conversation, refer to earlier points, avoid one-shot generic answers.',
+      'Use FACTS only. Never invent metrics. If missing, say data is unavailable / enable Data Live.',
+      'Do not mark Node Offline only because Data Live is offline.',
+      'Bonus advice only from uptime, ports, peers, resources — never invent bonus numbers.',
       'Intent: ' + intent,
       'User: ' + String(userQ || '').slice(0, 600),
       'Issues: ' + JSON.stringify(issues),
       'FACTS: ' + JSON.stringify(facts),
-      hist.length ? ('Telemetry gần đây: ' + JSON.stringify(hist)) : '',
-      chat.length ? ('Chat gần đây: ' + JSON.stringify(chat)) : '',
-      'Trả lời tự nhiên; đưa lời khuyên thực tế khi phù hợp.'
+      hist.length ? ('Recent telemetry: ' + JSON.stringify(hist)) : '',
+      chat.length ? ('Recent chat (use as context): ' + JSON.stringify(chat)) : '',
+      'Give practical advice when useful. Keep it concise.'
     ].filter(Boolean).join('\n');
 
     try {
@@ -1022,6 +1061,58 @@ const srv = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: all, version: VERSION, checks }));
       return;
     }
+    
+    if (u === '/api/chat' && (req.method === 'POST' || req.method === 'GET')) {
+      let body = '';
+      if (req.method === 'POST') {
+        body = await new Promise(resolve => {
+          let b = '';
+          req.on('data', d => b += d);
+          req.on('end', () => resolve(b));
+          req.on('error', () => resolve(''));
+        });
+      }
+      let msg = '';
+      try {
+        const q = new URL(req.url, 'http://x').searchParams.get('msg');
+        if (q) msg = q;
+        if (body) {
+          const j = JSON.parse(body);
+          if (j && j.message) msg = j.message;
+          if (j && j.msg) msg = j.msg;
+        }
+      } catch (e) {}
+      msg = String(msg || '').trim().slice(0, 2000);
+      if (!msg) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'empty_message' }));
+        return;
+      }
+      try {
+        let tel = cache;
+        if (!tel) {
+          try {
+            tel = await Promise.race([
+              collectTelemetry(),
+              new Promise(function (r) { setTimeout(function () { r(null); }, 4000); })
+            ]);
+          } catch (e) { tel = null; }
+        }
+        if (!tel) tel = { source: 'none', level: 'unknown', sources: {} };
+        pushChatPersistent('user', msg);
+        const ans = await aiAnalyze(tel, msg);
+        pushChatPersistent('assistant', ans);
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ ok: true, reply: ans, version: VERSION, source: tel && tel.source }));
+      } catch (e) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+      }
+      return;
+    }
+
     if (u === '/api/info') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
