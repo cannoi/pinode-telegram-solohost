@@ -1,6 +1,5 @@
-# Minimal SoloHost form schema
 title: Pi Node Telegram Controller PRO
-description: Giam sat Pi Node 24/7. Data Live + Horizon fallback. Dan Bot Token va Chat ID.
+description: Giam sat Pi Node 24/7. Data Live + Horizon. Dan Bot Token va Chat ID.
 output_file: .env
 
 fixed_values:

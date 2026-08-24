@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.0-solohost';
+const VERSION = '2.5.1-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -497,16 +497,22 @@ function formatReport() {
 
 function formatScripts() {
   return [
-    '🛠️ SCRIPTS (Windows)',
-    '━━━━━━━━━━━━━━━━━━',
-    'Download from Web UI or /scripts path:',
-    '• CleanRAM_PiNode.ps1',
-    '• Weekly_Maintenance.ps1',
-    '• Reset_Node_Network.ps1',
-    '• Pi_Node_Diagnostic_PRO.ps1',
+    'SCRIPTS (Windows)',
+    '================',
+    '1) DATA LIVE (recommended)',
+    '   Start-DataLive.bat',
+    '   DataLive_HttpApi.ps1',
+    '   -> http://127.0.0.1:18790',
     '',
-    'Run: Right-click → Run with PowerShell (Admin)',
-    'Data Live: Start-DataLive.bat on Windows host'
+    '2) Maintenance',
+    '   CleanRAM_PiNode.ps1',
+    '   Weekly_Maintenance.ps1',
+    '   Reset_Node_Network.ps1',
+    '   Pi_Node_Diagnostic_PRO.ps1',
+    '',
+    'Download from Web UI /scripts/',
+    'Run DataLive without Admin if port free.',
+    'Maintenance scripts: Run as Admin.'
   ].join('\n');
 }
 
