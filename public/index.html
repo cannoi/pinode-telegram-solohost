@@ -1,46 +1,67 @@
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="vi">
+<head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pi Node SoloHost</title>
+<title>Pi Node Controller PRO</title>
 <style>
-body{font-family:system-ui,sans-serif;background:#0a0e17;color:#f0f4fc;padding:20px;max-width:520px;margin:0 auto}
-.card{background:#121a2b;border:1px solid #2a3a55;border-radius:12px;padding:14px;margin:10px 0}
-h1{font-size:1.15rem}.m{color:#9aabd0;font-size:.85rem}
-.row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e2a3d;font-size:.9rem}
-.btn{display:inline-block;margin:4px 4px 4px 0;padding:8px 12px;background:#1a2740;color:#4da3ff;border-radius:8px;text-decoration:none;font-size:.78rem}
-.btn.gold{background:linear-gradient(180deg,#3d3420,#2a2418);color:#f0d78c}
-</style></head>
+:root{--p:rgba(12,18,32,.88);--bd:rgba(212,168,75,.28);--t:#f5f0e8;--m:#b8a990;--g:#2ed88a;--b:#4da3ff;--gold:#d4a84b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;color:var(--t);min-height:100vh;
+background:linear-gradient(165deg,rgba(8,10,18,.72),rgba(20,14,8,.78)),url('/avatar.jpg') center top/cover no-repeat fixed;
+padding:18px;display:flex;justify-content:center}
+.w{width:100%;max-width:440px}
+.hero{text-align:center;margin-bottom:14px}
+.ring{width:88px;height:88px;margin:0 auto 10px;border-radius:50%;padding:3px;
+background:linear-gradient(135deg,var(--gold),#8b6914)}
+.ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;border:2px solid rgba(0,0,0,.35)}
+h1{font-size:1.2rem;font-weight:800;letter-spacing:.02em;
+background:linear-gradient(90deg,#f5e6c8,var(--gold));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:.78rem;color:var(--m);margin-top:4px}
+.card{background:var(--p);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:10px;backdrop-filter:blur(12px)}
+.card h2{font-size:.68rem;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed rgba(212,168,75,.12);font-size:.88rem}
+.row:last-child{border-bottom:0}.k{color:var(--m)}.val{font-weight:700}
+.btn{display:inline-block;margin:4px 4px 4px 0;padding:9px 12px;border-radius:10px;font-weight:700;font-size:.78rem;text-decoration:none;border:1px solid rgba(212,168,75,.35);color:#f0d78c;background:rgba(40,32,18,.65)}
+.btn.blue{color:var(--b);border-color:rgba(77,163,255,.35);background:rgba(20,30,50,.7)}
+.note{font-size:.72rem;color:#8a7a60;margin-top:8px;line-height:1.4}
+.foot{text-align:center;font-size:.65rem;color:#6a5a48;margin-top:8px}
+</style>
+</head>
 <body>
-<h1>Pi Node Controller SoloHost</h1>
-<p class="m">v2.5.1 · Data Live (primary) → Horizon → Ports</p>
-<div class="card" id="s">Loading…</div>
-<div class="card">
-  <b>Data Live (Windows) — better data quality</b>
-  <p class="m">Run on the same PC as Pi Node. Keeps MonitorLive; adds HTTP API for SoloHost.</p>
-  <a class="btn gold" href="/scripts/Start-DataLive.bat">Start-DataLive.bat</a>
-  <a class="btn gold" href="/scripts/DataLive_HttpApi.ps1">DataLive_HttpApi.ps1</a>
-  <a class="btn" href="/scripts/DataLive_README.txt">README</a>
-</div>
-<div class="card">
-  <b>Maintenance scripts (Windows Admin)</b><br>
-  <a class="btn" href="/scripts/CleanRAM_PiNode.ps1">CleanRAM</a>
-  <a class="btn" href="/scripts/Weekly_Maintenance.ps1">Maintenance</a>
-  <a class="btn" href="/scripts/Reset_Node_Network.ps1">Reset Network</a>
-  <a class="btn" href="/scripts/Pi_Node_Diagnostic_PRO.ps1">Diagnostic</a>
+<div class="w">
+  <div class="hero">
+    <div class="ring"><img src="/avatar.jpg" alt="" width="88" height="88"></div>
+    <h1>Pi Node Controller PRO</h1>
+    <p class="sub">SoloHost · AI assistant · Data Live</p>
+  </div>
+  <div class="card"><h2>Trạng thái</h2><div id="s">…</div></div>
+  <div class="card">
+    <h2>Data Live (Windows)</h2>
+    <a class="btn" href="/scripts/Start-DataLive.bat">Start-DataLive.bat</a>
+    <a class="btn" href="/scripts/DataLive_HttpApi.ps1">DataLive_HttpApi.ps1</a>
+    <p class="note">Chạy trên máy Pi Node để SoloHost nhận sync/peer/CPU đầy đủ.</p>
+  </div>
+  <div class="card">
+    <h2>Script bảo trì</h2>
+    <a class="btn blue" href="/scripts/CleanRAM_PiNode.ps1">CleanRAM</a>
+    <a class="btn blue" href="/scripts/Weekly_Maintenance.ps1">Maintenance</a>
+    <a class="btn blue" href="/scripts/Reset_Node_Network.ps1">Reset</a>
+  </div>
+  <p class="foot">v2.5.4 · Hỏi tiếng Việt trên Telegram — AI/Rules trả lời</p>
 </div>
 <script>
 async function load(){
   try{
     const t=await fetch('/api/status').then(r=>r.json());
     const rows=[];
-    const add=(k,v)=>{if(v!=null&&v!=='')rows.push('<div class="row"><span>'+k+'</span><b>'+String(v)+'</b></div>');};
+    const add=(k,v)=>{if(v!=null&&v!=='')rows.push('<div class="row"><span class="k">'+k+'</span><span class="val">'+String(v)+'</span></div>');};
     add('Source',t.source);add('Sync',t.sync);add('Ledger',t.ledger);
     add('Peers',(t.peer_in!=null||t.peer_out!=null)?('IN '+(t.peer_in??'?')+' / OUT '+(t.peer_out??'?')):null);
-    add('Docker',t.docker);add('Container',t.container);
-    add('RAM',t.ram!=null?t.ram+'%':null);add('CPU',t.cpu!=null?t.cpu+'%':null);add('Temp',t.temp!=null?t.temp+'C':null);
-    document.getElementById('s').innerHTML=rows.join('')||'No data yet. Start Data Live on Windows + MonitorLive.';
-  }catch(e){document.getElementById('s').textContent='Error loading status';}
+    add('Docker',t.docker);add('RAM',t.ram!=null?t.ram+'%':null);
+    document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Chưa có dữ liệu — bật Data Live</span>';
+  }catch(e){document.getElementById('s').textContent='Lỗi tải';}
 }
 load();setInterval(load,15000);
 </script>
-</body></html>
+</body>
+</html>

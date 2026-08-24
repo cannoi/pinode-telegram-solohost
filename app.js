@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.3-solohost';
+const VERSION = '2.5.4-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -103,6 +103,15 @@ let state = loadJSON(STATE_F, {
   lastLevel: null, lastLedger: null, lastLedgerAt: 0
 });
 /** @type {object|null} */
+
+const CHAT_TURNS = [];
+function pushChatTurn(role, text) {
+  try {
+    CHAT_TURNS.push({ role, text: String(text || '').slice(0, 500), ts: Date.now() });
+    while (CHAT_TURNS.length > 16) CHAT_TURNS.shift();
+  } catch (e) {}
+}
+
 let cache = null; // last normalized telemetry
 let cacheAt = 0;
 
@@ -672,7 +681,8 @@ async function aiAnalyze(t, userQ) {
     'Rules: Use ONLY provided facts. Never invent CPU/RAM/temp/peers/sync if missing.',
     'If a field is absent, say data unavailable. Short answer, same language as user.',
     'Facts JSON: ' + JSON.stringify(facts),
-    hist.length ? ('Recent history: ' + JSON.stringify(hist)) : 'History: none yet'
+    hist.length ? ('Recent telemetry: ' + JSON.stringify(hist)) : 'Telemetry history: none',
+    CHAT_TURNS.length ? ('Recent chat: ' + JSON.stringify(CHAT_TURNS.slice(-6))) : 'Chat: none'
   ].join('\n');
 
   try {
@@ -764,11 +774,22 @@ async function runCmd(cmd, userText) {
     return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'peers') return tgSend(formatPeers(t), { reply_markup: mainKeyboard() });
+  if (cmd === 'ports') {
+    const lines = ['PORTS', '================'];
+    [31401,31402,31403].forEach(p => {
+      const st = t.ports && t.ports[String(p)];
+      lines.push((st === 'OPEN' ? 'OK' : (st || '?')) + '  ' + p);
+    });
+    return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
+  }
   if (cmd === 'report') return tgSend(formatReport(), { reply_markup: mainKeyboard() });
   if (cmd === 'diagnostic' || cmd === 'diag') return tgSend(formatDiagnostic(t), { reply_markup: mainKeyboard() });
-  if (cmd === 'analyze' || cmd === 'ai' || cmd === 'health') {
-    await tgSend('⏳ Analyzing…');
-    return tgSend(await aiAnalyze(t, userText || 'Analyze node health.'), { reply_markup: mainKeyboard() });
+  if (cmd === 'analyze' || cmd === 'ai' || cmd === 'health' || cmd === 'ask') {
+    pushChatTurn('user', userText || '');
+    await tgSend('…');
+    const ans = await aiAnalyze(t, userText || 'Analyze node health.');
+    pushChatTurn('assistant', ans);
+    return tgSend(ans, { reply_markup: mainKeyboard() });
   }
   if (cmd === 'trends') return tgSend(formatReport(), { reply_markup: mainKeyboard() });
   if (cmd === 'scripts' || cmd === 'script') return tgSend(formatScripts(), { reply_markup: mainKeyboard() });
@@ -789,14 +810,30 @@ async function runCmd(cmd, userText) {
 
 async function handleText(text) {
   const raw = (text || '').trim();
+  if (!raw) return null;
   const cmd = raw.toLowerCase().split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
+
+  // Slash commands
   if (raw.startsWith('/')) {
-    return (await runCmd(cmd, raw)) || tgSend('Unknown. /help', { reply_markup: mainKeyboard() });
+    return (await runCmd(cmd, raw)) || tgSend('Unknown command. /help', { reply_markup: mainKeyboard() });
   }
-  if (/status|node|thế nào|trạng thái|how is/i.test(raw)) return runCmd('status', raw);
-  if (/peer/i.test(raw)) return runCmd('peers', raw);
-  if (/why|tại sao|phân tích|analyze|slow|chậm/i.test(raw)) return runCmd('analyze', raw);
-  return null;
+
+  // Fast keyword routes (Windows PRO style STATUS/PEERS/...)
+  if (/^(status|ping)$/i.test(raw)) return runCmd(raw.toLowerCase(), raw);
+  if (/(trạng thái|tinh trạng|tình trạng|máy tôi|node (sao|thế)|how is|how'?s my node|node status)/i.test(raw)
+      && !/(nóng|nhiệt|ram|cpu|peer|tại sao|why)/i.test(raw)) {
+    return runCmd('status', raw);
+  }
+  if (/\bpeers?\b|peer (in|out)|incoming|outgoing/i.test(raw)) return runCmd('peers', raw);
+  if (/\bports?\b|cổng 3140/i.test(raw)) return runCmd('ports', raw);
+  if (/\breport\b|báo cáo/i.test(raw)) return runCmd('report', raw);
+  if (/diagnostic|chẩn đoán/i.test(raw)) return runCmd('diagnostic', raw);
+  if (/donate|ủng hộ/i.test(raw)) return runCmd('donate', raw);
+  if (/script|cleanram|bảo trì|maintenance/i.test(raw)) return runCmd('scripts', raw);
+
+  // Natural language → AI assistant (like Invoke-GeminiNaturalLanguage on Windows PRO)
+  // Always reply — never silent
+  return runCmd('analyze', raw);
 }
 
 // TELEGRAM LOOP — independent, long poll (NOT 60s)
