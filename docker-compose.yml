@@ -1,8 +1,8 @@
 # SoloHost - NO docker.sock
-# Build and push image v2.5.1 before install
+# Build and push image v2.5.2 before install
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.1
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.2
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"

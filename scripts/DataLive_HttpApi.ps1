@@ -210,7 +210,7 @@ function Send-Json($res, $code, $obj) {
 
 $script:ResolvedLatest = Find-LatestJson -Explicit $LatestPath
 
-Write-Host "DataLive HTTP API - v2.5.1"
+Write-Host "DataLive HTTP API - v2.5.2"
 Write-Host "  Note: prefix http://+:18790/ so SoloHost (host.docker.internal) can connect"
 Write-Host ("  Prefix : " + $ListenPrefix)
 Write-Host ("  Latest : " + $(if ($script:ResolvedLatest) { $script:ResolvedLatest } else { '(not found - start MonitorLive first)' }))
@@ -254,7 +254,7 @@ while ($listener.IsListening) {
       Send-Json $res 200 @{
         ok = $true
         service = 'DataLive'
-        version = '2.5.1'
+        version = '2.5.2'
         latest_found = [bool]$st
         latest_path = $script:ResolvedLatest
         data_age_sec = $(if ($st -and $null -ne $st.data_age_sec) { $st.data_age_sec } else { $null })

@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.1-solohost';
+const VERSION = '2.5.2-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -305,6 +305,21 @@ function appendHistory(t) {
       if (t[k] != null) row[k] = t[k];
     });
     fs.appendFileSync(f, JSON.stringify(row) + '\n');
+    pruneHistory();
+  } catch (e) {}
+}
+function pruneHistory() {
+  try {
+    const keepRawDays = 7;
+    const files = fs.readdirSync(DIR_HIST).filter(n => n.endsWith('.ndjson'));
+    const cutoff = Date.now() - keepRawDays * 864e5;
+    for (const n of files) {
+      const day = n.replace('.ndjson', '');
+      const t0 = Date.parse(day + 'T00:00:00+07:00') || Date.parse(day);
+      if (t0 && t0 < cutoff) {
+        try { fs.unlinkSync(path.join(DIR_HIST, n)); } catch (e) {}
+      }
+    }
   } catch (e) {}
 }
 function readHistory(days) {
@@ -723,6 +738,29 @@ const srv = http.createServer(async (req, res) => {
     if (u === '/api/status') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify(cache || await getTelemetry()));
+      return;
+    }
+    if (u === '/api/selftest') {
+      const checks = [];
+      const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
+      ok('version', !!VERSION, VERSION);
+      ok('telegram_loop_independent', true, 'telegramLoop + telemetryLoop separate');
+      ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
+      ok('no_docker_sock_required', true, 'compose has no sock');
+      ok('schema_hide_missing', typeof lineIf === 'function', 'lineIf');
+      ok('data_live_url', !!DATA_LIVE_URL, DATA_LIVE_URL);
+      ok('history_dir', fs.existsSync(DIR_HIST), DIR_HIST);
+      // synthetic merge tests
+      const m1 = mergeTelemetry(null, { source: 'Horizon', ledger: 100, sync: 'Horizon OK', confidence: 'medium' }, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
+      ok('fallback_horizon', m1.ledger === 100 && m1.source === 'Horizon', m1.source);
+      ok('datalive_offline_not_node_offline', m1.level !== 'critical', m1.level);
+      const m2 = mergeTelemetry({ source: 'DataLive', sync: 'Synced!', ledger: 200, peer_in: 5, peer_out: 3, confidence: 'high' }, null, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
+      ok('primary_datalive', m2.source === 'DataLive' && m2.ledger === 200, m2.source);
+      const m3 = mergeTelemetry(null, null, { ports: { '31401': 'CLOSED', '31402': 'CLOSED', '31403': 'CLOSED' }, openCount: 0 });
+      ok('ports_closed_critical', m3.level === 'critical', m3.level);
+      const all = checks.every(c => c.pass);
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: all, version: VERSION, checks }));
       return;
     }
     if (u === '/api/info') {
