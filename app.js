@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.2-solohost';
+const VERSION = '2.5.3-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -541,13 +541,140 @@ function formatDonate() {
   ].join('\n');
 }
 
-async function aiAnalyze(t, userQ) {
-  if (!GEMINI_API_KEY) {
-    return formatDiagnostic(t) + '\n\nℹ️ Add GEMINI_API_KEY for AI analysis.';
+/* aiAnalyze replaced */
+
+
+function detectIntent(q) {
+  const s = String(q || '').toLowerCase();
+  if (/ram|b[oộ] nh[ớơ]|memory/.test(s)) return 'RAM';
+  if (/cpu|processor/.test(s)) return 'CPU';
+  if (/nhi[eệ]t|n[oó]ng|temp|temperature/.test(s)) return 'TEMP';
+  if (/disk|[oổ] c:|dung l[uư][oợ]ng|free space/.test(s)) return 'DISK';
+  if (/docker|container/.test(s)) return 'DOCKER';
+  if (/port|c[oổ]ng 3140|31401|31402|31403/.test(s)) return 'PORT';
+  if (/peer|incoming|outgoing/.test(s)) return 'PEERS';
+  if (/block|[dđ][oồ]ng b[oộ]|sync|ledger/.test(s)) return 'BLOCK_SYNC';
+  if (/t[aạ]i sao|v[iì] sao|l[oỗi]|ch[aậ]m|b[aấ]t th[uư][oờ]ng|s[uự] c[oố]|why|error|slow/.test(s)) return 'DIAGNOSIS';
+  if (/trend|xu h[uư][ớơ]ng|[oổ]n [dđ][iị]nh/.test(s)) return 'TREND';
+  if (/n[eê]n l[aà]m|[dđ][eề] xu[aấ]t|khuy[eê]n ngh[iị]|recommend/.test(s)) return 'RECOMMENDATION';
+  if (/[oổ]n kh[oô]ng|status|tr[aạ]ng th[aá]i|node sao|th[eế] n[aà]o|health|khoe/.test(s)) return 'NODE_HEALTH';
+  return 'GENERAL';
+}
+
+/** Rules engine first — same principle as Windows PRO Smart_Pipeline */
+function rulesAnalyze(t, intent) {
+  const lines = [];
+  const issues = [];
+  if (t.docker && /stop|exit/i.test(String(t.docker))) issues.push('Container/Docker not running');
+  if (t.ports_open === 0 || (t.ports && [31401,31402,31403].every(p => t.ports[String(p)] === 'CLOSED')))
+    issues.push('Node ports closed');
+  if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Sync problem: ' + t.sync);
+  if (t.stall) issues.push('Ledger not advancing');
+  if (t.ledger_age != null && t.ledger_age > 300) issues.push('Ledger age high: ' + t.ledger_age + 's');
+  if (t.peer_in != null && t.peer_in < 2) issues.push('Peer IN low: ' + t.peer_in);
+  if (t.ram != null && t.ram >= 88) issues.push('RAM high: ' + t.ram + '%');
+  if (t.cpu != null && t.cpu >= 90) issues.push('CPU high: ' + t.cpu + '%');
+  if (t.temp != null && t.temp >= 78) issues.push('Temp high: ' + t.temp + 'C');
+
+  // Intent-focused facts only (no invention)
+  if (intent === 'RAM') {
+    if (t.ram == null) return { enough: true, text: 'RAM: no data from sources (need Data Live).' };
+    return { enough: true, text: 'RAM: ' + t.ram + '%' + (t.ram >= 88 ? ' — high.' : ' — OK.') };
   }
-  const prompt = (userQ || 'Analyze node health briefly.') +
-    '\n\nTelemetry JSON (do not invent missing fields):\n' + JSON.stringify(t) +
-    '\nReply in the same language as the user question. Short, practical.';
+  if (intent === 'CPU') {
+    if (t.cpu == null) return { enough: true, text: 'CPU: no data (need Data Live).' };
+    return { enough: true, text: 'CPU: ' + t.cpu + '%' + (t.cpu >= 90 ? ' — high.' : ' — OK.') };
+  }
+  if (intent === 'TEMP') {
+    if (t.temp == null) return { enough: true, text: 'Temperature: no data (need Data Live + sensor).' };
+    return { enough: true, text: 'Temp: ' + t.temp + 'C' + (t.temp >= 78 ? ' — high.' : ' — OK.') };
+  }
+  if (intent === 'PEERS') {
+    if (t.peer_in == null && t.peer_out == null) return { enough: true, text: 'Peers: no data (need Data Live / Core).' };
+    return { enough: true, text: 'Peers IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?') };
+  }
+  if (intent === 'PORT') {
+    if (!t.ports) return { enough: true, text: 'Ports: no probe data.' };
+    const parts = [31401,31402,31403].map(p => p + '=' + (t.ports[String(p)] || '?'));
+    return { enough: true, text: 'Ports: ' + parts.join(' ') };
+  }
+  if (intent === 'DOCKER') {
+    if (!t.docker) return { enough: true, text: 'Docker: no data (need Data Live).' };
+    return { enough: true, text: 'Docker: ' + t.docker + (t.container ? ' · ' + t.container : '') };
+  }
+  if (intent === 'BLOCK_SYNC') {
+    const bits = [];
+    if (t.sync) bits.push('Sync=' + t.sync);
+    if (t.ledger != null) bits.push('Ledger=' + t.ledger);
+    if (t.ledger_age != null) bits.push('Age=' + t.ledger_age + 's');
+    if (!bits.length) return { enough: true, text: 'Sync/Ledger: no data.' };
+    return { enough: true, text: bits.join(' · ') };
+  }
+  if (intent === 'NODE_HEALTH' || intent === 'GENERAL') {
+    if (issues.length === 0 && (t.level === 'ok' || !t.level)) {
+      return { enough: true, text: 'Node looks healthy from available evidence.\nSource: ' + (t.source || '?') + (t.sync ? '\nSync: ' + t.sync : '') + (t.ledger != null ? '\nLedger: ' + t.ledger : '') };
+    }
+    if (issues.length && (intent === 'NODE_HEALTH' || t.level === 'critical' || t.level === 'warning')) {
+      return { enough: true, text: 'Issues (rules):\n• ' + issues.join('\n• ') + '\nSource: ' + (t.source || '?') };
+    }
+  }
+  // DIAGNOSIS / TREND / RECOMMENDATION / complex → may need Gemini
+  if (issues.length && intent !== 'DIAGNOSIS' && intent !== 'TREND' && intent !== 'RECOMMENDATION') {
+    return { enough: true, text: 'Issues:\n• ' + issues.join('\n• ') };
+  }
+  return { enough: false, issues, facts: buildFacts(t) };
+}
+
+function buildFacts(t) {
+  const f = { source: t.source || null, level: t.level || null };
+  ['sync','ledger','ledger_age','peer_in','peer_out','docker','container','cpu','ram','temp','ports_open'].forEach(k => {
+    if (t[k] != null) f[k] = t[k];
+  });
+  if (t.ports) f.ports = t.ports;
+  if (t.sources) f.sources = t.sources;
+  return f;
+}
+
+function historySnippet(n) {
+  try {
+    const rows = readHistory(1).slice(-(n || 12));
+    return rows.map(r => {
+      const o = { ts: r.ts, level: r.level };
+      ['sync','ledger','peer_in','ram','cpu'].forEach(k => { if (r[k] != null) o[k] = r[k]; });
+      return o;
+    });
+  } catch (e) { return []; }
+}
+
+async function aiAnalyze(t, userQ) {
+  const intent = detectIntent(userQ || '');
+  const rules = rulesAnalyze(t, intent);
+
+  // MODE 1 — Rules only when enough (Windows PRO principle)
+  if (rules.enough) {
+    return 'RULES · ' + intent + '\n━━━━━━━━━━━━━━━━━━\n' + rules.text;
+  }
+
+  // MODE 2 — Gemini when key present and deeper analysis needed
+  if (!GEMINI_API_KEY) {
+    const fallback = rules.issues && rules.issues.length
+      ? ('Issues:\n• ' + rules.issues.join('\n• '))
+      : formatDiagnostic(t);
+    return fallback + '\n\nAdd GEMINI_API_KEY in SoloHost config for AI deep analysis.';
+  }
+
+  const facts = rules.facts || buildFacts(t);
+  const hist = historySnippet(12);
+  const prompt = [
+    'You are Pi Node assistant. Same principles as Pi Node Telegram Controller PRO.',
+    'Intent: ' + intent,
+    'User: ' + String(userQ || 'Analyze node health').slice(0, 500),
+    'Rules: Use ONLY provided facts. Never invent CPU/RAM/temp/peers/sync if missing.',
+    'If a field is absent, say data unavailable. Short answer, same language as user.',
+    'Facts JSON: ' + JSON.stringify(facts),
+    hist.length ? ('Recent history: ' + JSON.stringify(hist)) : 'History: none yet'
+  ].join('\n');
+
   try {
     const body = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] });
     const text = await new Promise(resolve => {
@@ -568,8 +695,12 @@ async function aiAnalyze(t, userQ) {
       req.setTimeout(20000, () => { try { req.destroy(); } catch (e) {} resolve(null); });
       req.write(body); req.end();
     });
-    return text ? ('🤖 AI\n\n' + text.slice(0, 3500)) : formatDiagnostic(t);
-  } catch (e) { return formatDiagnostic(t); }
+    if (!text) return formatDiagnostic(t) + '\n\nAI unavailable — showing diagnostic.';
+    // Quality gate: refuse empty
+    return 'AI · ' + intent + '\n━━━━━━━━━━━━━━━━━━\n' + String(text).slice(0, 3500);
+  } catch (e) {
+    return formatDiagnostic(t);
+  }
 }
 
 function mainKeyboard() {

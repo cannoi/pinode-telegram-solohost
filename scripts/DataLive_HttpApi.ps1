@@ -1,4 +1,4 @@
-﻿# DataLive_HttpApi.ps1 - READ-ONLY HTTP for SoloHost
+# DataLive_HttpApi.ps1 - READ-ONLY HTTP for SoloHost
 # Reuses PiNodeMonitorLive latest.json - does NOT replace MonitorLive service
 # Listen: http://127.0.0.1:18790/   GET /v1/health  GET /v1/status
 # Optional: env DATA_LIVE_TOKEN  or  -Token

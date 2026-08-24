@@ -1,8 +1,7 @@
 # SoloHost - NO docker.sock
-# Build and push image v2.5.2 before install
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.2
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.3
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"
@@ -11,6 +10,7 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DATA_LIVE_URL=http://host.docker.internal:18790
       - NODE_HOST=host.docker.internal
       - HORIZON_PORT=31401
