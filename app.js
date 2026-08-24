@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.4-solohost';
+const VERSION = '2.5.5-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -553,90 +553,164 @@ function formatDonate() {
 /* aiAnalyze replaced */
 
 
+
 function detectIntent(q) {
   const s = String(q || '').toLowerCase();
-  if (/ram|b[oộ] nh[ớơ]|memory/.test(s)) return 'RAM';
-  if (/cpu|processor/.test(s)) return 'CPU';
-  if (/nhi[eệ]t|n[oó]ng|temp|temperature/.test(s)) return 'TEMP';
-  if (/disk|[oổ] c:|dung l[uư][oợ]ng|free space/.test(s)) return 'DISK';
+  if (/^(xin chào|chào bạn|chào|hello|hi)\b/.test(s) || s === 'chào' || s === 'hello' || s === 'hi') return 'GREETING';
+  if (/thứ mấy|hôm nay|hom nay|ngày mấy|what day|mấy giờ/.test(s)) return 'SMALLTALK';
+  if (/không hiểu|khong hieu|giải thích|explain/.test(s)) return 'CLARIFY';
+  if (/ram|bộ nhớ|bo nho|memory/.test(s)) return 'RAM';
+  if (/\bcpu\b|processor/.test(s)) return 'CPU';
+  if (/nhiệt|nóng|nong|temp|temperature/.test(s)) return 'TEMP';
+  if (/disk|ổ cứng|o cung|dung lượng/.test(s)) return 'DISK';
   if (/docker|container/.test(s)) return 'DOCKER';
-  if (/port|c[oổ]ng 3140|31401|31402|31403/.test(s)) return 'PORT';
+  if (/port|cổng 3140|31401|31402|31403/.test(s)) return 'PORT';
   if (/peer|incoming|outgoing/.test(s)) return 'PEERS';
-  if (/block|[dđ][oồ]ng b[oộ]|sync|ledger/.test(s)) return 'BLOCK_SYNC';
-  if (/t[aạ]i sao|v[iì] sao|l[oỗi]|ch[aậ]m|b[aấ]t th[uư][oờ]ng|s[uự] c[oố]|why|error|slow/.test(s)) return 'DIAGNOSIS';
-  if (/trend|xu h[uư][ớơ]ng|[oổ]n [dđ][iị]nh/.test(s)) return 'TREND';
-  if (/n[eê]n l[aà]m|[dđ][eề] xu[aấ]t|khuy[eê]n ngh[iị]|recommend/.test(s)) return 'RECOMMENDATION';
-  if (/[oổ]n kh[oô]ng|status|tr[aạ]ng th[aá]i|node sao|th[eế] n[aà]o|health|khoe/.test(s)) return 'NODE_HEALTH';
+  if (/đồng bộ|dong bo|sync|ledger/.test(s)) return 'BLOCK_SYNC';
+  if (/bonus|điểm thưởng|diem thuong|phần thưởng|reward/.test(s)) return 'BONUS';
+  if (/nâng cấp|nang cap|upgrade|mua gì|thêm ram|ssd/.test(s)) return 'ADVICE';
+  if (/tại sao|tai sao|vì sao|vi sao|why|lỗi|chậm|sự cố/.test(s)) return 'DIAGNOSIS';
+  if (/ổn không|on khong|sao rồi|sao roi|thế nào|the nao|tình trạng|trạng thái|máy tôi/.test(s)) return 'NODE_HEALTH';
+  if (/làm sao|lam sao|phải làm|tư vấn|tu van|khuyên/.test(s)) return 'RECOMMENDATION';
   return 'GENERAL';
 }
 
-/** Rules engine first — same principle as Windows PRO Smart_Pipeline */
-function rulesAnalyze(t, intent) {
-  const lines = [];
-  const issues = [];
-  if (t.docker && /stop|exit/i.test(String(t.docker))) issues.push('Container/Docker not running');
-  if (t.ports_open === 0 || (t.ports && [31401,31402,31403].every(p => t.ports[String(p)] === 'CLOSED')))
-    issues.push('Node ports closed');
-  if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Sync problem: ' + t.sync);
-  if (t.stall) issues.push('Ledger not advancing');
-  if (t.ledger_age != null && t.ledger_age > 300) issues.push('Ledger age high: ' + t.ledger_age + 's');
-  if (t.peer_in != null && t.peer_in < 2) issues.push('Peer IN low: ' + t.peer_in);
-  if (t.ram != null && t.ram >= 88) issues.push('RAM high: ' + t.ram + '%');
-  if (t.cpu != null && t.cpu >= 90) issues.push('CPU high: ' + t.cpu + '%');
-  if (t.temp != null && t.temp >= 78) issues.push('Temp high: ' + t.temp + 'C');
+function loadChatHistory() {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(DATA, 'chat_history.json'), 'utf8'));
+    return Array.isArray(j) ? j.slice(-24) : [];
+  } catch (e) { return []; }
+}
+function saveChatHistory(turns) {
+  try { fs.writeFileSync(path.join(DATA, 'chat_history.json'), JSON.stringify(turns.slice(-40))); } catch (e) {}
+}
+function pushChatPersistent(role, text) {
+  const turns = loadChatHistory();
+  turns.push({ role: role, text: String(text || '').slice(0, 800), ts: nowISO() });
+  saveChatHistory(turns);
+  try { pushChatTurn(role, text); } catch (e) {}
+}
 
-  // Intent-focused facts only (no invention)
+function evidenceSummary(t) {
+  const parts = [];
+  if (t.source) parts.push('Nguồn: ' + t.source);
+  if (t.sync) parts.push('Đồng bộ: ' + t.sync);
+  if (t.ledger != null) parts.push('Ledger: ' + Number(t.ledger).toLocaleString('en-US'));
+  if (t.ledger_age != null) parts.push('Age: ' + t.ledger_age + 's');
+  if (t.peer_in != null || t.peer_out != null)
+    parts.push('Peer IN/OUT: ' + (t.peer_in != null ? t.peer_in : '?') + '/' + (t.peer_out != null ? t.peer_out : '?'));
+  if (t.docker) parts.push('Docker: ' + t.docker);
+  if (t.ports_all_open) parts.push('Cổng 31401-3: OPEN');
+  else if (t.ports_open != null) parts.push('Cổng mở: ' + t.ports_open + '/3');
+  if (t.ram != null) parts.push('RAM: ' + t.ram + '%');
+  if (t.cpu != null) parts.push('CPU: ' + t.cpu + '%');
+  if (t.temp != null) parts.push('Nhiệt: ' + t.temp + '°C');
+  return parts;
+}
+
+function collectIssues(t) {
+  const issues = [];
+  if (t.docker && /stop|exit/i.test(String(t.docker))) issues.push('Container/Docker không chạy');
+  if (t.ports_open === 0) issues.push('Cổng node đang đóng');
+  if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Đồng bộ bất thường: ' + t.sync);
+  if (t.stall) issues.push('Ledger không tăng trong thời gian dài');
+  if (t.ledger_age != null && t.ledger_age > 300) issues.push('Ledger age cao (' + t.ledger_age + 's)');
+  if (t.peer_in != null && t.peer_in < 2) issues.push('Peer IN thấp (' + t.peer_in + ')');
+  if (t.ram != null && t.ram >= 88) issues.push('RAM cao (' + t.ram + '%)');
+  if (t.cpu != null && t.cpu >= 90) issues.push('CPU cao (' + t.cpu + '%)');
+  if (t.temp != null && t.temp >= 78) issues.push('Nhiệt độ cao (' + t.temp + '°C)');
+  if (!t.sources || !t.sources.data_live)
+    issues.push('Chưa có Data Live — thiếu peer/CPU/RAM/nhiệt (đang dùng ' + (t.source || 'fallback') + ')');
+  return issues;
+}
+
+function rulesMetricOnly(t, intent) {
   if (intent === 'RAM') {
-    if (t.ram == null) return { enough: true, text: 'RAM: no data from sources (need Data Live).' };
-    return { enough: true, text: 'RAM: ' + t.ram + '%' + (t.ram >= 88 ? ' — high.' : ' — OK.') };
+    if (t.ram == null) return 'Hiện chưa đo được RAM. Bật Data Live trên Windows để có số liệu máy thật.';
+    return 'RAM đang khoảng ' + t.ram + '%.' + (t.ram >= 88 ? ' Mức cao — nên giảm app nền hoặc chạy CleanRAM.' : ' Mức chấp nhận được.');
   }
   if (intent === 'CPU') {
-    if (t.cpu == null) return { enough: true, text: 'CPU: no data (need Data Live).' };
-    return { enough: true, text: 'CPU: ' + t.cpu + '%' + (t.cpu >= 90 ? ' — high.' : ' — OK.') };
+    if (t.cpu == null) return 'Chưa có dữ liệu CPU (cần Data Live).';
+    return 'CPU khoảng ' + t.cpu + '%.' + (t.cpu >= 90 ? ' Đang rất cao.' : ' Ổn.');
   }
   if (intent === 'TEMP') {
-    if (t.temp == null) return { enough: true, text: 'Temperature: no data (need Data Live + sensor).' };
-    return { enough: true, text: 'Temp: ' + t.temp + 'C' + (t.temp >= 78 ? ' — high.' : ' — OK.') };
+    if (t.temp == null) return 'Chưa đọc được nhiệt độ (cần Data Live + cảm biến trên Windows). Khi có Data Live, mình sẽ theo dõi giúp bạn.';
+    return 'Nhiệt độ khoảng ' + t.temp + '°C.' + (t.temp >= 78 ? ' Hơi cao — kiểm tra quạt/thoáng khí.' : ' Trong ngưỡng ổn.');
   }
   if (intent === 'PEERS') {
-    if (t.peer_in == null && t.peer_out == null) return { enough: true, text: 'Peers: no data (need Data Live / Core).' };
-    return { enough: true, text: 'Peers IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?') };
+    if (t.peer_in == null && t.peer_out == null) return 'Chưa có peer (cần Data Live đọc stellar-core). Cổng node ' + (t.ports_all_open ? 'đang mở tốt' : 'cần kiểm tra') + '.';
+    return 'Peer IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?') + '.';
   }
   if (intent === 'PORT') {
-    if (!t.ports) return { enough: true, text: 'Ports: no probe data.' };
-    const parts = [31401,31402,31403].map(p => p + '=' + (t.ports[String(p)] || '?'));
-    return { enough: true, text: 'Ports: ' + parts.join(' ') };
+    if (!t.ports) return 'Chưa probe được cổng.';
+    return [31401, 31402, 31403].map(function (p) { return p + ': ' + (t.ports[String(p)] || '?'); }).join('\n');
   }
   if (intent === 'DOCKER') {
-    if (!t.docker) return { enough: true, text: 'Docker: no data (need Data Live).' };
-    return { enough: true, text: 'Docker: ' + t.docker + (t.container ? ' · ' + t.container : '') };
+    if (!t.docker) return 'Chưa có trạng thái Docker từ Data Live. Container: ' + (t.container || 'testnet2') + '.';
+    return 'Docker: ' + t.docker + (t.container ? ' · ' + t.container : '');
   }
   if (intent === 'BLOCK_SYNC') {
-    const bits = [];
-    if (t.sync) bits.push('Sync=' + t.sync);
-    if (t.ledger != null) bits.push('Ledger=' + t.ledger);
-    if (t.ledger_age != null) bits.push('Age=' + t.ledger_age + 's');
-    if (!bits.length) return { enough: true, text: 'Sync/Ledger: no data.' };
-    return { enough: true, text: bits.join(' · ') };
+    const bits = evidenceSummary(t).filter(function (x) { return /Đồng bộ|Ledger|Age|Nguồn/.test(x); });
+    return bits.length ? bits.join('\n') : 'Chưa có dữ liệu đồng bộ chi tiết.';
   }
-  if (intent === 'NODE_HEALTH' || intent === 'GENERAL') {
-    if (issues.length === 0 && (t.level === 'ok' || !t.level)) {
-      return { enough: true, text: 'Node looks healthy from available evidence.\nSource: ' + (t.source || '?') + (t.sync ? '\nSync: ' + t.sync : '') + (t.ledger != null ? '\nLedger: ' + t.ledger : '') };
+  return null;
+}
+
+function localAssistantReply(t, intent, userQ) {
+  const ev = evidenceSummary(t);
+  const issues = collectIssues(t);
+  const hasDL = t.sources && t.sources.data_live;
+
+  if (intent === 'GREETING') {
+    return 'Chào bạn. Mình là trợ lý Pi Node trên SoloHost.\nHiện node ' + (t.level === 'ok' ? 'đang hoạt động bình thường' : 'cần theo dõi') + ' (nguồn: ' + (t.source || '?') + ').\nBạn có thể hỏi trạng thái, peer, nhiệt, bonus, hoặc cách giữ node ổn định.';
+  }
+  if (intent === 'SMALLTALK') {
+    return 'Bây giờ khoảng ' + nowHM() + ' (giờ VN).\nMình chuyên hỗ trợ Pi Node — cứ hỏi tình trạng máy hoặc cách vận hành node nhé.';
+  }
+  if (intent === 'CLARIFY') {
+    return 'Không sao. Tóm lại:\n• Node: ' + (t.level === 'ok' ? 'OK' : String(t.level || '?')) + '\n• ' + (ev.slice(0, 4).join('\n• ') || 'Đang thu thập dữ liệu') + '\n\nBạn muốn mình giải thích đồng bộ, cổng, peer, hay điểm thưởng?';
+  }
+  if (intent === 'BONUS' || (intent === 'DIAGNOSIS' && /bonus|thưởng|reward/i.test(userQ || ''))) {
+    var s = 'Về điểm thưởng/bonus, mình chỉ suy luận từ dữ liệu node (không đọc ví Pi):\n';
+    if (t.level === 'ok' && t.ports_all_open) s += '• Cổng và kết nối nhìn chung ổn — ít khả năng do node offline.\n';
+    else s += '• Kết nối/cổng chưa ổn — nên xử lý trước.\n';
+    if (!hasDL) s += '• Chưa có Data Live nên thiếu peer/CPU/RAM — các yếu tố hay ảnh hưởng uptime.\n';
+    if (t.peer_in != null && t.peer_in < 3) s += '• Peer thấp có thể làm node kém gắn với mạng.\n';
+    s += '\nGợi ý:\n1) Giữ Docker/Pi Node 24/7, tắt sleep máy\n2) Mở đủ cổng 31401–31403\n3) Bật Data Live để theo dõi peer & tài nguyên\n4) Xem thông báo trên app Pi Desktop về bonus\n\nĐo được:\n• ' + ev.join('\n• ');
+    return s;
+  }
+  if (intent === 'ADVICE' || intent === 'RECOMMENDATION') {
+    var a = 'Tư vấn giữ node ổn (theo số liệu hiện có):\n';
+    if (!hasDL) a += '• Ưu tiên #1: bật Data Live trên Windows để có peer/CPU/RAM/nhiệt.\n';
+    if (t.ram != null && t.ram >= 80) a += '• RAM cao → thêm RAM hoặc giảm app nền.\n';
+    else if (t.ram == null) a += '• Chưa đo RAM — đừng vội mua thêm trước khi có số liệu Data Live.\n';
+    if (t.temp != null && t.temp >= 75) a += '• Máy ấm → thoáng khí/quạt.\n';
+    if (t.ports_all_open) a += '• Cổng node đang mở — tốt.\n';
+    else a += '• Kiểm tra firewall/router mở 31401–31403.\n';
+    a += '• Giữ máy không sleep; container ' + (t.container || 'testnet2') + ' Running.\n';
+    a += '\nĐo được:\n• ' + (ev.join('\n• ') || 'Chưa đủ telemetry');
+    return a;
+  }
+  if (intent === 'NODE_HEALTH' || intent === 'DIAGNOSIS' || intent === 'GENERAL') {
+    var hard = issues.filter(function (i) { return !/Data Live/.test(i); });
+    var out = '';
+    if (t.level === 'ok' && hard.length === 0) {
+      out = 'Nhìn dữ liệu hiện có, node đang chạy ổn';
+      if (t.sync) out += ' (' + t.sync + ')';
+      out += '.\n';
+    } else {
+      out = 'Có điểm cần lưu ý:\n• ' + issues.join('\n• ') + '\n\n';
     }
-    if (issues.length && (intent === 'NODE_HEALTH' || t.level === 'critical' || t.level === 'warning')) {
-      return { enough: true, text: 'Issues (rules):\n• ' + issues.join('\n• ') + '\nSource: ' + (t.source || '?') };
-    }
+    out += 'Chi tiết:\n• ' + ev.join('\n• ') + '\n';
+    if (!hasDL) out += '\nBật Data Live để đánh giá sâu hơn (peer, CPU, RAM, nhiệt) giống bản Windows PRO.';
+    return out;
   }
-  // DIAGNOSIS / TREND / RECOMMENDATION / complex → may need Gemini
-  if (issues.length && intent !== 'DIAGNOSIS' && intent !== 'TREND' && intent !== 'RECOMMENDATION') {
-    return { enough: true, text: 'Issues:\n• ' + issues.join('\n• ') };
-  }
-  return { enough: false, issues, facts: buildFacts(t) };
+  return 'Dữ liệu hiện có:\n• ' + (ev.join('\n• ') || 'Đang thu thập') + '\n\nBạn hỏi cụ thể về đồng bộ, peer, nhiệt hoặc nâng cấp nhé.';
 }
 
 function buildFacts(t) {
   const f = { source: t.source || null, level: t.level || null };
-  ['sync','ledger','ledger_age','peer_in','peer_out','docker','container','cpu','ram','temp','ports_open'].forEach(k => {
+  ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'container', 'cpu', 'ram', 'temp', 'ports_open'].forEach(function (k) {
     if (t[k] != null) f[k] = t[k];
   });
   if (t.ports) f.ports = t.ports;
@@ -646,10 +720,9 @@ function buildFacts(t) {
 
 function historySnippet(n) {
   try {
-    const rows = readHistory(1).slice(-(n || 12));
-    return rows.map(r => {
+    return readHistory(1).slice(-(n || 16)).map(function (r) {
       const o = { ts: r.ts, level: r.level };
-      ['sync','ledger','peer_in','ram','cpu'].forEach(k => { if (r[k] != null) o[k] = r[k]; });
+      ['sync', 'ledger', 'peer_in', 'ram', 'cpu', 'temp'].forEach(function (k) { if (r[k] != null) o[k] = r[k]; });
       return o;
     });
   } catch (e) { return []; }
@@ -657,60 +730,61 @@ function historySnippet(n) {
 
 async function aiAnalyze(t, userQ) {
   const intent = detectIntent(userQ || '');
-  const rules = rulesAnalyze(t, intent);
-
-  // MODE 1 — Rules only when enough (Windows PRO principle)
-  if (rules.enough) {
-    return 'RULES · ' + intent + '\n━━━━━━━━━━━━━━━━━━\n' + rules.text;
+  const metric = rulesMetricOnly(t, intent);
+  if (metric && ['RAM', 'CPU', 'TEMP', 'PEERS', 'PORT', 'DOCKER', 'BLOCK_SYNC'].indexOf(intent) >= 0) {
+    return metric;
   }
 
-  // MODE 2 — Gemini when key present and deeper analysis needed
-  if (!GEMINI_API_KEY) {
-    const fallback = rules.issues && rules.issues.length
-      ? ('Issues:\n• ' + rules.issues.join('\n• '))
-      : formatDiagnostic(t);
-    return fallback + '\n\nAdd GEMINI_API_KEY in SoloHost config for AI deep analysis.';
-  }
+  if (GEMINI_API_KEY) {
+    const facts = buildFacts(t);
+    const hist = historySnippet(16);
+    const chat = loadChatHistory().slice(-8);
+    const issues = collectIssues(t);
+    const prompt = [
+      'Bạn là trợ lý quản lý Pi Node chuyên nghiệp cho người dùng phổ thông (SoloHost).',
+      'Giọng tiếng Việt tự nhiên, ngắn, dễ hiểu, có suy luận từ FACTS — không cứng như log hệ thống.',
+      'CẤM bịa số liệu. Thiếu field thì nói chưa đo được / cần Data Live.',
+      'Không kết luận Node Offline chỉ vì thiếu Data Live.',
+      'Bonus: chỉ tư vấn gián tiếp từ uptime, cổng, peer, tài nguyên — không bịa số bonus.',
+      'Intent: ' + intent,
+      'User: ' + String(userQ || '').slice(0, 600),
+      'Issues: ' + JSON.stringify(issues),
+      'FACTS: ' + JSON.stringify(facts),
+      hist.length ? ('Telemetry gần đây: ' + JSON.stringify(hist)) : '',
+      chat.length ? ('Chat gần đây: ' + JSON.stringify(chat)) : '',
+      'Trả lời tự nhiên; đưa lời khuyên thực tế khi phù hợp.'
+    ].filter(Boolean).join('\n');
 
-  const facts = rules.facts || buildFacts(t);
-  const hist = historySnippet(12);
-  const prompt = [
-    'You are Pi Node assistant. Same principles as Pi Node Telegram Controller PRO.',
-    'Intent: ' + intent,
-    'User: ' + String(userQ || 'Analyze node health').slice(0, 500),
-    'Rules: Use ONLY provided facts. Never invent CPU/RAM/temp/peers/sync if missing.',
-    'If a field is absent, say data unavailable. Short answer, same language as user.',
-    'Facts JSON: ' + JSON.stringify(facts),
-    hist.length ? ('Recent telemetry: ' + JSON.stringify(hist)) : 'Telemetry history: none',
-    CHAT_TURNS.length ? ('Recent chat: ' + JSON.stringify(CHAT_TURNS.slice(-6))) : 'Chat: none'
-  ].join('\n');
-
-  try {
-    const body = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] });
-    const text = await new Promise(resolve => {
-      const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
-      const req = https.request({
-        hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-      }, r => {
-        let b = ''; r.on('data', d => b += d);
-        r.on('end', () => {
-          try {
-            const j = JSON.parse(b);
-            resolve(j.candidates && j.candidates[0] && j.candidates[0].content.parts[0].text);
-          } catch (e) { resolve(null); }
-        });
+    try {
+      const body = JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.65, maxOutputTokens: 1024 }
       });
-      req.on('error', () => resolve(null));
-      req.setTimeout(20000, () => { try { req.destroy(); } catch (e) {} resolve(null); });
-      req.write(body); req.end();
-    });
-    if (!text) return formatDiagnostic(t) + '\n\nAI unavailable — showing diagnostic.';
-    // Quality gate: refuse empty
-    return 'AI · ' + intent + '\n━━━━━━━━━━━━━━━━━━\n' + String(text).slice(0, 3500);
-  } catch (e) {
-    return formatDiagnostic(t);
+      const text = await new Promise(function (resolve) {
+        const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
+        const req = https.request({
+          hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }, function (r) {
+          let b = '';
+          r.on('data', function (d) { b += d; });
+          r.on('end', function () {
+            try {
+              const j = JSON.parse(b);
+              resolve(j.candidates && j.candidates[0] && j.candidates[0].content.parts[0].text);
+            } catch (e) { resolve(null); }
+          });
+        });
+        req.on('error', function () { resolve(null); });
+        req.setTimeout(25000, function () { try { req.destroy(); } catch (e) {} resolve(null); });
+        req.write(body);
+        req.end();
+      });
+      if (text && String(text).trim()) return String(text).trim().slice(0, 3500);
+    } catch (e) {}
   }
+
+  return localAssistantReply(t, intent, userQ || '');
 }
 
 function mainKeyboard() {
@@ -785,10 +859,10 @@ async function runCmd(cmd, userText) {
   if (cmd === 'report') return tgSend(formatReport(), { reply_markup: mainKeyboard() });
   if (cmd === 'diagnostic' || cmd === 'diag') return tgSend(formatDiagnostic(t), { reply_markup: mainKeyboard() });
   if (cmd === 'analyze' || cmd === 'ai' || cmd === 'health' || cmd === 'ask') {
-    pushChatTurn('user', userText || '');
+    pushChatPersistent('user', userText || '');
     await tgSend('…');
-    const ans = await aiAnalyze(t, userText || 'Analyze node health.');
-    pushChatTurn('assistant', ans);
+    const ans = await aiAnalyze(t, userText || 'Tinh trang node');
+    pushChatPersistent('assistant', ans);
     return tgSend(ans, { reply_markup: mainKeyboard() });
   }
   if (cmd === 'trends') return tgSend(formatReport(), { reply_markup: mainKeyboard() });
@@ -811,33 +885,19 @@ async function runCmd(cmd, userText) {
 async function handleText(text) {
   const raw = (text || '').trim();
   if (!raw) return null;
-  const cmd = raw.toLowerCase().split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
+  const low = raw.toLowerCase();
+  const cmd = low.split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
 
-  // Slash commands
   if (raw.startsWith('/')) {
-    return (await runCmd(cmd, raw)) || tgSend('Unknown command. /help', { reply_markup: mainKeyboard() });
+    return (await runCmd(cmd, raw)) || tgSend('Lenh khong ro. /help', { reply_markup: mainKeyboard() });
   }
+  if (/^(status|ping)$/i.test(raw.trim())) return runCmd(raw.toLowerCase(), raw);
+  if (/^(peers?|ports?|report|diagnostic|donate|scripts?)$/i.test(raw.trim())) return runCmd(cmd, raw);
 
-  // Fast keyword routes (Windows PRO style STATUS/PEERS/...)
-  if (/^(status|ping)$/i.test(raw)) return runCmd(raw.toLowerCase(), raw);
-  if (/(trạng thái|tinh trạng|tình trạng|máy tôi|node (sao|thế)|how is|how'?s my node|node status)/i.test(raw)
-      && !/(nóng|nhiệt|ram|cpu|peer|tại sao|why)/i.test(raw)) {
-    return runCmd('status', raw);
-  }
-  if (/\bpeers?\b|peer (in|out)|incoming|outgoing/i.test(raw)) return runCmd('peers', raw);
-  if (/\bports?\b|cổng 3140/i.test(raw)) return runCmd('ports', raw);
-  if (/\breport\b|báo cáo/i.test(raw)) return runCmd('report', raw);
-  if (/diagnostic|chẩn đoán/i.test(raw)) return runCmd('diagnostic', raw);
-  if (/donate|ủng hộ/i.test(raw)) return runCmd('donate', raw);
-  if (/script|cleanram|bảo trì|maintenance/i.test(raw)) return runCmd('scripts', raw);
-
-  // Natural language → AI assistant (like Invoke-GeminiNaturalLanguage on Windows PRO)
-  // Always reply — never silent
+  // Natural language -> assistant (never silent, never dump STATUS template)
   return runCmd('analyze', raw);
 }
 
-// TELEGRAM LOOP — independent, long poll (NOT 60s)
-let offset = 0;
 async function telegramLoop() {
   while (true) {
     if (!BOT_TOKEN) { await wait(5000); continue; }
