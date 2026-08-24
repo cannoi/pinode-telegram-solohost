@@ -1,0 +1,7 @@
+{
+  "name": "pinode-telegram-solohost",
+  "version": "2.5.0",
+  "description": "SoloHost Controller — Data Live adapter, separated Telegram/telemetry polling",
+  "main": "loader.js",
+  "private": true
+}

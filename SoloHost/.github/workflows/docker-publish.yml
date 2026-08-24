@@ -1,4 +1,4 @@
-name: Build and publish
+name: Build publish
 on:
   push:
     branches: [main]
@@ -22,4 +22,4 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/pinode-telegram-solohost:latest
-            ghcr.io/${{ github.repository_owner }}/pinode-telegram-solohost:v2.4.2
+            ghcr.io/${{ github.repository_owner }}/pinode-telegram-solohost:v2.5.0

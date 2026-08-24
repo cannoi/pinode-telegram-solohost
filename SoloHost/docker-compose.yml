@@ -1,7 +1,7 @@
-# SoloHost v2.4.2 — KHÔNG mount docker.sock
+# SoloHost — NO docker.sock
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.4.2
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.0
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"
@@ -10,14 +10,13 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
-      - ALERT_ON_START=${ALERT_ON_START}
-      - REPORT_HOURS=${REPORT_HOURS}
-      - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC}
+      - DATA_LIVE_URL=http://host.docker.internal:18790
+      - DATA_LIVE_TOKEN=${DATA_LIVE_TOKEN}
       - NODE_HOST=host.docker.internal
-      - HORIZON_PORT=${HORIZON_PORT}
-      - STELLAR_CORE_PORT=${STELLAR_CORE_PORT}
+      - HORIZON_PORT=31401
       - PI_CONTAINER=${PI_CONTAINER}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TELEMETRY_SEC=60
       - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data

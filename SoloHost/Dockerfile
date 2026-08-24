@@ -6,7 +6,9 @@ RUN apk add --no-cache wget tzdata \
 COPY package.json app.js loader.js ./
 COPY public/ ./public/
 COPY scripts/ ./scripts/
-ENV DATA_DIR=/data PORT=8080 NODE_HOST=host.docker.internal TZ=Asia/Ho_Chi_Minh
+ENV DATA_DIR=/data PORT=8080 TZ=Asia/Ho_Chi_Minh \
+    DATA_LIVE_URL=http://host.docker.internal:18790 \
+    TELEMETRY_SEC=60
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
