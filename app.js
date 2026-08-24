@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.5-solohost';
+const VERSION = '2.5.6-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -523,20 +523,18 @@ function formatScripts() {
   return [
     'SCRIPTS (Windows)',
     '================',
-    '1) DATA LIVE (recommended)',
-    '   Start-DataLive.bat',
-    '   DataLive_HttpApi.ps1',
-    '   -> http://127.0.0.1:18790',
+    'Chay file .bat (khuyen nghi):',
+    '- Run-DataLive.bat',
+    '- Run-CleanRAM_PiNode.bat',
+    '- Run-Weekly_Maintenance.bat',
+    '- Run-Reset_Node_Network.bat',
+    '- Run-Pi_Node_Diagnostic_PRO.bat',
     '',
-    '2) Maintenance',
-    '   CleanRAM_PiNode.ps1',
-    '   Weekly_Maintenance.ps1',
-    '   Reset_Node_Network.ps1',
-    '   Pi_Node_Diagnostic_PRO.ps1',
+    'Neu loi not digitally signed, dung file .bat o tren',
+    '(Bypass ExecutionPolicy).',
     '',
-    'Download from Web UI /scripts/',
-    'Run DataLive without Admin if port free.',
-    'Maintenance scripts: Run as Admin.'
+    'Nhiet do: MonitorLive + OpenHardwareMonitorLib.dll',
+    'xem TEMPERATURE_README.txt trong /scripts'
   ].join('\n');
 }
 
@@ -829,10 +827,16 @@ function tgApi(method, body) {
 }
 async function tgSend(text, extra) {
   if (!BOT_TOKEN || !CHAT_ID) return null;
-  return tgApi('sendMessage', Object.assign({
-    chat_id: CHAT_ID, text: String(text).slice(0, 4000),
-    parse_mode: 'HTML', disable_web_page_preview: true
-  }, extra || {}));
+  const body = Object.assign({
+    chat_id: CHAT_ID,
+    text: String(text == null ? '' : text).slice(0, 4000),
+    disable_web_page_preview: true
+  }, extra || {});
+  // Do NOT force HTML — free-text AI replies often fail Telegram HTML parse and look "silent"
+  const r = await tgApi('sendMessage', body);
+  if (r && r.ok === false) log('tgSend fail: ' + (r.description || JSON.stringify(r)), 'error');
+  if (!r) log('tgSend network fail', 'error');
+  return r;
 }
 
 async function runCmd(cmd, userText) {
@@ -898,36 +902,63 @@ async function handleText(text) {
   return runCmd('analyze', raw);
 }
 
+let offset = 0;
+
+async function processUpdate(u) {
+  try {
+    if (u.callback_query) {
+      const cq = u.callback_query;
+      if (CHAT_ID && String(cq.message && cq.message.chat && cq.message.chat.id) !== String(CHAT_ID)) return;
+      await tgApi('answerCallbackQuery', { callback_query_id: cq.id });
+      if ((cq.data || '').startsWith('cmd_')) await runCmd(cq.data.slice(4));
+      return;
+    }
+    const msg = u.message;
+    if (!msg || !msg.text) return;
+    if (CHAT_ID && String(msg.chat.id) !== String(CHAT_ID)) {
+      log('ignore chat ' + msg.chat.id + ' want ' + CHAT_ID, 'warn');
+      return;
+    }
+    await handleText(msg.text);
+  } catch (e) {
+    log('tg handle ' + (e && e.message), 'error');
+    try { await tgSend('Loi xu ly tin nhan. Thu /ping hoac /status.'); } catch (e2) {}
+  }
+}
+
 async function telegramLoop() {
+  if (BOT_TOKEN) {
+    const dw = await tgApi('deleteWebhook', { drop_pending_updates: false });
+    log('deleteWebhook ' + (dw && dw.ok ? 'ok' : 'skip'));
+  }
   while (true) {
     if (!BOT_TOKEN) { await wait(5000); continue; }
     try {
       const r = await tgApi('getUpdates', {
-        offset, timeout: 25,
+        offset: offset,
+        timeout: 25,
         allowed_updates: ['message', 'callback_query']
       });
-      if (!r || !r.ok || !Array.isArray(r.result)) {
+      if (!r) {
+        await wait(1500);
+        continue;
+      }
+      if (r.ok === false) {
+        log('getUpdates fail: ' + (r.description || ''), 'error');
+        await wait(2000);
+        continue;
+      }
+      if (!Array.isArray(r.result)) {
         await wait(1000);
         continue;
       }
       for (const u of r.result) {
         offset = u.update_id + 1;
-        try {
-          if (u.callback_query) {
-            const cq = u.callback_query;
-            if (CHAT_ID && String(cq.message && cq.message.chat.id) !== String(CHAT_ID)) continue;
-            await tgApi('answerCallbackQuery', { callback_query_id: cq.id });
-            if ((cq.data || '').startsWith('cmd_')) await runCmd(cq.data.slice(4));
-            continue;
-          }
-          const msg = u.message;
-          if (!msg || !msg.text) continue;
-          if (CHAT_ID && String(msg.chat.id) !== String(CHAT_ID)) continue;
-          await handleText(msg.text);
-        } catch (e) { log('tg handle ' + e.message, 'error'); }
+        // Do not block the next long-poll on slow AI
+        processUpdate(u);
       }
     } catch (e) {
-      log('tg loop ' + e.message, 'error');
+      log('tg loop ' + (e && e.message), 'error');
       await wait(2000);
     }
   }

@@ -1,7 +1,7 @@
 # SoloHost - NO docker.sock
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.5
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.6
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"
