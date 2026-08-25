@@ -1,1 +1,1 @@
-Windows scripts and DataLive removed in v2.6.0. Use in-app status/report only.
+No Windows scripts or DataLive in SoloHost v2.6.1.

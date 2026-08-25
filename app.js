@@ -13,13 +13,13 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.0-solohost';
+const VERSION = '2.6.2-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.CHAT_ID || '').trim();
-const DATA_LIVE_URL = (process.env.DATA_LIVE_URL || '').replace(/\/$/, ''); // disabled by default v2.6
-const DATA_LIVE_TOKEN = (process.env.DATA_LIVE_TOKEN || '').trim();
+const DATA_LIVE_URL = ''; // removed v2.6.1 — no Horizon // disabled by default v2.6
+const DATA_LIVE_TOKEN = '';
 const NODE_HOST = (process.env.NODE_HOST || 'host.docker.internal').trim();
 const HORIZON_PORT = parseInt(process.env.HORIZON_PORT || '31401', 10) || 31401;
 const NODE_LABEL = (process.env.PI_CONTAINER || process.env.NODE_LABEL || '').trim(); // optional label only
@@ -96,6 +96,7 @@ function log(msg, level) {
     fs.appendFileSync(LOG_F, line + '\n');
     if (fs.statSync(LOG_F).size > 2e6) try { fs.renameSync(LOG_F, LOG_F + '.1'); } catch (e) {}
   } catch (e) {}
+  try { if (level === 'error' || level === 'warn') actionLog(level, msg); } catch (e) {}
 }
 
 let state = loadJSON(STATE_F, {
@@ -149,19 +150,6 @@ function probeTcp(host, port, timeout) {
 }
 
 // ---------- sources ----------
-async function fetchDataLive() {
-  if (!DATA_LIVE_URL) return null;
-  const headers = {};
-  if (DATA_LIVE_TOKEN) headers.Authorization = 'Bearer ' + DATA_LIVE_TOKEN;
-  const r = await httpGetUrl(DATA_LIVE_URL + '/v1/status', headers, 3500);
-  if (!r || r.status !== 200 || !r.body) return null;
-  try {
-    const j = JSON.parse(r.body);
-    if (j.error) return null;
-    return normalizeAny(j, 'DataLive');
-  } catch (e) { return null; }
-}
-
 async function fetchHorizon() {
   const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1', '10.0.2.2', 'localhost'];
   const ports = [HORIZON_PORT, 31401, 8000];
@@ -383,7 +371,7 @@ function mergeTelemetry(primary, horizon, portSnap) {
       if (primary[k] != null && k !== 'source' && k !== 'timestamp') t[k] = primary[k];
     });
     t.sources.data_live = true;
-    t.source = 'DataLive';
+    t.source = 'Horizon';
     t.confidence = primary.confidence || 'high';
   } else {
     t.sources.data_live = false;
@@ -554,6 +542,42 @@ async function runAlertMachine(t) {
 function lineIf(icon, label, value) {
   if (value == null || value === '') return null;
   return icon + '  ' + label + '  ' + value;
+}
+
+
+const ACTION_LOG = path.join(DIR_LOGS, 'actions.ndjson');
+function actionLog(kind, msg, extra) {
+  try {
+    const row = { ts: nowISO(), kind: kind || 'info', msg: String(msg || '').slice(0, 500) };
+    if (extra && typeof extra === 'object') {
+      try { row.extra = JSON.stringify(extra).slice(0, 400); } catch (e) {}
+    }
+    fs.appendFileSync(ACTION_LOG, JSON.stringify(row) + '\n');
+  } catch (e) {}
+}
+function readActionLog(maxLines) {
+  try {
+    const lines = fs.readFileSync(ACTION_LOG, 'utf8').trim().split('\n').filter(Boolean);
+    return lines.slice(-(maxLines || 40)).map(function (l) {
+      try { return JSON.parse(l); } catch (e) { return { msg: l }; }
+    });
+  } catch (e) { return []; }
+}
+function formatActionLog() {
+  const rows = readActionLog(35);
+  const lines = ['APP LOG', '================', ''];
+  if (!rows.length) {
+    lines.push('No entries yet.');
+    return lines.join('\n');
+  }
+  rows.forEach(function (r) {
+    const tag = r.kind === 'error' ? 'ERR' : (r.kind === 'warn' ? 'WARN' : 'OK');
+    const ts = (r.ts || '').replace('T', ' ').slice(0, 19);
+    lines.push(tag + ' ' + ts + ' · ' + (r.msg || ''));
+  });
+  lines.push('');
+  lines.push('SoloHost · /logs');
+  return lines.join('\n');
 }
 
 function formatStatus(t, mode) {
@@ -749,26 +773,77 @@ function formatReport() {
 
 function formatScripts() {
   return [
-    'SCRIPTS',
-    '━━━━━━━━━━━━━━━━━━',
-    'Windows scripts / DataLive removed in v2.6.0.',
-    'Use /status /report /peers /diagnostic /analyze',
+    'INFO',
+    '================',
+    'No Windows scripts in SoloHost edition.',
+    'Commands: /status /report /peers /diagnostic /analyze',
     '',
-    '💛 /donate · MB 0905428801'
+    'Donate: MB 0905428801'
   ].join('\n');
 }
 
 function formatDonate() {
   return [
-    '💛 DONATE · DEV COFFEE',
-    '━━━━━━━━━━━━━━━━━━',
-    'Bank: MB Bank',
+    'DONATE · DEV COFFEE',
+    '================',
+    'Bank: MB Bank (Military Bank)',
     'Account: 0905428801',
     'Name: TRAN HUU NGHI',
     '',
-    'Thank you for supporting Pi Node Controller PRO.'
+    'Scan the QR photo if available,',
+    'or transfer with the details above.',
+    '',
+    'Thank you for supporting the project.'
   ].join('\n');
 }
+function donateQrUrl() {
+  const payload = 'MBBANK|0905428801|TRAN HUU NGHI|Pi Node Controller PRO';
+  return 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(payload);
+}
+async function tgSendPhoto(url, caption) {
+  if (!BOT_TOKEN || !CHAT_ID) return false;
+  try {
+    const body = JSON.stringify({
+      chat_id: CHAT_ID,
+      photo: url,
+      caption: String(caption || '').slice(0, 1000)
+    });
+    await new Promise(function (resolve) {
+      const u = new URL('https://api.telegram.org/bot' + BOT_TOKEN + '/sendPhoto');
+      const req = https.request({
+        hostname: u.hostname, path: u.pathname, method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }, function (r) { r.on('data', function () {}); r.on('end', resolve); });
+      req.on('error', resolve);
+      req.setTimeout(15000, function () { try { req.destroy(); } catch (e) {} resolve(); });
+      req.write(body); req.end();
+    });
+    try { actionLog('info', 'donate QR sent'); } catch (e) {}
+    return true;
+  } catch (e) {
+    try { actionLog('error', 'donate QR fail'); } catch (e2) {}
+    return false;
+  }
+}
+function formatWindowsPro() {
+  return [
+    'WINDOWS PRO · FULL',
+    '================',
+    'SoloHost is the lightweight monitor.',
+    'Windows PRO has more tools:',
+    '- Live host CPU / RAM / temp',
+    '- Docker control and scripts',
+    '- Clean RAM / maintenance / reset',
+    '- Deeper diagnostics and scheduler',
+    '',
+    'Download:',
+    'https://github.com/cannoi/pinode-telegram-controller',
+    '',
+    'Use SoloHost for alerts on the go;',
+    'use Windows PRO for full control.'
+  ].join('\n');
+}
+
 
 /* aiAnalyze replaced */
 
@@ -851,25 +926,25 @@ function collectIssues(t) {
   if (t.cpu != null && t.cpu >= 90) issues.push('CPU cao (' + t.cpu + '%)');
   if (t.temp != null && t.temp >= 78) issues.push('Nhiệt độ cao (' + t.temp + '°C)');
   if (!t.sources || !t.sources.data_live)
-    issues.push('Chưa có Data Live — thiếu peer/CPU/RAM/nhiệt (đang dùng ' + (t.source || 'fallback') + ')');
+    issues.push('Chưa có Telemetry — thiếu peer/CPU/RAM/nhiệt (đang dùng ' + (t.source || 'fallback') + ')');
   return issues;
 }
 
 function rulesMetricOnly(t, intent) {
   if (intent === 'RAM') {
-    if (t.ram == null) return 'Hiện chưa đo được RAM. Bật Data Live trên Windows để có số liệu máy thật.';
+    if (t.ram == null) return 'Hiện chưa đo được RAM. Bật Telemetry trên Windows để có số liệu máy thật.';
     return 'RAM đang khoảng ' + t.ram + '%.' + (t.ram >= 88 ? ' Mức cao — nên giảm app nền hoặc chạy CleanRAM.' : ' Mức chấp nhận được.');
   }
   if (intent === 'CPU') {
-    if (t.cpu == null) return 'Chưa có dữ liệu CPU (cần Data Live).';
+    if (t.cpu == null) return 'Chưa có dữ liệu CPU (cần Telemetry).';
     return 'CPU khoảng ' + t.cpu + '%.' + (t.cpu >= 90 ? ' Đang rất cao.' : ' Ổn.');
   }
   if (intent === 'TEMP') {
-    if (t.temp == null) return 'Chưa đọc được nhiệt độ (cần Data Live + cảm biến trên Windows). Khi có Data Live, mình sẽ theo dõi giúp bạn.';
+    if (t.temp == null) return 'Chưa đọc được nhiệt độ (cần Telemetry + cảm biến trên Windows). Khi có Telemetry, mình sẽ theo dõi giúp bạn.';
     return 'Nhiệt độ khoảng ' + t.temp + '°C.' + (t.temp >= 78 ? ' Hơi cao — kiểm tra quạt/thoáng khí.' : ' Trong ngưỡng ổn.');
   }
   if (intent === 'PEERS') {
-    if (t.peer_in == null && t.peer_out == null) return 'Chưa có peer (cần Data Live đọc stellar-core). Cổng node ' + (t.ports_all_open ? 'đang mở tốt' : 'cần kiểm tra') + '.';
+    if (t.peer_in == null && t.peer_out == null) return 'Chưa có peer (cần Telemetry đọc stellar-core). Cổng node ' + (t.ports_all_open ? 'đang mở tốt' : 'cần kiểm tra') + '.';
     return 'Peer IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?') + '.';
   }
   if (intent === 'PORT') {
@@ -877,7 +952,7 @@ function rulesMetricOnly(t, intent) {
     return [31401, 31402, 31403].map(function (p) { return p + ': ' + (t.ports[String(p)] || '?'); }).join('\n');
   }
   if (intent === 'DOCKER') {
-    if (!t.docker) return 'Chưa có trạng thái Docker từ Data Live. Container: ' + (t.container || 'testnet2') + '.';
+    if (!t.docker) return 'Chưa có trạng thái Docker từ Telemetry. Container: ' + (t.container || 'testnet2') + '.';
     return 'Docker: ' + t.docker + (t.container ? ' · ' + t.container : '');
   }
   if (intent === 'BLOCK_SYNC') {
@@ -889,105 +964,100 @@ function rulesMetricOnly(t, intent) {
 
 function localAssistantReply(t, intent, userQ) {
   const lang = detectUserLang(userQ);
-  const ev = evidenceSummary(t);
-  const issues = collectIssues(t);
-  const hasDL = t.sources && t.sources.data_live;
-  const chat = loadChatHistory().slice(-4);
-  const ctx = chat.length ? ('\n' + L(lang, 'Ngữ cảnh gần đây: bạn đã hỏi về node trước đó.', 'Context: you asked about the node earlier.')) : '';
+  const ok = t.level === 'ok' || (t.sync && /synced|live|horizon ok/i.test(String(t.sync)));
+  const age = t.ledger_age != null ? t.ledger_age : null;
+  const sync = t.sync || null;
+  const ledger = t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null;
+  const vi = (lang === 'vi');
 
   if (intent === 'GREETING') {
-    return L(lang,
-      'Chào bạn. Mình là trợ lý Pi Node (SoloHost). Node hiện ' + (t.level === 'ok' ? 'ổn' : 'cần theo dõi') + ' (nguồn: ' + (t.source || '?') + '). Bạn hỏi tiếp về trạng thái, peer, nhiệt, bonus được.' + ctx,
-      'Hi. I am your Pi Node assistant (SoloHost). Node looks ' + (t.level === 'ok' ? 'OK' : 'needs attention') + ' (source: ' + (t.source || '?') + '). Ask about status, peers, temperature, or bonus anytime.' + ctx
-    );
+    return vi
+      ? ('Chào bạn! Mình đang theo dõi Pi Node của bạn. Hiện node ' + (ok ? 'trông ổn' : 'có điểm cần để ý') + '. Bạn muốn hỏi gì — đồng bộ, cổng, bonus, hay cách cải thiện?')
+      : ('Hi! I am watching your Pi Node. Right now it looks ' + (ok ? 'fine' : 'like it needs attention') + '. Ask about sync, ports, bonus, or upgrades anytime.');
   }
   if (intent === 'SMALLTALK') {
-    return L(lang,
-      'Bây giờ khoảng ' + nowHM() + ' (VN). Mình hỗ trợ Pi Node — hỏi tình trạng máy nhé.',
-      'It is about ' + nowHM() + ' (VN time). I help with Pi Node — ask about your machine status anytime.'
-    );
+    return vi
+      ? ('Giờ khoảng ' + nowHM() + ' (VN). Mình sẵn sàng hỗ trợ vận hành Node — bạn cứ hỏi tự nhiên.')
+      : ('Around ' + nowHM() + ' (VN time). I can help with your Node — ask naturally.');
   }
   if (intent === 'CLARIFY') {
-    return L(lang,
-      'Không sao. Tóm lại: Node ' + (t.level === 'ok' ? 'OK' : String(t.level || '?')) + '. ' + (ev.slice(0, 3).join('; ') || '') + '. Bạn muốn giải thích phần nào?' + ctx,
-      'No problem. Summary: Node ' + (t.level === 'ok' ? 'OK' : String(t.level || '?')) + '. ' + (ev.slice(0, 3).join('; ') || '') + '. Which part should I explain?' + ctx
-    );
+    return vi
+      ? ('Mình nói lại đơn giản: hiện node ' + (ok ? 'đang chạy bình thường' : 'chưa thật ổn') + (sync ? (', đồng bộ: ' + sync) : '') + (ledger ? (', ledger ~' + ledger) : '') + '. Bạn muốn mình đi sâu phần nào?')
+      : ('Simply put: the node looks ' + (ok ? 'healthy' : 'unstable') + (sync ? ('; sync: ' + sync) : '') + (ledger ? ('; ledger ~' + ledger) : '') + '. What should I explain more?');
   }
-  if (intent === 'BONUS' || (intent === 'DIAGNOSIS' && /bonus|thưởng|reward/i.test(userQ || ''))) {
-    if (lang === 'vi') {
-      var s = 'Về bonus, mình chỉ suy luận từ dữ liệu node (không đọc ví Pi):\n';
-      if (t.level === 'ok' && t.ports_all_open) s += '• Cổng/kết nối ổn — ít khả năng do offline.\n';
-      else s += '• Kết nối/cổng chưa ổn — nên xử lý trước.\n';
-      if (!hasDL) s += '• Chưa Data Live — thiếu peer/CPU/RAM.\n';
-      s += '\nGợi ý: chạy 24/7, mở 31401-3, bật Data Live, xem app Pi Desktop.\n• ' + ev.join('\n• ');
-      return s + ctx;
+  if (intent === 'BONUS') {
+    return vi
+      ? ('Bonus trên Pi Node phụ thuộc thời gian online ổn định, cổng mở và đồng bộ tốt — app này không hiện số bonus. ' +
+         (ok
+           ? ('Máy bạn đang ' + (sync || 'đồng bộ ổn') + (age != null ? (', age ' + age + 's') : '') + '. Để hạn chế tụt bonus: giữ online 24/7, cổng 31401–31403 mở, tránh restart liên tục, đủ RAM/CPU.')
+           : 'Hiện có tín hiệu chưa ổn — ưu tiên kiểm tra sync và cổng trước khi lo bonus.'))
+      : ('Bonus depends on stable uptime, open ports, and good sync — this app does not show bonus points. ' +
+         (ok
+           ? ('Your node looks ' + (sync || 'synced') + (age != null ? (', age ' + age + 's') : '') + '. Keep online 24/7, ports open, avoid constant restarts.')
+           : 'Something looks off — check sync and ports first.'));
+  }
+  if (intent === 'BLOCK_SYNC' || intent === 'DIAGNOSIS') {
+    if (ok && age != null && age <= 60) {
+      return vi
+        ? ('Mình hiểu bạn lo mất đồng bộ. Lúc này node đang ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's — block vẫn đóng đúng nhịp. Mất sync ngắn rồi tự hồi thường do mạng/peer tạm thời; nếu lặp lại nhiều lần trong ngày thì kiểm tra mạng, đóng app nặng, và xem /report.')
+        : ('I get the concern about losing sync. Right now it is ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's — blocks are closing on time. Short blips often recover alone; if it keeps happening, check network and /report.');
     }
-    var e = 'About rewards/bonus I only infer from node data (not wallet):\n';
-    if (t.level === 'ok' && t.ports_all_open) e += '• Ports/connectivity look OK — unlikely offline.\n';
-    else e += '• Connectivity/ports need fixing first.\n';
-    if (!hasDL) e += '• No Data Live — missing peers/CPU/RAM.\n';
-    e += '\nTips: keep 24/7, open 31401-3, enable Data Live, check Pi Desktop.\n• ' + ev.join('\n• ');
-    return e + ctx;
+    if (age != null && age > 120) {
+      return vi
+        ? ('Đồng bộ đang chậm: age ' + age + 's (' + (sync || '?') + '). Node có thể đang đuổi block hoặc mạng nghẽn. Nên kiểm tra cổng 31401–3; restart Pi Node nếu kéo dài >10 phút.')
+        : ('Sync looks slow: age ' + age + 's (' + (sync || '?') + '). It may be catching up or the network is congested. Check ports; restart Pi Node if this lasts >10 minutes.');
+    }
+    return vi
+      ? ('Về đồng bộ: ' + (sync || 'chưa rõ') + (ledger ? (', ledger ' + ledger) : '') + (age != null ? (', age ' + age + 's') : '') + '. Nếu hay thấy tụt sync, gửi /report để đối chiếu lịch sử.')
+      : ('On sync: ' + (sync || 'unclear') + (ledger ? (', ledger ' + ledger) : '') + (age != null ? (', age ' + age + 's') : '') + '. If dropouts are frequent, send /report.');
+  }
+  if (intent === 'NODE_HEALTH') {
+    return vi
+      ? ('Nhìn tổng thể: node ' + (ok ? 'đang ổn' : 'cần theo dõi') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Bạn có thể yên tâm chạy tiếp; muốn chắc hơn thì xem /peers và /report.' : 'Nên mở /diagnostic và kiểm tra cổng/mạng.'))
+      : ('Overall the node looks ' + (ok ? 'healthy' : 'like it needs attention') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Safe to keep running; check /peers and /report for more confidence.' : 'Open /diagnostic and verify ports/network.'));
   }
   if (intent === 'ADVICE' || intent === 'RECOMMENDATION') {
-    if (lang === 'vi') {
-      var a = 'Tư vấn giữ node ổn:\n';
-      if (!hasDL) a += '• #1 Bật Data Live để có peer/CPU/RAM/nhiệt.\n';
-      if (t.ram != null && t.ram >= 80) a += '• RAM cao — thêm RAM hoặc giảm app.\n';
-      if (t.ports_all_open) a += '• Cổng đang mở — tốt.\n';
-      else a += '• Mở firewall 31401-3.\n';
-      a += '• Không sleep máy; container ' + (t.container || 'testnet2') + ' Running.\n• ' + (ev.join('\n• ') || '');
-      return a + ctx;
-    }
-    var b = 'Advice to keep the node healthy:\n';
-    if (!hasDL) b += '• #1 Enable Data Live for peers/CPU/RAM/temp.\n';
-    if (t.ram != null && t.ram >= 80) b += '• High RAM — add RAM or close apps.\n';
-    if (t.ports_all_open) b += '• Ports open — good.\n';
-    else b += '• Open firewall 31401-3.\n';
-    b += '• No sleep; container ' + (t.container || 'testnet2') + ' Running.\n• ' + (ev.join('\n• ') || '');
-    return b + ctx;
+    return vi
+      ? ('Gợi ý thực tế: (1) giữ online ổn định, (2) cổng 31401–31403 luôn mở, (3) đủ RAM và mát máy, (4) không reset liên tục. Bản Windows PRO có thêm clean RAM / maintenance: https://github.com/cannoi/pinode-telegram-controller')
+      : ('Practical tips: (1) keep online, (2) keep ports 31401–31403 open, (3) enough RAM and cooling, (4) avoid constant resets. Windows PRO: https://github.com/cannoi/pinode-telegram-controller');
   }
-  if (intent === 'NODE_HEALTH' || intent === 'DIAGNOSIS' || intent === 'GENERAL') {
-    var hard = issues.filter(function (i) { return !/Data Live/.test(i); });
-    if (lang === 'vi') {
-      var out = (t.level === 'ok' && hard.length === 0)
-        ? ('Node đang ổn' + (t.sync ? ' (' + t.sync + ')' : '') + '.\n')
-        : ('Cần lưu ý:\n• ' + issues.join('\n• ') + '\n\n');
-      out += 'Chi tiết:\n• ' + ev.join('\n• ');
-      if (!hasDL) out += '\nBật Data Live để đánh giá sâu hơn.';
-      return out + ctx;
-    }
-    var o = (t.level === 'ok' && hard.length === 0)
-      ? ('Node looks healthy' + (t.sync ? ' (' + t.sync + ')' : '') + '.\n')
-      : ('Watch items:\n• ' + issues.join('\n• ') + '\n\n');
-    o += 'Details:\n• ' + ev.join('\n• ');
-    if (!hasDL) o += '\nEnable Data Live for deeper checks.';
-    return o + ctx;
+  if (intent === 'RAM') {
+    return t.ram != null
+      ? (vi ? ('RAM container ~' + t.ram + '%. Đây là mức trong SoloHost, không phải full RAM máy Windows.') : ('Container RAM ~' + t.ram + '%. Not full Windows host RAM.'))
+      : (vi ? 'Chưa đo được RAM host trên SoloHost.' : 'Host RAM is not available on SoloHost.');
   }
-  return L(lang,
-    'Dữ liệu: ' + (ev.join('; ') || 'đang thu thập') + '. Hỏi thêm về đồng bộ, peer, nhiệt nhé.' + ctx,
-    'Data: ' + (ev.join('; ') || 'collecting') + '. Ask about sync, peers, or temperature.' + ctx
-  );
-}
-
-function buildFacts(t) {
-  const f = { source: t.source || null, level: t.level || null };
-  ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'container', 'cpu', 'ram', 'temp', 'ports_open'].forEach(function (k) {
-    if (t[k] != null) f[k] = t[k];
-  });
-  if (t.ports) f.ports = t.ports;
-  if (t.sources) f.sources = t.sources;
-  return f;
-}
-
-function historySnippet(n) {
-  try {
-    return readHistory(1).slice(-(n || 16)).map(function (r) {
-      const o = { ts: r.ts, level: r.level };
-      ['sync', 'ledger', 'peer_in', 'ram', 'cpu', 'temp'].forEach(function (k) { if (r[k] != null) o[k] = r[k]; });
-      return o;
-    });
-  } catch (e) { return []; }
+  if (intent === 'CPU') {
+    return t.cpu != null
+      ? (vi ? ('CPU container ~' + t.cpu + '%.') : ('Container CPU ~' + t.cpu + '%.'))
+      : (vi ? 'Chưa có số CPU host trên SoloHost.' : 'Host CPU is not available on SoloHost.');
+  }
+  if (intent === 'TEMP') {
+    return t.temp != null
+      ? (vi ? ('Nhiệt ~' + t.temp + '°C.') : ('Temp ~' + t.temp + '°C.'))
+      : (vi ? 'Chưa có cảm biến nhiệt trên SoloHost.' : 'No temperature sensor on SoloHost.');
+  }
+  if (intent === 'PEERS') {
+    if (t.peer_in == null && t.peer_out == null)
+      return vi ? 'Chưa đọc được peer (cần Core HTTP /peers). Thử /ports.' : 'Peer counts unavailable. Try /ports.';
+    return 'Peers IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?');
+  }
+  if (intent === 'PORT') {
+    if (!t.ports) return vi ? 'Chưa probe được cổng.' : 'Ports not probed yet.';
+    return [31401, 31402, 31403].map(function (p) { return p + ': ' + (t.ports[String(p)] || '?'); }).join('\n');
+  }
+  if (intent === 'DOCKER') {
+    return vi
+      ? ('SoloHost không điều khiển Docker host. Nhãn container: ' + (t.container || 'n/a') + '. Cổng ' + (t.ports_all_open ? 'đang mở' : 'cần kiểm tra') + '.')
+      : ('SoloHost does not control host Docker. Container label: ' + (t.container || 'n/a') + '.');
+  }
+  if (ok) {
+    return vi
+      ? ('Nhìn dữ liệu hiện tại, node đang chạy ổn' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Nếu bạn lo bonus hoặc mất sync lúc nãy, thường là nhiễu ngắn; cứ để máy online và xem /report nếu lặp lại. Bạn muốn mình giải thích sâu hơn phần nào?')
+      : ('From current data the node looks fine' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Brief sync drops are often temporary — keep it online and check /report if it repeats. What should I explain more?');
+  }
+  return vi
+    ? ('Có dấu hiệu cần theo dõi' + (sync ? (': ' + sync) : '') + '. Nên xem /diagnostic và kiểm tra mạng/cổng. Mô tả thêm triệu chứng bạn thấy để mình tư vấn sát hơn.')
+    : ('Something needs attention' + (sync ? (': ' + sync) : '') + '. Check /diagnostic and network/ports. Describe what you see so I can advise more precisely.');
 }
 
 async function aiAnalyze(t, userQ) {
@@ -1005,9 +1075,9 @@ async function aiAnalyze(t, userQ) {
     const prompt = [
       'You are a professional Pi Node management assistant (SoloHost Controller).',
       'LANGUAGE RULE (mandatory): Reply in the SAME language as the user message. If user writes English, reply English. If Vietnamese, Vietnamese. If other, match that language. Never force Vietnamese.',
-      'Be natural and contextual: use Recent chat to continue the conversation, refer to earlier points, avoid one-shot generic answers.',
-      'Use FACTS only. Never invent metrics. If missing, say data is unavailable / enable Data Live.',
-      'Do not mark Node Offline only because Data Live is offline.',
+      'You are a friendly Pi Node technician. Answer the user question first in a natural tone. Use FACTS only as support — never dump every metric. Continue from Recent chat. Do not invent bonus numbers or tell users to sell the machine unless they ask; give calm practical advice.',
+      'Use FACTS only. Never invent metrics. If a metric is missing, say it is unavailable on SoloHost.',
+      'Do not mark Node Offline only because one source failed.',
       'Bonus advice only from uptime, ports, peers, resources — never invent bonus numbers.',
       'Intent: ' + intent,
       'User: ' + String(userQ || '').slice(0, 600),
@@ -1021,7 +1091,7 @@ async function aiAnalyze(t, userQ) {
     try {
       const body = JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.65, maxOutputTokens: 1024 }
+        generationConfig: { temperature: 0.9, maxOutputTokens: 1024 }
       });
       const text = await new Promise(function (resolve) {
         const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
@@ -1054,18 +1124,18 @@ function mainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: '📊 STATUS', callback_data: 'cmd_status' },
-        { text: '🔄 SYNC', callback_data: 'cmd_sync' },
-        { text: '👥 PEERS', callback_data: 'cmd_peers' }
+        { text: 'STATUS', callback_data: 'cmd_status' },
+        { text: 'REPORT', callback_data: 'cmd_report' },
+        { text: 'PEERS', callback_data: 'cmd_peers' }
       ],
       [
-        { text: '📋 REPORT', callback_data: 'cmd_report' },
-        { text: '🔎 DIAG', callback_data: 'cmd_diagnostic' },
-        { text: '🤖 AI', callback_data: 'cmd_analyze' }
+        { text: 'DIAG', callback_data: 'cmd_diagnostic' },
+        { text: 'LOGS', callback_data: 'cmd_logs' },
+        { text: 'ANALYZE', callback_data: 'cmd_analyze' }
       ],
       [
-        { text: '🛠️ SCRIPTS', callback_data: 'cmd_scripts' },
-        { text: '❤️ DONATE', callback_data: 'cmd_donate' }
+        { text: 'Windows PRO', callback_data: 'cmd_winpro' },
+        { text: 'DONATE', callback_data: 'cmd_donate' }
       ]
     ]
   };
@@ -1136,7 +1206,20 @@ async function runCmd(cmd, userText) {
   }
   if (cmd === 'trends') return tgSend(formatReport(), { reply_markup: mainKeyboard() });
   if (cmd === 'scripts' || cmd === 'script') return tgSend(formatScripts(), { reply_markup: mainKeyboard() });
-  if (cmd === 'donate') return tgSend(formatDonate());
+  if (cmd === 'logs' || cmd === 'log') {
+    try { actionLog('info', 'user /logs'); } catch (e) {}
+    return tgSend(formatActionLog(), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'winpro' || cmd === 'windows' || cmd === 'pro') {
+    try { actionLog('info', 'user /winpro'); } catch (e) {}
+    return tgSend(formatWindowsPro(), { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'donate') {
+    try { actionLog('info', 'user /donate'); } catch (e) {}
+    await tgSend(formatDonate(), { reply_markup: mainKeyboard() });
+    try { await tgSendPhoto(donateQrUrl(), 'QR Donate · MB 0905428801 · TRAN HUU NGHI'); } catch (e) {}
+    return true;
+  }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
   if (cmd === 'start' || cmd === 'help') {
     return tgSend(
@@ -1144,7 +1227,7 @@ async function runCmd(cmd, userText) {
       '━━━━━━━━━━━━━━━━━━\n' +
       '/status /sync /peers\n/report /diagnostic /analyze\n/scripts /donate\n' +
       '━━━━━━━━━━━━━━━━━━\n' +
-      'Data Live → Horizon → Ports',
+      'Telemetry → Horizon → Ports',
       { reply_markup: mainKeyboard() }
     );
   }
@@ -1272,14 +1355,14 @@ const srv = http.createServer(async (req, res) => {
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_docker_sock_required', true, 'compose has no sock');
       ok('schema_hide_missing', typeof lineIf === 'function', 'lineIf');
-      ok('horizon_first', true, 'DataLive optional');
+      ok('no_datalive', true, 'Horizon removed');
       ok('history_dir', fs.existsSync(DIR_HIST), DIR_HIST);
       // synthetic merge tests
       const m1 = mergeTelemetry(null, { source: 'Horizon', ledger: 100, sync: 'Horizon OK', confidence: 'medium' }, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
       ok('fallback_horizon', m1.ledger === 100 && m1.source === 'Horizon', m1.source);
       ok('datalive_offline_not_node_offline', m1.level !== 'critical', m1.level);
-      const m2 = mergeTelemetry({ source: 'DataLive', sync: 'Synced!', ledger: 200, peer_in: 5, peer_out: 3, confidence: 'high' }, null, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
-      ok('primary_datalive', m2.source === 'DataLive' && m2.ledger === 200, m2.source);
+      const m2 = mergeTelemetry({ source: 'Horizon', sync: 'Synced!', ledger: 200, peer_in: 5, peer_out: 3, confidence: 'high' }, null, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
+      ok('primary_datalive', m2.source === 'Horizon' && m2.ledger === 200, m2.source);
       const m3 = mergeTelemetry(null, null, { ports: { '31401': 'CLOSED', '31402': 'CLOSED', '31403': 'CLOSED' }, openCount: 0 });
       ok('ports_closed_critical', m3.level === 'critical', m3.level);
       const all = checks.every(c => c.pass);
@@ -1342,7 +1425,7 @@ const srv = http.createServer(async (req, res) => {
     if (u === '/api/info') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
-        version: VERSION, dataLiveUrl: DATA_LIVE_URL,
+        version: VERSION, dataLive: false,
         hasBot: !!BOT_TOKEN, hasAI: !!GEMINI_API_KEY, telemetrySec: TELEMETRY_SEC
       }));
       return;
@@ -1381,7 +1464,7 @@ const srv = http.createServer(async (req, res) => {
 
 srv.listen(PORT, '0.0.0.0', () => {
   log('SoloHost Controller v' + VERSION + ' :' + PORT);
-  log('DATA_LIVE_URL=' + DATA_LIVE_URL + ' telemetry=' + TELEMETRY_SEC + 's');
+  log('telemetry=' + TELEMETRY_SEC + 's · Horizon-first (no DataLive)');
   log('Telegram long-poll independent of telemetry');
 });
 

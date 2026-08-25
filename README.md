@@ -1,14 +1,12 @@
-# Pi Node Telegram Controller SoloHost v2.6.0
+# Pi Node Telegram Controller SoloHost v2.6.2
 
-## Changes
-- **No DataLive / no Windows scripts** in this package
-- Deep Horizon: ledger_age from closed_at, ingest lag, versions, protocol, network kind
-- Optional Core HTTP /info + /peers (11626, 31400)
-- Port probe 31401-31403
-- Container cgroup RAM/CPU best-effort
-- History every telemetry cycle (~60s)
-- Icon system messages (STATUS / REPORT / PEERS)
-- AI still matches user language
+- Natural AI replies (question-first, not metric dump)
+- Buttons: STATUS / REPORT / PEERS / DIAG / LOGS / ANALYZE / Windows PRO / DONATE
+- /logs action log (errors + user actions)
+- /donate sends bank info + QR image
+- No DataLive, no Windows scripts, no fixed container_name
 
-## Image
-ghcr.io/cannoi/pinode-telegram-solohost:v2.6.0
+Image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.2
+
+If old container blocks install:
+docker rm -f PiNode-Telegram-Controller
