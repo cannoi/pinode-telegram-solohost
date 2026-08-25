@@ -1,7 +1,7 @@
-# SoloHost v2.6.3 — no docker.sock, no DataLive, no fixed container_name
+# SoloHost v2.6.4 — no docker.sock, no DataLive, no fixed container_name
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.3
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.4
     labels:
       pi.ui.primary: "true"
     ports:

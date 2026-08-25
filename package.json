@@ -1,7 +1,7 @@
 {
   "name": "pinode-telegram-solohost",
-  "version": "2.6.3",
-  "description": "SoloHost Controller — Horizon-deep, icon reports, optional Gemini AI",
+  "version": "2.6.4",
+  "description": "SoloHost Controller — Horizon-deep, 24h AI context, single-poll safe",
   "main": "loader.js",
   "private": true
 }

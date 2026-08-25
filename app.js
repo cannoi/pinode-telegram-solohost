@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.3-solohost';
+const VERSION = '2.6.4-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -969,6 +969,15 @@ function localAssistantReply(t, intent, userQ) {
   const sync = t.sync || null;
   const ledger = t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null;
   const vi = (lang === 'vi');
+  const h24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
+  const hTxt = (typeof formatHistory24hText === 'function') ? formatHistory24hText(h24) : '';
+  function withHistory(msg) {
+    if (!h24 || !h24.samples) return msg;
+    const tail = vi
+      ? ('\n\n— Dữ liệu ~24h —\n' + hTxt + '\n\nGợi ý: xem /report nếu cần chi tiết thêm.')
+      : ('\n\n— Last ~24h data —\n' + hTxt + '\n\nTip: use /report for a fuller summary.');
+    return msg + tail;
+  }
 
   if (intent === 'GREETING') {
     return vi
@@ -999,8 +1008,8 @@ function localAssistantReply(t, intent, userQ) {
   if (intent === 'BLOCK_SYNC' || intent === 'DIAGNOSIS') {
     if (ok && age != null && age <= 60) {
       return vi
-        ? ('Mình hiểu bạn lo mất đồng bộ. Lúc này node đang ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's — block vẫn đóng đúng nhịp. Mất sync ngắn rồi tự hồi thường do mạng/peer tạm thời; nếu lặp lại nhiều lần trong ngày thì kiểm tra mạng, đóng app nặng, và xem /report.')
-        : ('I get the concern about losing sync. Right now it is ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's — blocks are closing on time. Short blips often recover alone; if it keeps happening, check network and /report.');
+        ? withHistory('Mình hiểu bạn lo mất đồng bộ. Lúc này node đang ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's — block vẫn đóng đúng nhịp. Mất sync ngắn rồi tự hồi thường do mạng/peer tạm thời; nếu lặp lại nhiều lần trong ngày thì kiểm tra mạng, đóng app nặng, và xem /report.')
+        : withHistory('I get the concern about losing sync. Right now it is ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's — blocks are closing on time. Short blips often recover alone; if it keeps happening, check network and /report.');
     }
     if (age != null && age > 120) {
       return vi
@@ -1013,8 +1022,8 @@ function localAssistantReply(t, intent, userQ) {
   }
   if (intent === 'NODE_HEALTH') {
     return vi
-      ? ('Nhìn tổng thể: node ' + (ok ? 'đang ổn' : 'cần theo dõi') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Bạn có thể yên tâm chạy tiếp; muốn chắc hơn thì xem /peers và /report.' : 'Nên mở /diagnostic và kiểm tra cổng/mạng.'))
-      : ('Overall the node looks ' + (ok ? 'healthy' : 'like it needs attention') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Safe to keep running; check /peers and /report for more confidence.' : 'Open /diagnostic and verify ports/network.'));
+      ? withHistory('Nhìn tổng thể: node ' + (ok ? 'đang ổn' : 'cần theo dõi') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Bạn có thể yên tâm chạy tiếp; muốn chắc hơn thì xem /peers và /report.' : 'Nên mở /diagnostic và kiểm tra cổng/mạng.'))
+      : withHistory('Overall the node looks ' + (ok ? 'healthy' : 'like it needs attention') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Safe to keep running; check /peers and /report for more confidence.' : 'Open /diagnostic and verify ports/network.'));
   }
   if (intent === 'ADVICE' || intent === 'RECOMMENDATION') {
     return vi
@@ -1052,12 +1061,12 @@ function localAssistantReply(t, intent, userQ) {
   }
   if (ok) {
     return vi
-      ? ('Nhìn dữ liệu hiện tại, node đang chạy ổn' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Nếu bạn lo bonus hoặc mất sync lúc nãy, thường là nhiễu ngắn; cứ để máy online và xem /report nếu lặp lại. Bạn muốn mình giải thích sâu hơn phần nào?')
-      : ('From current data the node looks fine' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Brief sync drops are often temporary — keep it online and check /report if it repeats. What should I explain more?');
+      ? withHistory('Nhìn dữ liệu hiện tại, node đang chạy ổn' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Nếu bạn lo bonus hoặc mất sync lúc nãy, thường là nhiễu ngắn; cứ để máy online và xem /report nếu lặp lại. Bạn muốn mình giải thích sâu hơn phần nào?')
+      : withHistory('From current data the node looks fine' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Brief sync drops are often temporary — keep it online and check /report if it repeats. What should I explain more?');
   }
   return vi
-    ? ('Có dấu hiệu cần theo dõi' + (sync ? (': ' + sync) : '') + '. Nên xem /diagnostic và kiểm tra mạng/cổng. Mô tả thêm triệu chứng bạn thấy để mình tư vấn sát hơn.')
-    : ('Something needs attention' + (sync ? (': ' + sync) : '') + '. Check /diagnostic and network/ports. Describe what you see so I can advise more precisely.');
+    ? withHistory('Có dấu hiệu cần theo dõi' + (sync ? (': ' + sync) : '') + '. Nên xem /diagnostic và kiểm tra mạng/cổng. Mô tả thêm triệu chứng bạn thấy để mình tư vấn sát hơn.')
+    : withHistory('Something needs attention' + (sync ? (': ' + sync) : '') + '. Check /diagnostic and network/ports. Describe what you see so I can advise more precisely.');
 }
 
 
@@ -1075,15 +1084,94 @@ function buildFacts(t) {
 
 function historySnippet(n) {
   try {
-    return readHistory(1).slice(-(n || 16)).map(function (r) {
+    return readHistory(2).slice(-(n || 24)).map(function (r) {
       const o = { ts: r.ts, level: r.level };
-      ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'ram', 'cpu', 'temp'].forEach(function (k) {
+      ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'ram', 'cpu', 'temp', 'ports_open'].forEach(function (k) {
         if (r[k] != null) o[k] = r[k];
       });
       return o;
     });
   } catch (e) { return []; }
 }
+
+/** Aggregate last ~24h history for AI technician-style advice */
+function buildHistory24h() {
+  const rows = readHistory(2);
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  const day = rows.filter(function (r) {
+    const ts = Date.parse(r.ts) || 0;
+    return !ts || ts >= cutoff;
+  });
+  if (!day.length) {
+    return { samples: 0, note: 'No history yet — collecting telemetry every 60s.' };
+  }
+  const nums = function (key) {
+    return day.map(function (r) { return r[key]; }).filter(function (x) { return x != null && isFinite(Number(x)); }).map(Number);
+  };
+  const ledgers = nums('ledger');
+  const ages = nums('ledger_age');
+  const rams = nums('ram');
+  const cpus = nums('cpu');
+  const temps = nums('temp');
+  const peersIn = nums('peer_in');
+  const peersOut = nums('peer_out');
+  let critical = 0, warning = 0, ok = 0;
+  let syncFlips = 0;
+  let lastSync = null;
+  day.forEach(function (r) {
+    if (r.level === 'critical') critical++;
+    else if (r.level === 'warning' || r.level === 'soft') warning++;
+    else ok++;
+    if (r.sync && lastSync && r.sync !== lastSync) syncFlips++;
+    if (r.sync) lastSync = r.sync;
+  });
+  const first = day[0];
+  const last = day[day.length - 1];
+  const spanMin = Math.max(1, Math.round((day.length * (typeof TELEMETRY_SEC === 'number' ? TELEMETRY_SEC : 60)) / 60));
+  return {
+    samples: day.length,
+    approx_minutes: spanMin,
+    first_ts: first && first.ts,
+    last_ts: last && last.ts,
+    level_ok: ok,
+    level_warning: warning,
+    level_critical: critical,
+    sync_flips: syncFlips,
+    last_sync: last && last.sync,
+    ledger_min: ledgers.length ? Math.min.apply(null, ledgers) : null,
+    ledger_max: ledgers.length ? Math.max.apply(null, ledgers) : null,
+    ledger_delta: ledgers.length >= 2 ? (ledgers[ledgers.length - 1] - ledgers[0]) : null,
+    age_max_s: ages.length ? Math.max.apply(null, ages) : null,
+    age_avg_s: ages.length ? Math.round(ages.reduce(function (a, b) { return a + b; }, 0) / ages.length) : null,
+    peer_in_min: peersIn.length ? Math.min.apply(null, peersIn) : null,
+    peer_in_max: peersIn.length ? Math.max.apply(null, peersIn) : null,
+    peer_out_min: peersOut.length ? Math.min.apply(null, peersOut) : null,
+    peer_out_max: peersOut.length ? Math.max.apply(null, peersOut) : null,
+    ram_min: rams.length ? Math.min.apply(null, rams) : null,
+    ram_max: rams.length ? Math.max.apply(null, rams) : null,
+    cpu_max: cpus.length ? Math.max.apply(null, cpus) : null,
+    temp_max: temps.length ? Math.max.apply(null, temps) : null,
+    recent_levels: day.slice(-8).map(function (r) { return { ts: r.ts, level: r.level, sync: r.sync, ledger: r.ledger, age: r.ledger_age }; })
+  };
+}
+
+function formatHistory24hText(h) {
+  if (!h || !h.samples) return 'No 24h history yet.';
+  const lines = [];
+  lines.push('Samples: ' + h.samples + ' (~' + h.approx_minutes + ' min coverage)');
+  if (h.first_ts && h.last_ts) lines.push('Window: ' + String(h.first_ts).slice(0, 16) + ' → ' + String(h.last_ts).slice(0, 16));
+  lines.push('Levels OK/Warn/Crit: ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
+  lines.push('Sync flips: ' + h.sync_flips + (h.last_sync ? ('; last=' + h.last_sync) : ''));
+  if (h.ledger_min != null) lines.push('Ledger: ' + h.ledger_min + ' → ' + h.ledger_max + (h.ledger_delta != null ? (' (delta ' + h.ledger_delta + ')') : ''));
+  if (h.age_max_s != null) lines.push('Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
+  if (h.peer_in_min != null) lines.push('Peer IN: ' + h.peer_in_min + '–' + h.peer_in_max);
+  if (h.peer_out_min != null) lines.push('Peer OUT: ' + h.peer_out_min + '–' + h.peer_out_max);
+  if (h.ram_max != null) lines.push('RAM range: ' + h.ram_min + '–' + h.ram_max + '%');
+  if (h.cpu_max != null) lines.push('CPU peak: ' + h.cpu_max + '%');
+  if (h.temp_max != null) lines.push('Temp peak: ' + h.temp_max + 'C');
+  return lines.join('\n');
+}
+
 
 async function aiAnalyze(t, userQ) {
   try {
@@ -1095,29 +1183,31 @@ async function aiAnalyze(t, userQ) {
 
   if (GEMINI_API_KEY) {
     const facts = (typeof buildFacts === 'function') ? buildFacts(t) : { source: t && t.source, sync: t && t.sync, ledger: t && t.ledger };
-    const hist = (typeof historySnippet === 'function') ? historySnippet(16) : [];
-    const chat = loadChatHistory().slice(-8);
+    const hist24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
+    const hist = (typeof historySnippet === 'function') ? historySnippet(30) : [];
+    const chat = loadChatHistory().slice(-10);
     const issues = (typeof collectIssues === 'function') ? collectIssues(t) : [];
     const prompt = [
-      'You are a professional Pi Node management assistant (SoloHost Controller).',
-      'LANGUAGE RULE (mandatory): Reply in the SAME language as the user message. If user writes English, reply English. If Vietnamese, Vietnamese. If other, match that language. Never force Vietnamese.',
-      'You are a friendly Pi Node technician. Answer the user question first in a natural tone. Use FACTS only as support — never dump every metric. Continue from Recent chat. Do not invent bonus numbers or tell users to sell the machine unless they ask; give calm practical advice.',
-      'Use FACTS only. Never invent metrics. If a metric is missing, say it is unavailable on SoloHost.',
-      'Do not mark Node Offline only because one source failed.',
-      'Bonus advice only from uptime, ports, peers, resources — never invent bonus numbers.',
+      'You are an experienced Pi Node technician advising the node operator.',
+      'LANGUAGE RULE: Reply in the SAME language as the user. Never force Vietnamese if they write another language.',
+      'ROLE: Give practical, trustworthy advice like a skilled technician who knows THIS machine from the telemetry history — not a generic chatbot and not a raw metric dump.',
+      'DATA RULES: Use ONLY the FACTS, HISTORY_24H and RECENT_SAMPLES provided. Never invent ledger, bonus, peers, temperatures, or uptime. If a field is missing, say it is not measured on SoloHost.',
+      'STYLE: 2–5 short paragraphs or clear bullets. Answer the question first, then support with 24h evidence (sync flips, ledger progress, peer range, critical samples). End with 1–3 concrete next steps when useful.',
+      'BONUS: Explain only via uptime/sync/ports stability — never invent bonus numbers.',
       'Intent: ' + intent,
-      'User: ' + String(userQ || '').slice(0, 600),
-      'Issues: ' + JSON.stringify(issues),
-      'FACTS: ' + JSON.stringify(facts),
-      hist.length ? ('Recent telemetry: ' + JSON.stringify(hist)) : '',
-      chat.length ? ('Recent chat (use as context): ' + JSON.stringify(chat)) : '',
-      'Give practical advice when useful. Keep it concise.'
+      'User question: ' + String(userQ || '').slice(0, 800),
+      'Current issues: ' + JSON.stringify(issues),
+      'CURRENT_FACTS: ' + JSON.stringify(facts),
+      'HISTORY_24H: ' + JSON.stringify(hist24),
+      hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist)) : '',
+      chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
+      'Write a valuable technician-style answer now.'
     ].filter(Boolean).join('\n');
 
     try {
       const body = JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 1024 }
+        generationConfig: { temperature: 0.9, maxOutputTokens: 1800 }
       });
       const text = await new Promise(function (resolve) {
         const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
@@ -1305,9 +1395,13 @@ async function processUpdate(u) {
 }
 
 async function telegramLoop() {
+  let conflictBackoff = 5000;
+  let lastConflictLog = 0;
   if (BOT_TOKEN) {
-    const dw = await tgApi('deleteWebhook', { drop_pending_updates: false });
-    log('deleteWebhook ' + (dw && dw.ok ? 'ok' : 'skip'));
+    // Drop pending + clear webhook so this instance owns long-polling
+    const dw = await tgApi('deleteWebhook', { drop_pending_updates: true });
+    log('deleteWebhook ' + (dw && dw.ok ? 'ok' : 'skip') + ' (drop_pending=true)');
+    try { actionLog('info', 'telegram loop start · deleteWebhook'); } catch (e) {}
   }
   while (true) {
     if (!BOT_TOKEN) { await wait(5000); continue; }
@@ -1318,26 +1412,41 @@ async function telegramLoop() {
         allowed_updates: ['message', 'callback_query']
       });
       if (!r) {
-        await wait(1500);
-        continue;
-      }
-      if (r.ok === false) {
-        log('getUpdates fail: ' + (r.description || ''), 'error');
         await wait(2000);
         continue;
       }
+      if (r.ok === false) {
+        const desc = String(r.description || '');
+        const isConflict = /conflict|terminated by other getUpdates/i.test(desc);
+        if (isConflict) {
+          // Another instance (old container / Windows bot) is polling the same token
+          const now = Date.now();
+          if (now - lastConflictLog > 60000) {
+            log('getUpdates conflict — only one bot instance may poll this token. Backing off.', 'error');
+            try { actionLog('error', 'getUpdates conflict · ensure single instance'); } catch (e) {}
+            lastConflictLog = now;
+          }
+          await tgApi('deleteWebhook', { drop_pending_updates: true });
+          await wait(conflictBackoff);
+          conflictBackoff = Math.min(120000, Math.floor(conflictBackoff * 1.5));
+          continue;
+        }
+        log('getUpdates fail: ' + desc, 'error');
+        await wait(5000);
+        continue;
+      }
+      conflictBackoff = 5000;
       if (!Array.isArray(r.result)) {
         await wait(1000);
         continue;
       }
       for (const u of r.result) {
         offset = u.update_id + 1;
-        // Do not block the next long-poll on slow AI
         processUpdate(u);
       }
     } catch (e) {
       log('tg loop ' + (e && e.message), 'error');
-      await wait(2000);
+      await wait(3000);
     }
   }
 }

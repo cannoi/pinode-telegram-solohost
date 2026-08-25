@@ -1,8 +1,7 @@
-# Pi Node Telegram Controller SoloHost v2.6.3
+# SoloHost v2.6.4
 
-Fixes:
-- Restored emoji on action buttons
-- Fixed AI crash: buildFacts / historySnippet missing
-- Softer issue list without DataLive nags
+- AI uses **HISTORY_24H** aggregates + recent samples (technician-style)
+- getUpdates **conflict** handling: backoff + deleteWebhook(drop_pending)
+- Only **one** bot instance may use the same BOT_TOKEN (stop old SoloHost / Windows bot if shared)
 
-Image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.3
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.4`
