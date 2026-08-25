@@ -1,8 +1,8 @@
 'use strict';
 /**
- * SoloHost Controller v2.5.0
+ * SoloHost Controller v2.6.0
  * - Telegram long-poll independent of 60s telemetry
- * - Data Live PRIMARY → Horizon → Port probe
+ * - Horizon-deep PRIMARY → Core HTTP → Ports → cgroup (no DataLive)
  * - Normalized schema; hide missing fields
  * - Alert state machine; history; optional Gemini
  * - NO docker.sock required
@@ -13,16 +13,16 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.5.7-solohost';
+const VERSION = '2.6.0-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.CHAT_ID || '').trim();
-const DATA_LIVE_URL = (process.env.DATA_LIVE_URL || 'http://host.docker.internal:18790').replace(/\/$/, '');
+const DATA_LIVE_URL = (process.env.DATA_LIVE_URL || '').replace(/\/$/, ''); // disabled by default v2.6
 const DATA_LIVE_TOKEN = (process.env.DATA_LIVE_TOKEN || '').trim();
 const NODE_HOST = (process.env.NODE_HOST || 'host.docker.internal').trim();
 const HORIZON_PORT = parseInt(process.env.HORIZON_PORT || '31401', 10) || 31401;
-const NODE_LABEL = (process.env.PI_CONTAINER || 'testnet2').trim() || 'testnet2';
+const NODE_LABEL = (process.env.PI_CONTAINER || process.env.NODE_LABEL || '').trim(); // optional label only
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 const ALERT_ON_START = String(process.env.ALERT_ON_START || 'true').toLowerCase() !== 'false';
 const TELEMETRY_SEC = Math.max(30, parseInt(process.env.TELEMETRY_SEC || '60', 10) || 60);
@@ -150,6 +150,7 @@ function probeTcp(host, port, timeout) {
 
 // ---------- sources ----------
 async function fetchDataLive() {
+  if (!DATA_LIVE_URL) return null;
   const headers = {};
   if (DATA_LIVE_TOKEN) headers.Authorization = 'Bearer ' + DATA_LIVE_TOKEN;
   const r = await httpGetUrl(DATA_LIVE_URL + '/v1/status', headers, 3500);
@@ -162,30 +163,178 @@ async function fetchDataLive() {
 }
 
 async function fetchHorizon() {
-  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1'];
+  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1', '10.0.2.2', 'localhost'];
+  const ports = [HORIZON_PORT, 31401, 8000];
   for (const host of hosts) {
-    for (const pth of ['/', '/ledgers?limit=1&order=desc']) {
-      const r = await httpGetUrl('http://' + host + ':' + HORIZON_PORT + pth, {}, 2500);
+    for (const port of ports) {
+      const r = await httpGetUrl('http://' + host + ':' + port + '/', {}, 2800);
+      if (!r || r.status !== 200 || !r.body) continue;
+      try {
+        let j = JSON.parse(r.body);
+        // AI / flexible field extraction when schema drifts
+        const pick = (...keys) => {
+          for (const k of keys) {
+            if (j[k] != null && j[k] !== '') return j[k];
+          }
+          return null;
+        };
+        let ledger = Number(pick('core_latest_ledger', 'history_latest_ledger', 'ingest_latest_ledger'));
+        if (!ledger && j._embedded && j._embedded.records && j._embedded.records[0])
+          ledger = Number(j._embedded.records[0].sequence);
+        if (!ledger || !isFinite(ledger)) {
+          // last resort: scan numeric fields looking like ledger
+          for (const k of Object.keys(j)) {
+            if (/ledger/i.test(k) && typeof j[k] === 'number' && j[k] > 1000) { ledger = j[k]; break; }
+          }
+        }
+        if (!ledger) continue;
+
+        let ledger_age = null;
+        const closedAt = pick('history_latest_ledger_closed_at', 'core_latest_ledger_closed_at', 'closed_at');
+        if (closedAt) {
+          const ts = new Date(closedAt).getTime();
+          if (isFinite(ts)) ledger_age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+        }
+
+        const coreL = Number(pick('core_latest_ledger'));
+        const ingestL = Number(pick('ingest_latest_ledger'));
+        let ingest_lag = null;
+        if (isFinite(coreL) && isFinite(ingestL)) ingest_lag = Math.max(0, coreL - ingestL);
+
+        let syncStatus = 'Horizon OK';
+        if (ledger_age != null) {
+          if (ledger_age <= 35) syncStatus = 'Synced (Live)';
+          else if (ledger_age <= 120) syncStatus = 'Syncing (Slow)';
+          else if (ledger_age <= 300) syncStatus = 'Behind';
+          else syncStatus = 'Catching Up (~' + Math.round(ledger_age / 60) + 'm)';
+        }
+        if (ingest_lag != null && ingest_lag > 10) {
+          syncStatus = (syncStatus.indexOf('Synced') >= 0 ? 'Ingest lag' : syncStatus) + ' · lag ' + ingest_lag;
+        }
+
+        const network = pick('network_passphrase', 'network') || null;
+        let network_kind = null;
+        if (network) {
+          const n = String(network).toLowerCase();
+          if (n.indexOf('test') >= 0) network_kind = 'Testnet';
+          else if (n.indexOf('public') >= 0 || n.indexOf('main') >= 0 || n.indexOf('pi network') >= 0) network_kind = 'Mainnet';
+          else network_kind = 'Custom';
+        }
+
+        return {
+          source: 'Horizon',
+          ledger: ledger,
+          ledger_age: ledger_age,
+          sync: syncStatus,
+          core_version: pick('core_version') || null,
+          horizon_version: pick('horizon_version', 'version') || null,
+          protocol: pick('current_protocol_version', 'protocol_version') || null,
+          network: network,
+          network_kind: network_kind,
+          ingest_lag: ingest_lag,
+          core_ledger: isFinite(coreL) ? coreL : null,
+          ingest_ledger: isFinite(ingestL) ? ingestL : null,
+          closed_at: closedAt || null,
+          confidence: ledger_age != null && ledger_age < 60 ? 'high' : 'medium',
+          horizon_host: host + ':' + port,
+          raw_keys: Object.keys(j).slice(0, 40)
+        };
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
+/** Optional Core HTTP /info + /peers (Stellar default 11626) */
+async function fetchCoreHttp() {
+  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1'];
+  const ports = [11626, 31400, 11625];
+  for (const host of hosts) {
+    for (const port of ports) {
+      const r = await httpGetUrl('http://' + host + ':' + port + '/info', {}, 2000);
       if (!r || r.status !== 200 || !r.body) continue;
       try {
         const j = JSON.parse(r.body);
-        let ledger = null;
-        if (j.core_latest_ledger != null) ledger = Number(j.core_latest_ledger);
-        else if (j.history_latest_ledger != null) ledger = Number(j.history_latest_ledger);
-        else if (j.ingest_latest_ledger != null) ledger = Number(j.ingest_latest_ledger);
-        else if (j._embedded && j._embedded.records && j._embedded.records[0])
-          ledger = Number(j._embedded.records[0].sequence);
-        if (ledger == null) continue;
-        const o = { source: 'Horizon', ledger };
-        if (j.network_passphrase) o.network = j.network_passphrase;
-        // Horizon alive + ledger → soft sync label only (not claim Synced!)
-        o.sync = 'Horizon OK';
-        o.confidence = 'medium';
+        const info = j.info || j;
+        const o = { source: 'CoreHTTP', confidence: 'high' };
+        if (info.state) o.sync = String(info.state);
+        else if (info.status) o.sync = String(info.status);
+        const ledger = info.ledger || info.ledger_num || (info.ledger && info.ledger.num);
+        if (ledger != null) o.ledger = Number(ledger.num || ledger);
+        if (info.ledger && info.ledger.age != null) o.ledger_age = Number(info.ledger.age);
+        if (info.protocol_version != null) o.protocol = info.protocol_version;
+        if (info.build) o.core_version = String(info.build);
+        if (info.network) o.network = String(info.network);
+        // peers endpoint
+        const rp = await httpGetUrl('http://' + host + ':' + port + '/peers', {}, 1500);
+        if (rp && rp.status === 200 && rp.body) {
+          try {
+            const pj = JSON.parse(rp.body);
+            const peers = pj.peers || pj;
+            if (Array.isArray(peers)) {
+              let inn = 0, out = 0;
+              peers.forEach(function (x) {
+                const d = String((x && (x.direction || x.dir)) || '').toLowerCase();
+                if (d.indexOf('in') >= 0) inn++;
+                else if (d.indexOf('out') >= 0) out++;
+              });
+              if (inn || out) { o.peer_in = inn; o.peer_out = out; }
+              else { o.peer_in = peers.length; }
+            }
+          } catch (e2) {}
+        }
+        o.core_host = host + ':' + port;
         return o;
       } catch (e) {}
     }
   }
   return null;
+}
+
+/** Container cgroup RAM/CPU (SoloHost container view — best effort without host agent) */
+function readCgroupResources() {
+  const o = {};
+  try {
+    // cgroup v2
+    const memCur = PathRead('/sys/fs/cgroup/memory.current');
+    const memMax = PathRead('/sys/fs/cgroup/memory.max');
+    if (memCur && memMax && memMax !== 'max') {
+      const used = Number(memCur), max = Number(memMax);
+      if (max > 0) o.ram = Math.round(used / max * 1000) / 10;
+    }
+  } catch (e) {}
+  try {
+    // cgroup v1
+    if (o.ram == null) {
+      const u = PathRead('/sys/fs/cgroup/memory/memory.usage_in_bytes');
+      const l = PathRead('/sys/fs/cgroup/memory/memory.limit_in_bytes');
+      if (u && l) {
+        const used = Number(u), max = Number(l);
+        if (max > 0 && max < 1e15) o.ram = Math.round(used / max * 1000) / 10;
+      }
+    }
+  } catch (e) {}
+  try {
+    const st = PathRead('/proc/stat');
+    if (st) {
+      const line = st.split('\n')[0];
+      const parts = line.trim().split(/\s+/).slice(1).map(Number);
+      if (parts.length >= 4) {
+        const idle = parts[3], total = parts.reduce((a, b) => a + b, 0);
+        if (!readCgroupResources._prev) readCgroupResources._prev = { idle, total };
+        else {
+          const di = idle - readCgroupResources._prev.idle;
+          const dt = total - readCgroupResources._prev.total;
+          readCgroupResources._prev = { idle, total };
+          if (dt > 0) o.cpu = Math.round((1 - di / dt) * 1000) / 10;
+        }
+      }
+    }
+  } catch (e) {}
+  return Object.keys(o).length ? o : null;
+}
+function PathRead(f) {
+  try { return fs.readFileSync(f, 'utf8').trim(); } catch (e) { return null; }
 }
 
 async function fetchPorts() {
@@ -277,25 +426,40 @@ function mergeTelemetry(primary, horizon, portSnap) {
 }
 
 async function collectTelemetry() {
-  const [dl, hz, pr] = await Promise.all([fetchDataLive(), fetchHorizon(), fetchPorts()]);
-  const t = mergeTelemetry(dl, hz, pr);
-  // ledger stall
-  if (t.ledger != null && state.lastLedger != null && state.lastLedgerAt) {
-    const elapsed = Date.now() - state.lastLedgerAt;
-    if (t.ledger === state.lastLedger && elapsed > 12 * 60 * 1000 && /Synced/i.test(t.sync || '')) {
-      t.level = t.level === 'ok' ? 'warning' : t.level;
-      t.stall = true;
-    }
+  const portSnap = await fetchPorts();
+  const core = await fetchCoreHttp();
+  const horizon = await fetchHorizon();
+  const cg = readCgroupResources();
+  // Priority: Core HTTP (if peers/sync) then Horizon deep then ports
+  let primary = core || horizon;
+  if (core && horizon) {
+    primary = Object.assign({}, horizon, core);
+    primary.source = core.peer_in != null ? 'Core+Horizon' : (horizon.source || 'Horizon');
+    if (horizon.ledger != null && core.ledger == null) primary.ledger = horizon.ledger;
+    if (horizon.ledger_age != null && primary.ledger_age == null) primary.ledger_age = horizon.ledger_age;
+    if (horizon.sync && (!core.sync || core.sync === 'Horizon OK')) primary.sync = horizon.sync;
   }
-  if (t.ledger != null && t.ledger !== state.lastLedger) {
-    state.lastLedger = t.ledger;
-    state.lastLedgerAt = Date.now();
+  const t = mergeTelemetry(primary, horizon, portSnap);
+  if (cg) {
+    if (cg.ram != null && t.ram == null) t.ram = cg.ram;
+    if (cg.cpu != null && t.cpu == null) t.cpu = cg.cpu;
+    t.sources = t.sources || {};
+    t.sources.cgroup = true;
   }
+  if (horizon && horizon.network_kind) t.network_kind = horizon.network_kind;
+  if (horizon && horizon.network) t.network = horizon.network;
+  if (horizon && horizon.core_version) t.core_version = horizon.core_version;
+  if (horizon && horizon.horizon_version) t.horizon_version = horizon.horizon_version;
+  if (horizon && horizon.protocol != null) t.protocol = horizon.protocol;
+  if (horizon && horizon.ingest_lag != null) t.ingest_lag = horizon.ingest_lag;
+  if (NODE_LABEL) t.container = NODE_LABEL;
+  // History enrichment every cycle (~60s)
+  try {
+    appendHistory(t);
+    saveJSON(LATEST_F, t);
+  } catch (e) {}
   cache = t;
   cacheAt = Date.now();
-  try { fs.writeFileSync(LATEST_F, JSON.stringify(t)); } catch (e) {}
-  appendHistory(t);
-  saveJSON(STATE_F, state);
   return t;
 }
 
@@ -393,154 +557,216 @@ function lineIf(icon, label, value) {
 }
 
 function formatStatus(t, mode) {
-  const age = cacheAt ? Math.max(0, Math.round((Date.now() - cacheAt) / 1000)) : 0;
-  let head = '🟢 PI NODE — OK';
-  if (mode === 'ALERT' || t.level === 'critical') head = '🔴 PI NODE — ALERT';
-  else if (t.level === 'warning') head = '🟠 PI NODE — WARNING';
-  else if (t.level === 'soft') head = '🟡 PI NODE — WATCH';
-  else if (mode === 'RECOVERED') head = '🟢 PI NODE — RECOVERED';
+  t = t || {};
+  const age = t._age != null ? t._age : (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0);
+  const syncOk = t.sync && /synced|live|good|horizon ok/i.test(String(t.sync)) && !(t.ledger_age != null && t.ledger_age > 120);
+  const netOk = t.ports_all_open || (t.ports_open != null && t.ports_open >= 2);
+  const nodeOk = t.level === 'ok' || (syncOk && netOk && t.level !== 'critical');
+  const head = nodeOk ? '🟢 PI NODE · STATUS' : (t.level === 'critical' ? '🔴 PI NODE · STATUS' : '🟡 PI NODE · STATUS');
+  const lines = [head, '━━━━━━━━━━━━━━━━━━', ''];
 
-  const lines = [head, '━━━━━━━━━━━━━━━━━━'];
-  const syncTxt = t.sync ? (/Synced/i.test(t.sync) ? 'Good' : t.sync) : null;
-  const nodeTxt = t.docker ? (/RUN/i.test(t.docker) ? 'Running' : t.docker) : null;
-  const netTxt = t.ports_all_open ? 'Good' : (t.ports_open > 0 ? 'Partial' : (t.ports ? 'Down' : null));
-  const ramTxt = t.ram != null ? (Math.round(t.ram) + '%') : null;
-  let cpuTxt = null;
-  if (t.cpu != null) cpuTxt = t.cpu < 85 ? 'Normal' : (Math.round(t.cpu) + '%');
-  const tempTxt = t.temp != null ? (Math.round(t.temp) + '°C') : null;
+  if (t.sync) {
+    const ic = /synced|live/i.test(String(t.sync)) ? '🟢' : (/catch|behind|slow|lag/i.test(String(t.sync)) ? '🟡' : '🔄');
+    lines.push('🔄 SYNC · ' + ic + ' ' + t.sync);
+  }
+  if (t.docker) lines.push('🐳 NODE · 🟢 ' + t.docker);
+  else if (t.ports_all_open) lines.push('🐳 NODE · 🟢 Running');
+  else if (t.ports_open === 0) lines.push('🐳 NODE · 🔴 Ports closed');
+  if (netOk) lines.push('🌐 NETWORK · 🟢 Good');
+  else if (t.ports_open != null) lines.push('🌐 NETWORK · 🟡 Partial');
 
-  [
-    lineIf('🔄', 'Sync:', syncTxt),
-    lineIf('🐳', 'Node:', nodeTxt),
-    lineIf('🌐', 'Network:', netTxt),
-    lineIf('🧠', 'RAM:', ramTxt),
-    lineIf('⚙️', 'CPU:', cpuTxt),
-    lineIf('🌡️', 'Temp:', tempTxt),
-    lineIf('📦', 'Ledger:', t.ledger != null ? fmtN(t.ledger) : null),
-    lineIf('🔗', 'Peers:', (t.peer_in != null || t.peer_out != null)
-      ? ('IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?')) : null),
-    lineIf('📦', 'Container:', t.container || null)
-  ].forEach(l => { if (l) lines.push(l); });
+  if (t.ram != null) lines.push('🧠 RAM · ' + Math.round(t.ram) + '%');
+  if (t.cpu != null) {
+    const cic = t.cpu >= 90 ? '🔴' : (t.cpu >= 70 ? '🟡' : '🟢');
+    lines.push('⚙️ CPU · ' + cic + ' ' + t.cpu + '%');
+  }
+  if (t.temp != null) lines.push('🌡️ TEMP · ' + t.temp + '°C');
+  if (t.ledger != null) lines.push('📦 LEDGER · ' + Number(t.ledger).toLocaleString('en-US'));
+  if (t.ledger_age != null) lines.push('⏱️ AGE · ' + t.ledger_age + 's');
+  if (t.ingest_lag != null && t.ingest_lag > 0) lines.push('📥 INGEST LAG · ' + t.ingest_lag);
+  if (t.network_kind || t.network) lines.push('🌍 NET · ' + (t.network_kind || t.network));
+  if (t.core_version) lines.push('🔧 CORE · ' + t.core_version);
 
   lines.push('');
   lines.push('🕐 ' + nowHM());
-  if (t.level === 'ok') {
-    lines.push('💡 No issues detected.');
-    lines.push('✅ Node can continue running.');
-  } else if (mode === 'RECOVERED') {
-    lines.push('💡 Node recovered.');
+  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  if (nodeOk) {
+    lines.push('🟢 STATUS · OK');
+    lines.push('💡 No Issues');
+    lines.push('✅ No Action');
+  } else if (t.level === 'critical') {
+    lines.push('🔴 STATUS · CRITICAL');
+    lines.push('💡 Check ports / Horizon / Core');
+    lines.push('🛠️ Action · Inspect node');
   } else {
-    lines.push('💡 Check /diagnostic for details.');
+    lines.push('🟡 STATUS · WATCH');
+    lines.push('💡 Monitor sync / resources');
+    lines.push('🛠️ Action · Review');
   }
   lines.push('');
-  lines.push('📡 Source: ' + (t.source || '—'));
-  lines.push('⏱ ' + age + 's ago · v' + VERSION);
+  lines.push('📡 Source · ' + (t.source || '?'));
+  lines.push('⏱️ ' + age + 's ago · v' + VERSION);
   return lines.join('\n');
 }
 
 function formatPeers(t) {
-  const lines = ['🔗 PEERS — STELLAR CORE', '━━━━━━━━━━━━━━━━━━'];
-  if (t.peer_in == null && t.peer_out == null) {
+  t = t || {};
+  const inn = t.peer_in;
+  const out = t.peer_out;
+  const total = (inn != null && out != null) ? (inn + out) : (inn != null ? inn : out);
+  const lines = ['🔗 PEERS · STELLAR CORE', '━━━━━━━━━━━━━━━━━━', ''];
+  if (inn == null && out == null) {
     lines.push('⚠️ Peer data unavailable');
-    lines.push('(needs Data Live)');
+    lines.push('(Core HTTP /peers not exposed)');
+    lines.push('');
+    lines.push('📡 PI NODE TELEGRAM CONTROLLER PRO');
+    lines.push('⏱️ ' + (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0) + 's ago');
     return lines.join('\n');
   }
-  if (t.peer_in != null) lines.push('🟢 Incoming: ' + t.peer_in);
-  if (t.peer_out != null) lines.push('🔵 Outgoing: ' + t.peer_out);
+  if (inn != null) lines.push('🟢 IN · ' + inn);
+  if (out != null) lines.push('🔵 OUT · ' + out);
+  if (total != null) lines.push('👥 TOTAL · ' + total);
   lines.push('');
-  lines.push('⏱ ' + (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0) + 's ago');
+  lines.push('📊 TREND');
+  try {
+    const rows = readHistory(1).filter(r => r.peer_in != null || r.peer_out != null).slice(-12);
+    if (rows.length >= 2) {
+      const a = rows[0], b = rows[rows.length - 1];
+      const ta = (a.peer_in || 0) + (a.peer_out || 0);
+      const tb = (b.peer_in || 0) + (b.peer_out || 0);
+      const drop = ta > 0 ? ((ta - tb) / ta) : 0;
+      lines.push('👥 ' + ta + ' → ' + tb + ' · ' + (drop > 0.5 ? '📉 Drop' : '🟢 Stable'));
+      if (a.peer_in != null && b.peer_in != null) lines.push('🟢 ' + a.peer_in + ' → ' + b.peer_in + ' · Stable');
+      if (a.peer_out != null && b.peer_out != null) lines.push('🔵 ' + a.peer_out + ' → ' + b.peer_out + ' · Stable');
+      if (tb === 0) lines.push('');
+      if (tb === 0) lines.push('🚨 WARNING');
+      if (tb === 0) lines.push('0 PEERS');
+      if (drop > 0.5) { lines.push(''); lines.push('🚨 WARNING'); lines.push('📉 >50% DROP'); }
+    } else {
+      lines.push('👥 ' + (total != null ? total : '?') + ' · collecting');
+    }
+  } catch (e) {
+    lines.push('👥 collecting');
+  }
+  lines.push('');
+  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('📡 PI NODE TELEGRAM CONTROLLER PRO');
+  lines.push('⏱️ ' + (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0) + 's ago');
   return lines.join('\n');
 }
 
 function formatDiagnostic(t) {
-  const ok = v => v ? '✅' : '⚠️';
-  const lines = [
-    '🔎 NODE DIAGNOSTIC',
-    '━━━━━━━━━━━━━━━━━━',
-    '',
-    '📡 DATA SOURCES',
-    ok(t.sources && t.sources.data_live) + ' Data Live',
-    ok(t.sources && t.sources.horizon) + ' Horizon',
-    ok(t.sources && t.sources.ports) + ' Port Probe',
-    '',
-    '🐳 DOCKER'
-  ];
-  if (t.docker) lines.push('✅ Docker          ' + t.docker);
-  else lines.push('⚠️ Docker          unavailable');
-  if (t.container) lines.push('✅ Container       ' + t.container);
-  lines.push('');
-  lines.push('🔄 NODE');
-  if (t.sync) lines.push('✅ Sync            ' + t.sync);
-  else lines.push('⚠️ Sync            unavailable');
-  if (t.ledger != null) lines.push('📦 Ledger          ' + fmtN(t.ledger));
+  t = t || {};
+  const lines = ['🩺 PI NODE · DIAGNOSTIC', '━━━━━━━━━━━━━━━━━━', ''];
+  lines.push('📡 Source · ' + (t.source || '?'));
+  if (t.horizon_host || t.core_host) lines.push('🔗 Endpoint · ' + (t.core_host || t.horizon_host || ''));
+  if (t.sync) lines.push('🔄 Sync · ' + t.sync);
+  if (t.ledger != null) lines.push('📦 Ledger · ' + Number(t.ledger).toLocaleString('en-US'));
+  if (t.ledger_age != null) lines.push('⏱️ Age · ' + t.ledger_age + 's');
+  if (t.ingest_lag != null) lines.push('📥 Ingest lag · ' + t.ingest_lag);
   if (t.peer_in != null || t.peer_out != null)
-    lines.push('👥 Peers           IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
+    lines.push('👥 Peers · IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
+  if (t.ports) {
+    lines.push('🔌 Ports · ' + [31401,31402,31403].map(function (p) {
+      return p + '=' + (t.ports[String(p)] || '?');
+    }).join(' '));
+  }
+  if (t.ram != null) lines.push('🧠 RAM · ' + t.ram + '%');
+  if (t.cpu != null) lines.push('⚙️ CPU · ' + t.cpu + '%');
+  if (t.network_kind || t.network) lines.push('🌍 Network · ' + (t.network_kind || t.network));
+  if (t.core_version) lines.push('🔧 Core · ' + t.core_version);
+  if (t.horizon_version) lines.push('🔧 Horizon · ' + t.horizon_version);
+  if (t.protocol != null) lines.push('📜 Protocol · ' + t.protocol);
+  if (t.sources) lines.push('📚 Sources · ' + Object.keys(t.sources).filter(function (k) { return t.sources[k]; }).join(', '));
   lines.push('');
-  lines.push('🔌 PORTS');
-  NODE_PORTS.forEach(p => {
-    const st = t.ports && t.ports[String(p)];
-    lines.push((st === 'OPEN' ? '✅' : (st ? '❌' : '⚠️')) + ' ' + p + '           ' + (st || 'unavailable'));
-  });
-  lines.push('');
-  lines.push('🧠 RESOURCES');
-  if (t.ram != null) lines.push('✅ RAM             ' + Math.round(t.ram) + '%');
-  else lines.push('⚠️ RAM             unavailable');
-  if (t.cpu != null) lines.push('✅ CPU             ' + t.cpu + '%');
-  else lines.push('⚠️ CPU             unavailable');
-  if (t.temp != null) lines.push('✅ Temperature     ' + t.temp + '°C');
-  else lines.push('⚠️ Temperature     unavailable');
+  lines.push('💡 Level · ' + (t.level || '?'));
+  lines.push('💛 /donate · MB 0905428801');
   return lines.join('\n');
 }
 
 function formatReport() {
   const rows = readHistory(1);
-  const lines = ['🟢 PI NODE REPORT', '━━━━━━━━━━━━━━━━━━', '🕐 ' + nowHM()];
+  const lines = [];
   if (!rows.length) {
-    lines.push('ℹ️ Data: collecting…');
-    return lines.join('\n');
+    return ['🟢 PI NODE · REPORT', '━━━━━━━━━━━━━━━━━━', '', '📊 DATA · collecting…', '', '💛 PI NODE CONTROLLER', '"/donate"'].join('\n');
   }
-  const total = rows.length;
+  const first = rows[0], last = rows[rows.length - 1];
+  const t0 = (first.ts || '').slice(0, 16).replace('T', ' ');
+  const t1 = (last.ts || '').slice(0, 16).replace('T', ' ');
+  const hours = Math.max(1, Math.round(rows.length * TELEMETRY_SEC / 3600 * 10) / 10);
   const ok = rows.filter(r => r.level === 'ok').length;
   const crit = rows.filter(r => r.level === 'critical').length;
-  const ledgers = rows.map(r => r.ledger).filter(x => x != null);
-  const peers = rows.map(r => r.peer_in).filter(x => x != null);
-  lines.push('ℹ️ Samples: ' + total);
-  lines.push('✅ Stable: ' + (Math.round(ok / total * 1000) / 10) + '%');
-  if (ledgers.length)
-    lines.push('📦 Ledger: ' + fmtN(Math.min.apply(null, ledgers)) + ' → ' + fmtN(Math.max.apply(null, ledgers)));
-  if (peers.length)
-    lines.push('👥 Peer IN: ' + Math.min.apply(null, peers) + '–' + Math.max.apply(null, peers));
+  const rams = rows.map(r => r.ram).filter(x => x != null);
+  const cpus = rows.map(r => r.cpu).filter(x => x != null);
+  const temps = rows.map(r => r.temp).filter(x => x != null);
+  const head = crit > rows.length * 0.15 ? '🟡 PI NODE · REPORT' : '🟢 PI NODE · REPORT';
+  lines.push(head);
+  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  lines.push('🕐 ' + (t0 || '?') + ' → ' + (t1 || '?'));
+  lines.push('📊 DATA · ~' + hours + 'h · ' + rows.length + ' samples');
+  lines.push('');
+  const lastSync = last.sync || '';
+  lines.push('🔄 SYNC · ' + (/synced|live|good/i.test(lastSync) ? '🟢' : '🟡') + ' ' + (lastSync || 'n/a'));
+  lines.push('🐳 DOCKER · ' + (last.docker ? '🟢 ' + last.docker : (last.ports_open > 0 ? '🟢 Running' : '🟡 n/a')));
+  lines.push('🌐 NETWORK · ' + (last.ports_all_open || last.ports_open >= 2 ? '🟢 Stable' : '🟡 Check'));
+  if (rams.length) lines.push('🧠 RAM · ' + Math.round(Math.min.apply(null, rams)) + '–' + Math.round(Math.max.apply(null, rams)) + '%');
+  if (cpus.length) {
+    const peak = Math.max.apply(null, cpus);
+    lines.push('⚙️ CPU · ' + (peak >= 90 ? '🔴 Peak ' + Math.round(peak) + '%' : '🟢 Normal'));
+  }
+  if (temps.length) lines.push('🌡️ TEMP · ' + Math.round(Math.min.apply(null, temps)) + '–' + Math.round(Math.max.apply(null, temps)) + '°C');
+  lines.push('');
+  lines.push('━━━━━━━━━━━━━━━━━━');
   lines.push('');
   lines.push('📌 ISSUES');
-  lines.push(crit ? ('🟠 Critical samples: ' + crit) : '🟢 None detected.');
+  if (crit === 0) lines.push('🟢 None');
+  else lines.push('🔴 Critical samples · ' + crit);
+  // simple sync-loss events from history
+  let events = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1], b = rows[i];
+    if (a.level === 'ok' && b.level === 'critical') events++;
+  }
+  if (events) {
+    lines.push('');
+    lines.push('📌 EVENTS');
+    lines.push('🔴 Status flips · ' + events);
+  }
   lines.push('');
-  lines.push('💡 CONCLUSION');
-  lines.push(crit > total * 0.1 ? '🟠 Check node / network.' : '🟢 Node is healthy.');
+  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  lines.push('💡 RESULT');
+  lines.push((crit > rows.length * 0.1 ? '🟡' : '🟢') + ' NODE · ' + (crit > rows.length * 0.1 ? 'Watch' : 'Healthy'));
+  lines.push('🔄 SYNC · ' + (lastSync || 'n/a'));
+  lines.push('🛠️ ACTION · ' + (crit > rows.length * 0.1 ? 'Review node' : 'None'));
+  lines.push('');
+  lines.push('💛 PI NODE CONTROLLER');
+  lines.push('☕ DEV COFFEE · MB 0905428801 · "/donate"');
   return lines.join('\n');
 }
 
 function formatScripts() {
   return [
-    'SCRIPTS (Windows)',
-    '================',
-    'Use .cmd (NOT .ps1) to avoid signed-policy error:',
-    '- CleanRAM_PiNode.cmd',
-    '- Weekly_Maintenance.cmd',
-    '- Reset_Node_Network.cmd',
-    '- Run-DataLive.bat / Start-DataLive.bat',
+    'SCRIPTS',
+    '━━━━━━━━━━━━━━━━━━',
+    'Windows scripts / DataLive removed in v2.6.0.',
+    'Use /status /report /peers /diagnostic /analyze',
     '',
-    'Or: powershell -ExecutionPolicy Bypass -File script.ps1',
-    'See HOW_TO_RUN_SCRIPTS.txt'
+    '💛 /donate · MB 0905428801'
   ].join('\n');
 }
 
 function formatDonate() {
   return [
-    '❤️ DONATE',
+    '💛 DONATE · DEV COFFEE',
     '━━━━━━━━━━━━━━━━━━',
     'Bank: MB Bank',
     'Account: 0905428801',
-    'Name: TRAN HUU NGHI'
+    'Name: TRAN HUU NGHI',
+    '',
+    'Thank you for supporting Pi Node Controller PRO.'
   ].join('\n');
 }
 
@@ -1046,7 +1272,7 @@ const srv = http.createServer(async (req, res) => {
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_docker_sock_required', true, 'compose has no sock');
       ok('schema_hide_missing', typeof lineIf === 'function', 'lineIf');
-      ok('data_live_url', !!DATA_LIVE_URL, DATA_LIVE_URL);
+      ok('horizon_first', true, 'DataLive optional');
       ok('history_dir', fs.existsSync(DIR_HIST), DIR_HIST);
       // synthetic merge tests
       const m1 = mergeTelemetry(null, { source: 'Horizon', ledger: 100, sync: 'Horizon OK', confidence: 'medium' }, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });

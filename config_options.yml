@@ -1,5 +1,5 @@
 title: Pi Node Telegram Controller PRO
-description: Giam sat Pi Node 24/7. Data Live + Horizon + AI. Dan Bot Token, Chat ID, Gemini (tuy chon).
+description: Monitor Pi Node via Horizon + Core + ports. Icon reports. Optional Gemini AI.
 output_file: .env
 
 fixed_values:
@@ -11,16 +11,16 @@ fields:
     label: Telegram Bot Token
     type: password
     required: true
-    help: Tao bot tai BotFather roi sao chep token.
+    help: Create bot with BotFather and paste token.
 
   - name: CHAT_ID
     label: Telegram Chat ID
     type: text
     required: true
-    help: ID chat. Dung userinfobot.
+    help: Your chat ID (userinfobot).
 
   - name: GEMINI_API_KEY
     label: Gemini API Key (AI)
     type: password
     required: false
-    help: Tuy chon. De trong neu chi dung Rules. Lay key tai Google AI Studio.
+    help: Optional. Leave empty for rules-only assistant.

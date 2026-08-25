@@ -1,14 +1,14 @@
-# Pi Node Telegram Controller SoloHost v2.5.3
+# Pi Node Telegram Controller SoloHost v2.6.0
 
-## AI (same principles as Windows PRO)
-1. Rules engine first (intent + evidence)
-2. Gemini only for deep analysis when GEMINI_API_KEY set
-3. Never invent missing metrics
-4. Not called every 60s telemetry tick
+## Changes
+- **No DataLive / no Windows scripts** in this package
+- Deep Horizon: ledger_age from closed_at, ingest lag, versions, protocol, network kind
+- Optional Core HTTP /info + /peers (11626, 31400)
+- Port probe 31401-31403
+- Container cgroup RAM/CPU best-effort
+- History every telemetry cycle (~60s)
+- Icon system messages (STATUS / REPORT / PEERS)
+- AI still matches user language
 
-## Build image
-docker build -t ghcr.io/cannoi/pinode-telegram-solohost:v2.5.3 .
-docker push ghcr.io/cannoi/pinode-telegram-solohost:v2.5.3
-
-## Data Live (Windows host)
-Download from Web UI /scripts/ or use Start-DataLive.bat after MonitorLive is running.
+## Image
+ghcr.io/cannoi/pinode-telegram-solohost:v2.6.0

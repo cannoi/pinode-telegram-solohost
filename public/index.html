@@ -4,7 +4,7 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pi Node Controller PRO</title>
 <style>
-:root{--p:rgba(12,18,32,.9);--bd:rgba(212,168,75,.3);--t:#f5f0e8;--m:#b8a990;--b:#4da3ff;--gold:#d4a84b}
+:root{--p:rgba(12,18,32,.9);--bd:rgba(212,168,75,.3);--t:#f5f0e8;--m:#b8a990;--gold:#d4a84b}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;color:var(--t);min-height:100vh;
 background:linear-gradient(165deg,rgba(8,10,18,.75),rgba(20,14,8,.8)),url('/avatar.jpg') center top/cover no-repeat fixed;
@@ -18,16 +18,14 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
 .card{background:var(--p);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px;backdrop-filter:blur(10px)}
 .card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(212,168,75,.12);font-size:.85rem}
-.row:last-child{border-bottom:0}.k{color:var(--m)}.val{font-weight:700}
-.btn{display:inline-block;margin:3px 3px 3px 0;padding:8px 10px;border-radius:10px;font-weight:700;font-size:.72rem;text-decoration:none;border:1px solid rgba(212,168,75,.35);color:#f0d78c;background:rgba(40,32,18,.65);cursor:pointer}
-#chatbox{height:220px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.82rem;line-height:1.4}
+.k{color:var(--m)}.val{font-weight:700}
+#chatbox{height:200px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.82rem}
 .msg{margin:6px 0;padding:6px 8px;border-radius:8px;max-width:92%}
 .msg.user{background:rgba(77,163,255,.2);margin-left:auto;text-align:right}
 .msg.bot{background:rgba(212,168,75,.12)}
 .bar{display:flex;gap:6px}
 .bar input{flex:1;padding:10px;border-radius:10px;border:1px solid var(--bd);background:rgba(0,0,0,.35);color:var(--t)}
 .bar button{padding:10px 14px;border-radius:10px;border:0;background:var(--gold);color:#1a1208;font-weight:800;cursor:pointer}
-.note{font-size:.68rem;color:#8a7a60;margin-top:6px}
 .foot{text-align:center;font-size:.62rem;color:#6a5a48;margin-top:6px}
 </style>
 </head>
@@ -36,61 +34,39 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · Live data · In-app chat (not Telegram)</p>
+    <p class="sub">SoloHost v2.6 · Horizon-deep · no DataLive</p>
   </div>
-  <div class="card"><h2>Node status · auto refresh</h2><div id="s">…</div></div>
+  <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
-    <h2>Chat with Controller</h2>
+    <h2>Chat</h2>
     <div id="chatbox"></div>
     <div class="bar">
-      <input id="inp" type="text" placeholder="Type a message… Enter to send" autocomplete="off">
+      <input id="inp" type="text" placeholder="Message… Enter to send" autocomplete="off">
       <button id="send" type="button">Send</button>
     </div>
-    <p class="note">Independent from Telegram. AI matches your language. Context is kept on the controller.</p>
   </div>
-  <div class="card">
-    <h2>Scripts (Windows) — use .cmd / .bat</h2>
-    <a class="btn" href="/scripts/CleanRAM_PiNode.cmd">CleanRAM.cmd</a>
-    <a class="btn" href="/scripts/Weekly_Maintenance.cmd">Maintenance.cmd</a>
-    <a class="btn" href="/scripts/Reset_Node_Network.cmd">Reset.cmd</a>
-    <a class="btn" href="/scripts/Run-DataLive.bat">DataLive.bat</a>
-    <p class="note">Do not double-click .ps1 on restricted PCs. Use .cmd files (Bypass ExecutionPolicy).</p>
-  </div>
-  <p class="foot">v2.5.7 · Web chat + Telegram share the same assistant brain</p>
+  <p class="foot">Telegram /status /report /peers · MB 0905428801</p>
 </div>
 <script>
 const box=document.getElementById('chatbox');
-function add(role,text){
-  const d=document.createElement('div');
-  d.className='msg '+role;
-  d.textContent=text;
-  box.appendChild(d);
-  box.scrollTop=box.scrollHeight;
-}
+function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
 async function loadStatus(){
   try{
     const t=await fetch('/api/status').then(r=>r.json());
     const rows=[];
     const addR=(k,v)=>{if(v!=null&&v!=='')rows.push('<div class="row"><span class="k">'+k+'</span><span class="val">'+String(v)+'</span></div>');};
-    addR('Source',t.source);addR('Sync',t.sync);addR('Ledger',t.ledger);
+    addR('Source',t.source);addR('Sync',t.sync);addR('Ledger',t.ledger);addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
     addR('Peers',(t.peer_in!=null||t.peer_out!=null)?('IN '+(t.peer_in??'?')+' / OUT '+(t.peer_out??'?')):null);
-    addR('Docker',t.docker);addR('RAM',t.ram!=null?t.ram+'%':null);addR('CPU',t.cpu!=null?t.cpu+'%':null);addR('Temp',t.temp!=null?t.temp+'C':null);
-    document.getElementById('s').innerHTML=rows.join('')||'<span class="k">No data yet</span>';
+    addR('Network',t.network_kind||t.network);addR('RAM',t.ram!=null?t.ram+'%':null);addR('CPU',t.cpu!=null?t.cpu+'%':null);
+    addR('Ingest lag',t.ingest_lag);addR('Core',t.core_version);
+    document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
   }catch(e){document.getElementById('s').textContent='Status error';}
 }
 async function send(){
-  const inp=document.getElementById('inp');
-  const msg=(inp.value||'').trim();
-  if(!msg)return;
-  inp.value='';
-  add('user',msg);
-  add('bot','…');
-  try{
-    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
-    const j=await r.json();
-    box.lastChild.textContent=j.reply||j.error||'No reply';
-  }catch(e){box.lastChild.textContent='Chat error';}
-  box.scrollTop=box.scrollHeight;
+  const inp=document.getElementById('inp');const msg=(inp.value||'').trim();if(!msg)return;inp.value='';
+  add('user',msg);add('bot','…');
+  try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});const j=await r.json();box.lastChild.textContent=j.reply||j.error||'No reply';}
+  catch(e){box.lastChild.textContent='Chat error';}
 }
 document.getElementById('send').onclick=send;
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});

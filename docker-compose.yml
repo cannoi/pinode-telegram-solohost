@@ -1,7 +1,7 @@
-# SoloHost - NO docker.sock
+# SoloHost v2.6.0 — no docker.sock, no DataLive required
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.5.7
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.0
     container_name: PiNode-Telegram-Controller
     labels:
       pi.ui.primary: "true"
@@ -11,7 +11,6 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - DATA_LIVE_URL=http://host.docker.internal:18790
       - NODE_HOST=host.docker.internal
       - HORIZON_PORT=31401
       - TELEMETRY_SEC=60
