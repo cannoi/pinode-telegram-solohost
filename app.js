@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.5-solohost';
+const VERSION = '2.6.6-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1253,101 +1253,115 @@ function financialBoundaryReply(lang) {
 
 async function aiAnalyze(t, userQ) {
   try {
-  const intent = detectIntent(userQ || '');
-  const lang = detectUserLang(userQ || '');
-
-  // Windows-PRO style: metric questions → structured history analysis (prefer 7 days)
-  const mk = metricIntentKey(intent);
-  if (mk) {
-    let days = 7;
+    const intent = detectIntent(userQ || '');
+    const lang = detectUserLang(userQ || '');
     const q = String(userQ || '');
+
+    // Related structured data for ANY question (feed AI — do not replace AI when key exists)
+    let days = 7;
     if (/24\s*h|24\s*giờ|hom nay|hôm nay|1\s*day/i.test(q)) days = 1;
     if (/30\s*ngày|30\s*day|thang|tháng/i.test(q)) days = 30;
-    const block = formatMetricAnalysis(mk, Math.min(days, 7), lang);
-    // Append live snapshot line if present
-    const live = (t && t[mk] != null) ? ((lang === 'vi' ? '\n\nHiện tại · ' : '\n\nNow · ') + t[mk] + (mk === 'temp' ? '°C' : '%')) : '';
-    return block + live;
-  }
+    days = Math.min(days, 7);
 
-  if (intent === 'FINANCE') {
-    const base = financialBoundaryReply(lang);
-    const h = (typeof buildHistory24h === 'function') ? buildHistory24h() : null;
-    const tech = (lang === 'vi')
-      ? ('\n\n— Kỹ thuật hiện tại —\n' +
-         'Sync: ' + (t && t.sync || 'n/a') + '\n' +
-         'Ledger: ' + (t && t.ledger != null ? t.ledger : 'n/a') + '\n' +
-         'Ports open: ' + (t && t.ports_open != null ? t.ports_open : 'n/a') + '/3\n' +
-         (h && h.samples ? formatHistory24hText(h) : ''))
-      : ('\n\n— Technical snapshot —\n' +
-         'Sync: ' + (t && t.sync || 'n/a') + '\n' +
-         'Ledger: ' + (t && t.ledger != null ? t.ledger : 'n/a') + '\n' +
-         (h && h.samples ? formatHistory24hText(h) : ''));
-    return base + tech;
-  }
+    const mk = metricIntentKey(intent);
+    let metricBlock = '';
+    if (mk) {
+      metricBlock = formatMetricAnalysis(mk, days, lang);
+      if (t && t[mk] != null) {
+        metricBlock += (lang === 'vi' ? '\n\nHiện tại · ' : '\n\nNow · ') + t[mk] + (mk === 'temp' ? '°C' : '%');
+      }
+    } else if (intent === 'BLOCK_SYNC' || intent === 'DIAGNOSIS' || intent === 'NODE_HEALTH' || intent === 'GENERAL' || intent === 'BONUS' || intent === 'RECOMMENDATION' || intent === 'ADVICE' || intent === 'CLARIFY' || intent === 'FINANCE') {
+      // sync-oriented summary from 24h
+      try {
+        const h = buildHistory24h();
+        if (h && h.samples) metricBlock = formatHistory24hText(h);
+      } catch (e) {}
+    }
 
-  if (GEMINI_API_KEY) {
     const facts = (typeof buildFacts === 'function') ? buildFacts(t) : { source: t && t.source, sync: t && t.sync, ledger: t && t.ledger };
     const hist24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
     const hist = (typeof historySnippet === 'function') ? historySnippet(40) : [];
     const chat = loadChatHistory().slice(-10);
     const issues = (typeof collectIssues === 'function') ? collectIssues(t) : [];
-    // 7-day ranges when available
-    const rows7 = historyRowsDays(7);
+    const rows7 = (typeof historyRowsDays === 'function') ? historyRowsDays(7) : [];
     const ram7 = rows7.map(function (r) { return toNum(r.ram); }).filter(function (x) { return x != null; });
     const cpu7 = rows7.map(function (r) { return toNum(r.cpu); }).filter(function (x) { return x != null; });
+    const age7 = rows7.map(function (r) { return toNum(r.ledger_age); }).filter(function (x) { return x != null; });
     const stats7 = {
       samples: rows7.length,
       ram: ram7.length ? { min: Math.min.apply(null, ram7), max: Math.max.apply(null, ram7), avg: avg(ram7), median: median(ram7) } : null,
-      cpu: cpu7.length ? { min: Math.min.apply(null, cpu7), max: Math.max.apply(null, cpu7), avg: avg(cpu7), median: median(cpu7) } : null
+      cpu: cpu7.length ? { min: Math.min.apply(null, cpu7), max: Math.max.apply(null, cpu7), avg: avg(cpu7), median: median(cpu7) } : null,
+      ledger_age: age7.length ? { min: Math.min.apply(null, age7), max: Math.max.apply(null, age7), avg: avg(age7), median: median(age7) } : null
     };
-    const prompt = [
-      'You are an experienced Pi Node technician advising the node operator.',
-      'LANGUAGE RULE: Reply in the SAME language as the user. Never force Vietnamese if they write another language.',
-      'ROLE: You are the operator technician for THIS Pi Node. Be interactive and specific — like Windows PRO assistant. Never sound like a metric dump bot.',
-      'DATA RULES: Use ONLY FACTS, HISTORY_24H, STATS_7D, RECENT_SAMPLES. Never invent numbers. Missing field = say not measured on SoloHost (container RAM/CPU only when present).',
-      'STYLE: Answer the human question first with empathy. Then give structured evidence (min/avg/max when STATS_7D exists). Offer a short follow-up question so the chat stays interactive. No financial buy/sell advice — technical only.',
-      'BONUS: Explain only via uptime/sync/ports stability — never invent bonus numbers.',
-      'Intent: ' + intent,
-      'User question: ' + String(userQ || '').slice(0, 800),
-      'Current issues: ' + JSON.stringify(issues),
-      'CURRENT_FACTS: ' + JSON.stringify(facts),
-      'HISTORY_24H: ' + JSON.stringify(hist24),
-      'STATS_7D: ' + JSON.stringify(stats7),
-      hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist)) : '',
-      chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
-      'Write a valuable technician-style answer now.'
-    ].filter(Boolean).join('\n');
 
-    try {
-      const body = JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 1800 }
-      });
-      const text = await new Promise(function (resolve) {
-        const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
-        const req = https.request({
-          hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-        }, function (r) {
-          let b = '';
-          r.on('data', function (d) { b += d; });
-          r.on('end', function () {
-            try {
-              const j = JSON.parse(b);
-              resolve(j.candidates && j.candidates[0] && j.candidates[0].content.parts[0].text);
-            } catch (e) { resolve(null); }
-          });
+    // PRIORITY 1: always use Gemini for free-text questions when API key is set
+    if (GEMINI_API_KEY) {
+      const prompt = [
+        'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
+        'LANGUAGE: Reply in the SAME language as the user. Never force Vietnamese if they use another language.',
+        'PRIORITY: Every free-text question must get a real technician evaluation — clear, simple language anyone can understand, with practical value.',
+        'DATA: Use ONLY the JSON blocks below. Never invent ledger, bonus points, peers, RAM, CPU, temp, or uptime. If missing, say it is not measured on SoloHost.',
+        'STYLE: (1) Answer the user question first with empathy. (2) Explain what the data means in plain words. (3) Give 1–3 concrete next steps when useful. (4) Optionally ask one short follow-up question.',
+        'FINANCE: If they ask about selling the node or money problems — be empathetic, give ONLY technical health context, do NOT advise buy/sell or personal finance.',
+        'Intent: ' + intent,
+        'User question: ' + q.slice(0, 900),
+        'Issues: ' + JSON.stringify(issues),
+        'CURRENT_FACTS: ' + JSON.stringify(facts),
+        'HISTORY_24H: ' + JSON.stringify(hist24),
+        'STATS_7D: ' + JSON.stringify(stats7),
+        metricBlock ? ('RELATED_METRIC_BLOCK:\n' + metricBlock) : '',
+        hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist)) : '',
+        chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
+        'Write a valuable technician-style answer now.'
+      ].filter(Boolean).join('\n');
+
+      try {
+        const body = JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.85, maxOutputTokens: 2000 }
         });
-        req.on('error', function () { resolve(null); });
-        req.setTimeout(25000, function () { try { req.destroy(); } catch (e) {} resolve(null); });
-        req.write(body);
-        req.end();
-      });
-      if (text && String(text).trim()) return '🤖 AI APP GUIDE\n\n' + String(text).trim().slice(0, 3400);
-    } catch (e) {}
-  }
+        const text = await new Promise(function (resolve) {
+          const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
+          const req = https.request({
+            hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+          }, function (r) {
+            let b = '';
+            r.on('data', function (d) { b += d; });
+            r.on('end', function () {
+              try {
+                const j = JSON.parse(b);
+                resolve(j.candidates && j.candidates[0] && j.candidates[0].content.parts[0].text);
+              } catch (e) { resolve(null); }
+            });
+          });
+          req.on('error', function () { resolve(null); });
+          req.setTimeout(28000, function () { try { req.destroy(); } catch (e) {} resolve(null); });
+          req.write(body);
+          req.end();
+        });
+        if (text && String(text).trim()) {
+          try { actionLog('info', 'AI reply ok · intent ' + intent); } catch (e) {}
+          return '🤖 AI APP GUIDE\n\n' + String(text).trim().slice(0, 3500);
+        }
+      } catch (e) {
+        try { actionLog('error', 'Gemini fail: ' + (e && e.message)); } catch (e2) {}
+      }
+    }
 
-  return localAssistantReply(t, intent, userQ || '');
+    // Fallback when no API key or Gemini failed: structured data + local technician text
+    if (mk && metricBlock) {
+      const note = lang === 'vi'
+        ? '\n\n(Không có Gemini API key hoặc AI tạm lỗi — đây là số liệu lịch sử thật. Thêm GEMINI_API_KEY để có phân tích kỹ thuật viên đầy đủ.)'
+        : '\n\n(No Gemini API key or AI failed — raw history stats. Set GEMINI_API_KEY for full technician analysis.)';
+      return metricBlock + note;
+    }
+    if (intent === 'FINANCE') {
+      const base = financialBoundaryReply(lang);
+      const h = hist24;
+      return base + (h && h.samples ? ('\n\n' + formatHistory24hText(h)) : '');
+    }
+    return localAssistantReply(t, intent, userQ || '');
   } catch (e) {
     try { actionLog('error', 'aiAnalyze ' + (e && e.message)); } catch (e2) {}
     try { return localAssistantReply(t, detectIntent(userQ || ''), userQ || ''); } catch (e3) { return 'Assistant error. Try /status.'; }
@@ -1509,16 +1523,18 @@ async function processUpdate(u) {
 }
 
 async function telegramLoop() {
-  let conflictBackoff = 5000;
+  let conflictBackoff = 15000;
   let lastConflictLog = 0;
+  let polling = false;
   if (BOT_TOKEN) {
-    // Drop pending + clear webhook so this instance owns long-polling
     const dw = await tgApi('deleteWebhook', { drop_pending_updates: true });
     log('deleteWebhook ' + (dw && dw.ok ? 'ok' : 'skip') + ' (drop_pending=true)');
     try { actionLog('info', 'telegram loop start · deleteWebhook'); } catch (e) {}
   }
   while (true) {
     if (!BOT_TOKEN) { await wait(5000); continue; }
+    if (polling) { await wait(500); continue; }
+    polling = true;
     try {
       const r = await tgApi('getUpdates', {
         offset: offset,
@@ -1533,34 +1549,36 @@ async function telegramLoop() {
         const desc = String(r.description || '');
         const isConflict = /conflict|terminated by other getUpdates/i.test(desc);
         if (isConflict) {
-          // Another instance (old container / Windows bot) is polling the same token
           const now = Date.now();
-          if (now - lastConflictLog > 60000) {
-            log('getUpdates conflict — only one bot instance may poll this token. Backing off.', 'error');
+          if (now - lastConflictLog > 90000) {
+            log('getUpdates conflict — only one bot instance may poll this token. Stop Windows PRO bot or other SoloHost containers using the same BOT_TOKEN.', 'error');
             try { actionLog('error', 'getUpdates conflict · ensure single instance'); } catch (e) {}
             lastConflictLog = now;
           }
           await tgApi('deleteWebhook', { drop_pending_updates: true });
           await wait(conflictBackoff);
-          conflictBackoff = Math.min(120000, Math.floor(conflictBackoff * 1.5));
+          conflictBackoff = Math.min(180000, Math.floor(conflictBackoff * 1.4));
           continue;
         }
         log('getUpdates fail: ' + desc, 'error');
-        await wait(5000);
+        await wait(8000);
         continue;
       }
-      conflictBackoff = 5000;
+      conflictBackoff = 15000;
       if (!Array.isArray(r.result)) {
         await wait(1000);
         continue;
       }
       for (const u of r.result) {
         offset = u.update_id + 1;
+        // fire-and-forget AI so long-poll continues; errors logged inside processUpdate
         processUpdate(u);
       }
     } catch (e) {
       log('tg loop ' + (e && e.message), 'error');
-      await wait(3000);
+      await wait(4000);
+    } finally {
+      polling = false;
     }
   }
 }

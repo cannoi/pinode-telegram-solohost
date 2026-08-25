@@ -1,6 +1,6 @@
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.5
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.6
     labels:
       pi.ui.primary: "true"
     ports:
