@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.4-solohost';
+const VERSION = '2.6.5-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -878,6 +878,7 @@ function detectIntent(q) {
   if (/tại sao|tai sao|vì sao|vi sao|why|lỗi|chậm|sự cố/.test(s)) return 'DIAGNOSIS';
   if (/ổn không|on khong|sao rồi|sao roi|thế nào|the nao|tình trạng|trạng thái|máy tôi/.test(s)) return 'NODE_HEALTH';
   if (/làm sao|lam sao|phải làm|tư vấn|tu van|khuyên/.test(s)) return 'RECOMMENDATION';
+  if (/bán|ban node|bán máy|bán node|sell (the )?node|should i sell|kẹt tiền|ket tien|tài chính|tai chinh/.test(s)) return 'FINANCE';
   return 'GENERAL';
 }
 
@@ -931,36 +932,17 @@ function collectIssues(t) {
 }
 
 function rulesMetricOnly(t, intent) {
-  if (intent === 'RAM') {
-    if (t.ram == null) return 'Hiện chưa đo được RAM. Bật Telemetry trên Windows để có số liệu máy thật.';
-    return 'RAM đang khoảng ' + t.ram + '%.' + (t.ram >= 88 ? ' Mức cao — nên giảm app nền hoặc chạy CleanRAM.' : ' Mức chấp nhận được.');
-  }
-  if (intent === 'CPU') {
-    if (t.cpu == null) return 'Chưa có dữ liệu CPU (cần Telemetry).';
-    return 'CPU khoảng ' + t.cpu + '%.' + (t.cpu >= 90 ? ' Đang rất cao.' : ' Ổn.');
-  }
-  if (intent === 'TEMP') {
-    if (t.temp == null) return 'Chưa đọc được nhiệt độ (cần Telemetry + cảm biến trên Windows). Khi có Telemetry, mình sẽ theo dõi giúp bạn.';
-    return 'Nhiệt độ khoảng ' + t.temp + '°C.' + (t.temp >= 78 ? ' Hơi cao — kiểm tra quạt/thoáng khí.' : ' Trong ngưỡng ổn.');
-  }
-  if (intent === 'PEERS') {
-    if (t.peer_in == null && t.peer_out == null) return 'Chưa có peer (cần Telemetry đọc stellar-core). Cổng node ' + (t.ports_all_open ? 'đang mở tốt' : 'cần kiểm tra') + '.';
-    return 'Peer IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?') + '.';
-  }
-  if (intent === 'PORT') {
-    if (!t.ports) return 'Chưa probe được cổng.';
-    return [31401, 31402, 31403].map(function (p) { return p + ': ' + (t.ports[String(p)] || '?'); }).join('\n');
-  }
-  if (intent === 'DOCKER') {
-    if (!t.docker) return 'Chưa có trạng thái Docker từ Telemetry. Container: ' + (t.container || 'testnet2') + '.';
-    return 'Docker: ' + t.docker + (t.container ? ' · ' + t.container : '');
-  }
-  if (intent === 'BLOCK_SYNC') {
-    const bits = evidenceSummary(t).filter(function (x) { return /Đồng bộ|Ledger|Age|Nguồn/.test(x); });
-    return bits.length ? bits.join('\n') : 'Chưa có dữ liệu đồng bộ chi tiết.';
-  }
+  const lang = 'vi'; // refined by caller when needed
+  return null; // handled in localAssistant / aiAnalyze with period analysis
+}
+
+function metricIntentKey(intent) {
+  if (intent === 'RAM') return 'ram';
+  if (intent === 'CPU') return 'cpu';
+  if (intent === 'TEMP') return 'temp';
   return null;
 }
+
 
 function localAssistantReply(t, intent, userQ) {
   const lang = detectUserLang(userQ);
@@ -1031,19 +1013,16 @@ function localAssistantReply(t, intent, userQ) {
       : ('Practical tips: (1) keep online, (2) keep ports 31401–31403 open, (3) enough RAM and cooling, (4) avoid constant resets. Windows PRO: https://github.com/cannoi/pinode-telegram-controller');
   }
   if (intent === 'RAM') {
-    return t.ram != null
-      ? (vi ? ('RAM container ~' + t.ram + '%. Đây là mức trong SoloHost, không phải full RAM máy Windows.') : ('Container RAM ~' + t.ram + '%. Not full Windows host RAM.'))
-      : (vi ? 'Chưa đo được RAM host trên SoloHost.' : 'Host RAM is not available on SoloHost.');
+    return formatMetricAnalysis('ram', 7, lang) + (t.ram != null ? ((vi ? '\n\nHiện tại · ' : '\n\nNow · ') + t.ram + '%') : '');
   }
   if (intent === 'CPU') {
-    return t.cpu != null
-      ? (vi ? ('CPU container ~' + t.cpu + '%.') : ('Container CPU ~' + t.cpu + '%.'))
-      : (vi ? 'Chưa có số CPU host trên SoloHost.' : 'Host CPU is not available on SoloHost.');
+    return formatMetricAnalysis('cpu', 7, lang) + (t.cpu != null ? ((vi ? '\n\nHiện tại · ' : '\n\nNow · ') + t.cpu + '%') : '');
   }
   if (intent === 'TEMP') {
-    return t.temp != null
-      ? (vi ? ('Nhiệt ~' + t.temp + '°C.') : ('Temp ~' + t.temp + '°C.'))
-      : (vi ? 'Chưa có cảm biến nhiệt trên SoloHost.' : 'No temperature sensor on SoloHost.');
+    return formatMetricAnalysis('temp', 7, lang) + (t.temp != null ? ((vi ? '\n\nHiện tại · ' : '\n\nNow · ') + t.temp + '°C') : '');
+  }
+  if (intent === 'FINANCE') {
+    return financialBoundaryReply(lang) + (h24 && h24.samples ? ('\n\n' + hTxt) : '');
   }
   if (intent === 'PEERS') {
     if (t.peer_in == null && t.peer_out == null)
@@ -1172,33 +1151,168 @@ function formatHistory24hText(h) {
   return lines.join('\n');
 }
 
+function toNum(v) {
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+function median(arr) {
+  if (!arr || !arr.length) return null;
+  const a = arr.slice().sort(function (x, y) { return x - y; });
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : Math.round((a[mid - 1] + a[mid]) / 2 * 10) / 10;
+}
+function avg(arr) {
+  if (!arr || !arr.length) return null;
+  return Math.round(arr.reduce(function (s, x) { return s + x; }, 0) / arr.length * 10) / 10;
+}
+function minMax(arr) {
+  if (!arr || !arr.length) return { min: null, max: null };
+  return { min: Math.min.apply(null, arr), max: Math.max.apply(null, arr) };
+}
+/** Rows in last N days from ndjson history */
+function historyRowsDays(days) {
+  const rows = readHistory(Math.max(1, days || 7));
+  const cutoff = Date.now() - Math.max(1, days || 7) * 864e5;
+  return rows.filter(function (r) {
+    const ts = Date.parse(r.ts) || 0;
+    return !ts || ts >= cutoff;
+  });
+}
+function periodLabel(days, lang) {
+  const vi = lang === 'vi';
+  if (days <= 1) return vi ? '24 giờ' : '24h';
+  if (days <= 7) return vi ? '7 ngày' : '7 days';
+  return vi ? (days + ' ngày') : (days + ' days');
+}
+/**
+ * Windows-PRO style metric analysis (RAM/CPU/TEMP/AGE)
+ * Example:
+ * 🧠 PHÂN TÍCH RAM · 7 ngày
+ * 📋 Mẫu đo · 260
+ * 📉 Thấp nhất · 60.8%
+ */
+function formatMetricAnalysis(metricKey, days, lang) {
+  const vi = lang === 'vi';
+  const d = Math.max(1, days || 7);
+  const rows = historyRowsDays(d);
+  const vals = rows.map(function (r) { return toNum(r[metricKey]); }).filter(function (x) { return x != null; });
+  const titleMap = {
+    ram: vi ? '🧠 PHÂN TÍCH RAM' : '🧠 RAM ANALYSIS',
+    cpu: vi ? '⚙️ PHÂN TÍCH CPU' : '⚙️ CPU ANALYSIS',
+    temp: vi ? '🌡️ PHÂN TÍCH NHIỆT' : '🌡️ TEMP ANALYSIS',
+    ledger_age: vi ? '⏱️ PHÂN TÍCH LEDGER AGE' : '⏱️ LEDGER AGE ANALYSIS'
+  };
+  const unit = (metricKey === 'temp') ? '°C' : (metricKey === 'ledger_age' ? 's' : '%');
+  const title = (titleMap[metricKey] || metricKey) + ' · ' + periodLabel(d, lang);
+  if (!vals.length) {
+    return [
+      title,
+      '━━━━━━━━━━━━━━━━━━',
+      vi ? 'Chưa đủ mẫu trong lịch sử. App đang thu mỗi ~60s — hỏi lại sau khi có dữ liệu.' : 'Not enough history samples yet. Collecting every ~60s — ask again later.'
+    ].join('\n');
+  }
+  const mm = minMax(vals);
+  const a = avg(vals);
+  const med = median(vals);
+  return [
+    title,
+    '━━━━━━━━━━━━━━━━━━',
+    (vi ? '📋 Mẫu đo · ' : '📋 Samples · ') + vals.length,
+    (vi ? '📉 Thấp nhất · ' : '📉 Min · ') + mm.min + unit,
+    (vi ? '📈 Cao nhất · ' : '📈 Max · ') + mm.max + unit,
+    (vi ? '📊 Trung bình · ' : '📊 Avg · ') + a + unit,
+    (vi ? '🎯 Trung vị · ' : '🎯 Median · ') + med + unit
+  ].join('\n');
+}
+
+function financialBoundaryReply(lang) {
+  const vi = lang === 'vi';
+  if (vi) {
+    return [
+      '🤖 AI APP GUIDE',
+      '',
+      'Mình hiểu bạn đang cân nhắc tài chính. Với vai trò trợ lý kỹ thuật Pi Node, mình chỉ đánh giá tình trạng máy — không tư vấn mua/bán hay quyết định tiền bạc.',
+      '',
+      'Về kỹ thuật, xem /status và khối dữ liệu lịch sử bên dưới. Quyết định giữ hay dừng Node là của bạn dựa trên kế hoạch riêng.',
+      '',
+      'Cần thêm số liệu hiệu suất (RAM/CPU/sync 7 ngày) thì hỏi tiếp — mình sẵn sàng hỗ trợ kỹ thuật.'
+    ].join('\n');
+  }
+  return [
+    '🤖 AI APP GUIDE',
+    '',
+    'I understand money pressure is real. As a technical Pi Node assistant I only report machine health — I cannot advise buying/selling or personal finance.',
+    '',
+    'Technically, check /status and the history summary below. Whether to keep the node is your decision.',
+    '',
+    'Ask for 7-day RAM/CPU/sync stats anytime if that helps your technical review.'
+  ].join('\n');
+}
+
+
 
 async function aiAnalyze(t, userQ) {
   try {
   const intent = detectIntent(userQ || '');
-  const metric = rulesMetricOnly(t, intent);
-  if (metric && ['RAM', 'CPU', 'TEMP', 'PEERS', 'PORT', 'DOCKER', 'BLOCK_SYNC'].indexOf(intent) >= 0) {
-    return metric;
+  const lang = detectUserLang(userQ || '');
+
+  // Windows-PRO style: metric questions → structured history analysis (prefer 7 days)
+  const mk = metricIntentKey(intent);
+  if (mk) {
+    let days = 7;
+    const q = String(userQ || '');
+    if (/24\s*h|24\s*giờ|hom nay|hôm nay|1\s*day/i.test(q)) days = 1;
+    if (/30\s*ngày|30\s*day|thang|tháng/i.test(q)) days = 30;
+    const block = formatMetricAnalysis(mk, Math.min(days, 7), lang);
+    // Append live snapshot line if present
+    const live = (t && t[mk] != null) ? ((lang === 'vi' ? '\n\nHiện tại · ' : '\n\nNow · ') + t[mk] + (mk === 'temp' ? '°C' : '%')) : '';
+    return block + live;
+  }
+
+  if (intent === 'FINANCE') {
+    const base = financialBoundaryReply(lang);
+    const h = (typeof buildHistory24h === 'function') ? buildHistory24h() : null;
+    const tech = (lang === 'vi')
+      ? ('\n\n— Kỹ thuật hiện tại —\n' +
+         'Sync: ' + (t && t.sync || 'n/a') + '\n' +
+         'Ledger: ' + (t && t.ledger != null ? t.ledger : 'n/a') + '\n' +
+         'Ports open: ' + (t && t.ports_open != null ? t.ports_open : 'n/a') + '/3\n' +
+         (h && h.samples ? formatHistory24hText(h) : ''))
+      : ('\n\n— Technical snapshot —\n' +
+         'Sync: ' + (t && t.sync || 'n/a') + '\n' +
+         'Ledger: ' + (t && t.ledger != null ? t.ledger : 'n/a') + '\n' +
+         (h && h.samples ? formatHistory24hText(h) : ''));
+    return base + tech;
   }
 
   if (GEMINI_API_KEY) {
     const facts = (typeof buildFacts === 'function') ? buildFacts(t) : { source: t && t.source, sync: t && t.sync, ledger: t && t.ledger };
     const hist24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
-    const hist = (typeof historySnippet === 'function') ? historySnippet(30) : [];
+    const hist = (typeof historySnippet === 'function') ? historySnippet(40) : [];
     const chat = loadChatHistory().slice(-10);
     const issues = (typeof collectIssues === 'function') ? collectIssues(t) : [];
+    // 7-day ranges when available
+    const rows7 = historyRowsDays(7);
+    const ram7 = rows7.map(function (r) { return toNum(r.ram); }).filter(function (x) { return x != null; });
+    const cpu7 = rows7.map(function (r) { return toNum(r.cpu); }).filter(function (x) { return x != null; });
+    const stats7 = {
+      samples: rows7.length,
+      ram: ram7.length ? { min: Math.min.apply(null, ram7), max: Math.max.apply(null, ram7), avg: avg(ram7), median: median(ram7) } : null,
+      cpu: cpu7.length ? { min: Math.min.apply(null, cpu7), max: Math.max.apply(null, cpu7), avg: avg(cpu7), median: median(cpu7) } : null
+    };
     const prompt = [
       'You are an experienced Pi Node technician advising the node operator.',
       'LANGUAGE RULE: Reply in the SAME language as the user. Never force Vietnamese if they write another language.',
-      'ROLE: Give practical, trustworthy advice like a skilled technician who knows THIS machine from the telemetry history — not a generic chatbot and not a raw metric dump.',
-      'DATA RULES: Use ONLY the FACTS, HISTORY_24H and RECENT_SAMPLES provided. Never invent ledger, bonus, peers, temperatures, or uptime. If a field is missing, say it is not measured on SoloHost.',
-      'STYLE: 2–5 short paragraphs or clear bullets. Answer the question first, then support with 24h evidence (sync flips, ledger progress, peer range, critical samples). End with 1–3 concrete next steps when useful.',
+      'ROLE: You are the operator technician for THIS Pi Node. Be interactive and specific — like Windows PRO assistant. Never sound like a metric dump bot.',
+      'DATA RULES: Use ONLY FACTS, HISTORY_24H, STATS_7D, RECENT_SAMPLES. Never invent numbers. Missing field = say not measured on SoloHost (container RAM/CPU only when present).',
+      'STYLE: Answer the human question first with empathy. Then give structured evidence (min/avg/max when STATS_7D exists). Offer a short follow-up question so the chat stays interactive. No financial buy/sell advice — technical only.',
       'BONUS: Explain only via uptime/sync/ports stability — never invent bonus numbers.',
       'Intent: ' + intent,
       'User question: ' + String(userQ || '').slice(0, 800),
       'Current issues: ' + JSON.stringify(issues),
       'CURRENT_FACTS: ' + JSON.stringify(facts),
       'HISTORY_24H: ' + JSON.stringify(hist24),
+      'STATS_7D: ' + JSON.stringify(stats7),
       hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist)) : '',
       chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
       'Write a valuable technician-style answer now.'
@@ -1229,7 +1343,7 @@ async function aiAnalyze(t, userQ) {
         req.write(body);
         req.end();
       });
-      if (text && String(text).trim()) return String(text).trim().slice(0, 3500);
+      if (text && String(text).trim()) return '🤖 AI APP GUIDE\n\n' + String(text).trim().slice(0, 3400);
     } catch (e) {}
   }
 

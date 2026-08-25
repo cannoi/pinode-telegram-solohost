@@ -1,7 +1,7 @@
 {
   "name": "pinode-telegram-solohost",
-  "version": "2.6.4",
-  "description": "SoloHost Controller — Horizon-deep, 24h AI context, single-poll safe",
+  "version": "2.6.5",
+  "description": "SoloHost — Windows-PRO style AI metric analysis + 24h/7d history",
   "main": "loader.js",
   "private": true
 }

@@ -1,7 +1,8 @@
-# SoloHost v2.6.4
+# SoloHost v2.6.5
 
-- AI uses **HISTORY_24H** aggregates + recent samples (technician-style)
-- getUpdates **conflict** handling: backoff + deleteWebhook(drop_pending)
-- Only **one** bot instance may use the same BOT_TOKEN (stop old SoloHost / Windows bot if shared)
+Windows-PRO style AI:
+- Metric questions (RAM/CPU/temp) → min/max/avg/median over 7 days history
+- Finance/sell questions → technical boundary, no buy/sell advice
+- Gemini: HISTORY_24H + STATS_7D + interactive technician tone
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.4`
+Image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.5
