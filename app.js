@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.2-solohost';
+const VERSION = '2.6.3-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -925,8 +925,8 @@ function collectIssues(t) {
   if (t.ram != null && t.ram >= 88) issues.push('RAM cao (' + t.ram + '%)');
   if (t.cpu != null && t.cpu >= 90) issues.push('CPU cao (' + t.cpu + '%)');
   if (t.temp != null && t.temp >= 78) issues.push('Nhiệt độ cao (' + t.temp + '°C)');
-  if (!t.sources || !t.sources.data_live)
-    issues.push('Chưa có Telemetry — thiếu peer/CPU/RAM/nhiệt (đang dùng ' + (t.source || 'fallback') + ')');
+  if (!t.source && t.ports_open === 0)
+    issues.push('No telemetry source and ports closed');
   return issues;
 }
 
@@ -1060,7 +1060,33 @@ function localAssistantReply(t, intent, userQ) {
     : ('Something needs attention' + (sync ? (': ' + sync) : '') + '. Check /diagnostic and network/ports. Describe what you see so I can advise more precisely.');
 }
 
+
+function buildFacts(t) {
+  t = t || {};
+  const f = { source: t.source || null, level: t.level || null };
+  ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'container', 'cpu', 'ram', 'temp',
+   'ports_open', 'network', 'network_kind', 'core_version', 'protocol', 'ingest_lag', 'confidence'].forEach(function (k) {
+    if (t[k] != null) f[k] = t[k];
+  });
+  if (t.ports) f.ports = t.ports;
+  if (t.sources) f.sources = t.sources;
+  return f;
+}
+
+function historySnippet(n) {
+  try {
+    return readHistory(1).slice(-(n || 16)).map(function (r) {
+      const o = { ts: r.ts, level: r.level };
+      ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'ram', 'cpu', 'temp'].forEach(function (k) {
+        if (r[k] != null) o[k] = r[k];
+      });
+      return o;
+    });
+  } catch (e) { return []; }
+}
+
 async function aiAnalyze(t, userQ) {
+  try {
   const intent = detectIntent(userQ || '');
   const metric = rulesMetricOnly(t, intent);
   if (metric && ['RAM', 'CPU', 'TEMP', 'PEERS', 'PORT', 'DOCKER', 'BLOCK_SYNC'].indexOf(intent) >= 0) {
@@ -1068,10 +1094,10 @@ async function aiAnalyze(t, userQ) {
   }
 
   if (GEMINI_API_KEY) {
-    const facts = buildFacts(t);
-    const hist = historySnippet(16);
+    const facts = (typeof buildFacts === 'function') ? buildFacts(t) : { source: t && t.source, sync: t && t.sync, ledger: t && t.ledger };
+    const hist = (typeof historySnippet === 'function') ? historySnippet(16) : [];
     const chat = loadChatHistory().slice(-8);
-    const issues = collectIssues(t);
+    const issues = (typeof collectIssues === 'function') ? collectIssues(t) : [];
     const prompt = [
       'You are a professional Pi Node management assistant (SoloHost Controller).',
       'LANGUAGE RULE (mandatory): Reply in the SAME language as the user message. If user writes English, reply English. If Vietnamese, Vietnamese. If other, match that language. Never force Vietnamese.',
@@ -1118,24 +1144,28 @@ async function aiAnalyze(t, userQ) {
   }
 
   return localAssistantReply(t, intent, userQ || '');
+  } catch (e) {
+    try { actionLog('error', 'aiAnalyze ' + (e && e.message)); } catch (e2) {}
+    try { return localAssistantReply(t, detectIntent(userQ || ''), userQ || ''); } catch (e3) { return 'Assistant error. Try /status.'; }
+  }
 }
 
 function mainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: 'STATUS', callback_data: 'cmd_status' },
-        { text: 'REPORT', callback_data: 'cmd_report' },
-        { text: 'PEERS', callback_data: 'cmd_peers' }
+        { text: '📊 STATUS', callback_data: 'cmd_status' },
+        { text: '📈 REPORT', callback_data: 'cmd_report' },
+        { text: '👥 PEERS', callback_data: 'cmd_peers' }
       ],
       [
-        { text: 'DIAG', callback_data: 'cmd_diagnostic' },
-        { text: 'LOGS', callback_data: 'cmd_logs' },
-        { text: 'ANALYZE', callback_data: 'cmd_analyze' }
+        { text: '🩺 DIAG', callback_data: 'cmd_diagnostic' },
+        { text: '📋 LOGS', callback_data: 'cmd_logs' },
+        { text: '💬 ANALYZE', callback_data: 'cmd_analyze' }
       ],
       [
-        { text: 'Windows PRO', callback_data: 'cmd_winpro' },
-        { text: 'DONATE', callback_data: 'cmd_donate' }
+        { text: '💻 Windows PRO', callback_data: 'cmd_winpro' },
+        { text: '💛 DONATE', callback_data: 'cmd_donate' }
       ]
     ]
   };

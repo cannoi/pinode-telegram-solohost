@@ -1,12 +1,8 @@
-# Pi Node Telegram Controller SoloHost v2.6.2
+# Pi Node Telegram Controller SoloHost v2.6.3
 
-- Natural AI replies (question-first, not metric dump)
-- Buttons: STATUS / REPORT / PEERS / DIAG / LOGS / ANALYZE / Windows PRO / DONATE
-- /logs action log (errors + user actions)
-- /donate sends bank info + QR image
-- No DataLive, no Windows scripts, no fixed container_name
+Fixes:
+- Restored emoji on action buttons
+- Fixed AI crash: buildFacts / historySnippet missing
+- Softer issue list without DataLive nags
 
-Image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.2
-
-If old container blocks install:
-docker rm -f PiNode-Telegram-Controller
+Image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.3
