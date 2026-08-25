@@ -1,7 +1,7 @@
 {
   "name": "pinode-telegram-solohost",
-  "version": "2.5.0",
-  "description": "SoloHost Controller — Data Live adapter, separated Telegram/telemetry polling",
+  "version": "2.6.3",
+  "description": "SoloHost Controller — Horizon-deep, icon reports, optional Gemini AI",
   "main": "loader.js",
   "private": true
 }
