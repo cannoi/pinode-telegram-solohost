@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.8-solohost';
+const VERSION = '2.6.9-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -613,7 +613,7 @@ function formatStatus(t, mode) {
 
   lines.push('');
   lines.push('🕐 ' + nowHM());
-  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('────────');
   lines.push('');
   if (nodeOk) {
     lines.push('🟢 STATUS · OK');
@@ -674,7 +674,7 @@ function formatPeers(t) {
     lines.push('👥 collecting');
   }
   lines.push('');
-  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('────────');
   lines.push('📡 PI NODE TELEGRAM CONTROLLER PRO');
   lines.push('⏱️ ' + (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0) + 's ago');
   return lines.join('\n');
@@ -726,7 +726,7 @@ function formatReport() {
   const temps = rows.map(r => r.temp).filter(x => x != null);
   const head = crit > rows.length * 0.15 ? '🟡 PI NODE · REPORT' : '🟢 PI NODE · REPORT';
   lines.push(head);
-  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('────────');
   lines.push('');
   lines.push('🕐 ' + (t0 || '?') + ' → ' + (t1 || '?'));
   lines.push('📊 DATA · ~' + hours + 'h · ' + rows.length + ' samples');
@@ -742,7 +742,7 @@ function formatReport() {
   }
   if (temps.length) lines.push('🌡️ TEMP · ' + Math.round(Math.min.apply(null, temps)) + '–' + Math.round(Math.max.apply(null, temps)) + '°C');
   lines.push('');
-  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('────────');
   lines.push('');
   lines.push('📌 ISSUES');
   if (crit === 0) lines.push('🟢 None');
@@ -759,7 +759,7 @@ function formatReport() {
     lines.push('🔴 Status flips · ' + events);
   }
   lines.push('');
-  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('────────');
   lines.push('');
   lines.push('💡 RESULT');
   lines.push((crit > rows.length * 0.1 ? '🟡' : '🟢') + ' NODE · ' + (crit > rows.length * 0.1 ? 'Watch' : 'Healthy'));
@@ -1438,6 +1438,24 @@ async function generateWithSmartGemini(promptText) {
   return null;
 }
 
+
+/** Clean AI text for Telegram: keep emoji, drop markdown noise */
+function formatAiReply(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return s;
+  // strip common markdown
+  s = s.replace(/\*\*/g, '');
+  s = s.replace(/__/g, '');
+  s = s.replace(/`{1,3}/g, '');
+  s = s.replace(/^#{1,6}\s+/gm, '');
+  s = s.replace(/^\s*[-*]\s+/gm, '• ');
+  // heavy box lines → simple separator
+  s = s.replace(/[━─═]{3,}/g, '────────');
+  // collapse excess blank lines
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim().slice(0, 3500);
+}
+
 /** Offline technician narrative from real history (used when Gemini unavailable) */
 function technicianEvaluate(t, userQ, intent, lang) {
   const vi = lang === 'vi';
@@ -1450,7 +1468,7 @@ function technicianEvaluate(t, userQ, intent, lang) {
   const lines = [];
 
   lines.push(vi ? '🤖 ĐÁNH GIÁ KỸ THUẬT' : '🤖 TECHNICIAN ASSESSMENT');
-  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('────────');
   lines.push('');
 
   // Opening verdict in plain language
@@ -1573,10 +1591,16 @@ async function aiAnalyze(t, userQ) {
       const prompt = [
         'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
         'LANGUAGE: Reply in the SAME language as the user. Never force Vietnamese if they use another language.',
-        'PRIORITY: Every free-text question must get a real technician evaluation — clear, simple language anyone can understand, with practical value.',
-        'DATA: Use ONLY the JSON blocks below. Never invent ledger, bonus points, peers, RAM, CPU, temp, or uptime. If missing, say it is not measured on SoloHost.',
-        'STYLE: (1) Answer the user question first with empathy. (2) Explain what the data means in plain words. (3) Give 1–3 concrete next steps when useful. (4) Optionally ask one short follow-up question.',
-        'FINANCE: If they ask about selling the node or money problems — be empathetic, give ONLY technical health context, do NOT advise buy/sell or personal finance.',
+        'PRIORITY: Every free-text question needs a real technician evaluation — simple words, practical value for a normal node operator.',
+        'DATA RULES: Use ONLY the JSON blocks below. Never invent ledger, bonus, peers, RAM, CPU, temp, or uptime.',
+        'MISSING DATA: You MAY ask the user for more information when it would make the analysis more accurate (examples: how long the node has been running, recent restart, power cut, WiFi issues, Docker container name, Windows host symptoms). Ask clearly in 1-3 short questions at the end. Do not invent answers for missing fields.',
+        'FORMAT (mandatory):',
+        '- Easy to read on Telegram phone screen.',
+        '- No markdown special characters: do not use **, __, `, # headings, or code fences.',
+        '- Use short paragraphs or lines starting with useful emoji icons (for example 🟢 🟡 🔴 ✅ ⚠️ 📊 🔄 💡 🧠 🔧).',
+        '- Structure: (1) short verdict with icon (2) plain explanation (3) evidence with icons (4) 1-3 next steps (5) optional request for more data or one follow-up question.',
+        '- Avoid long walls of numbers; explain what numbers mean.',
+        'FINANCE: If they ask about selling the node or money problems — empathy + technical health only, no buy/sell advice.',
         'Intent: ' + intent,
         'User question: ' + q.slice(0, 900),
         'Issues: ' + JSON.stringify(issues),
@@ -1586,14 +1610,14 @@ async function aiAnalyze(t, userQ) {
         metricBlock ? ('RELATED_METRIC_BLOCK:\n' + metricBlock) : '',
         hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist)) : '',
         chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
-        'Write a valuable technician-style answer now.'
+        'Write the reply now following FORMAT rules.'
       ].filter(Boolean).join('\n');
 
       try {
         const text = await generateWithSmartGemini(prompt);
         if (text && String(text).trim()) {
           try { actionLog('info', 'AI reply ok · intent ' + intent + ' · model ' + (state.geminiPreferred || '?')); } catch (e) {}
-          return '🤖 AI APP GUIDE\n\n' + String(text).trim().slice(0, 3500);
+          return '🤖 AI APP GUIDE\n\n' + formatAiReply(text);
         }
       } catch (e) {
         try { actionLog('error', 'Gemini fail: ' + (e && e.message)); } catch (e2) {}

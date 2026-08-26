@@ -1,8 +1,8 @@
-# SoloHost v2.6.8
+# SoloHost v2.6.9
 
-Smart Gemini models:
-- Discover available models via Google AI API (`models.list`)
-- Prefer **gemini-3.1-flash-lite-preview** family first
-- Sticky preferred model in `data/state` — rotate only after real failures
+AI replies:
+- May ask user for more data when analysis needs it
+- Easy to read, emoji icons, no markdown special chars
+- formatAiReply() cleans ** __ ` # from model output
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.8`
+Image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.9
