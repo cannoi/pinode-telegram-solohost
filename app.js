@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.9-solohost';
+const VERSION = '2.6.10-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -89,14 +89,21 @@ function hourVN() {
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function fmtN(n) { return n == null ? null : Number(n).toLocaleString('en-US'); }
+function redactSecrets(s) {
+  s = String(s == null ? '' : s);
+  if (BOT_TOKEN) s = s.split(BOT_TOKEN).join('[BOT_TOKEN]');
+  if (GEMINI_API_KEY) s = s.split(GEMINI_API_KEY).join('[GEMINI_KEY]');
+  s = s.replace(/bot[0-9]{6,}:[A-Za-z0-9_-]{20,}/g, '[BOT_TOKEN]');
+  s = s.replace(/AIza[0-9A-Za-z_-]{20,}/g, '[GEMINI_KEY]');
+  return s;
+}
 function log(msg, level) {
-  const line = '[' + nowISO() + '] [' + (level || 'info') + '] ' + msg;
+  level = level || 'info';
+  const safe = redactSecrets(msg);
+  const line = '[' + nowISO() + '] [' + level + '] ' + safe;
   console.log(line);
-  try {
-    fs.appendFileSync(LOG_F, line + '\n');
-    if (fs.statSync(LOG_F).size > 2e6) try { fs.renameSync(LOG_F, LOG_F + '.1'); } catch (e) {}
-  } catch (e) {}
-  try { if (level === 'error' || level === 'warn') actionLog(level, msg); } catch (e) {}
+  try { fs.appendFileSync(LOG_F, line + '\n'); } catch (e) {}
+  try { if (level === 'error' || level === 'warn') actionLog(level, safe); } catch (e) {}
 }
 
 let state = loadJSON(STATE_F, {
@@ -782,46 +789,83 @@ function formatScripts() {
   ].join('\n');
 }
 
+function randomDonateThanks() {
+  const pool = [
+    'Cảm ơn bạn rất nhiều — ly cà phê này giúp mình tiếp tục nâng cấp app nhé!',
+    'Bạn quá tuyệt! Cảm ơn sự ủng hộ, mình sẽ cố gắng thêm cho cộng đồng Pi Node.',
+    'Nhận được ủng hộ là động lực lớn. Cảm ơn bạn, chúc node chạy ổn định!',
+    'Thanks a lot! Your coffee keeps the SoloHost updates coming.',
+    'Ly cà phê này ý nghĩa lắm — cảm ơn bạn đã đồng hành cùng dự án.',
+    'Ủng hộ của bạn ý nghĩa hơn cả con số. Cảm ơn và chúc bạn may mắn!',
+    'Wow, cảm ơn bạn! Mình sẽ dùng để cải thiện bot và báo cáo tốt hơn.',
+    'Cảm ơn nhé — mỗi đóng góp đều giúp app ổn định hơn cho mọi người.'
+  ];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 function formatDonate() {
   return [
-    'DONATE · DEV COFFEE',
-    '================',
-    'Bank: MB Bank (Military Bank)',
-    'Account: 0905428801',
-    'Name: TRAN HUU NGHI',
+    '💛 DONATE · DEV COFFEE',
+    '────────',
+    '🏦 MB Bank (Ngan hang Quan Doi)',
+    '💳 STK: 0905428801',
+    '👤 TRAN HUU NGHI',
     '',
-    'Scan the QR photo if available,',
-    'or transfer with the details above.',
+    '📱 Quet QR VietQR (anh gui kem)',
+    'hoac chuyen khoan dung thong tin tren.',
     '',
-    'Thank you for supporting the project.'
+    '🙏 ' + randomDonateThanks()
   ].join('\n');
 }
-function donateQrUrl() {
-  const payload = 'MBBANK|0905428801|TRAN HUU NGHI|Pi Node Controller PRO';
-  return 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(payload);
+function donateQrPath() {
+  const f = path.join(PUBLIC, 'donate-qr.jpg');
+  return fs.existsSync(f) ? f : null;
 }
-async function tgSendPhoto(url, caption) {
-  if (!BOT_TOKEN || !CHAT_ID) return false;
+/** Upload local QR file to Telegram (exact community QR image) */
+async function tgSendPhotoFile(filePath, caption) {
+  if (!BOT_TOKEN || !CHAT_ID || !filePath || !fs.existsSync(filePath)) return false;
   try {
-    const body = JSON.stringify({
-      chat_id: CHAT_ID,
-      photo: url,
-      caption: String(caption || '').slice(0, 1000)
-    });
+    const boundary = '----PiNode' + Date.now().toString(16);
+    const fileBuf = fs.readFileSync(filePath);
+    const name = path.basename(filePath);
+    const parts = [];
+    function field(n, v) {
+      parts.push(Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="' + n + '"\r\n\r\n' + v + '\r\n'));
+    }
+    field('chat_id', String(CHAT_ID));
+    field('caption', String(caption || '').slice(0, 900));
+    parts.push(Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="photo"; filename="' + name + '"\r\nContent-Type: image/jpeg\r\n\r\n'));
+    parts.push(fileBuf);
+    parts.push(Buffer.from('\r\n--' + boundary + '--\r\n'));
+    const body = Buffer.concat(parts);
     await new Promise(function (resolve) {
-      const u = new URL('https://api.telegram.org/bot' + BOT_TOKEN + '/sendPhoto');
       const req = https.request({
-        hostname: u.hostname, path: u.pathname, method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-      }, function (r) { r.on('data', function () {}); r.on('end', resolve); });
+        hostname: 'api.telegram.org',
+        path: '/bot' + BOT_TOKEN + '/sendPhoto',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=' + boundary,
+          'Content-Length': body.length
+        }
+      }, function (r) {
+        let b = '';
+        r.on('data', function (d) { b += d; });
+        r.on('end', function () {
+          try {
+            const j = JSON.parse(b);
+            if (!(j && j.ok)) try { actionLog('warn', 'donate QR telegram: ' + String((j && j.description) || r.statusCode)); } catch (e) {}
+          } catch (e) {}
+          resolve();
+        });
+      });
       req.on('error', resolve);
-      req.setTimeout(15000, function () { try { req.destroy(); } catch (e) {} resolve(); });
-      req.write(body); req.end();
+      req.setTimeout(20000, function () { try { req.destroy(); } catch (e) {} resolve(); });
+      req.write(body);
+      req.end();
     });
-    try { actionLog('info', 'donate QR sent'); } catch (e) {}
+    try { actionLog('info', 'donate QR sent (local file)'); } catch (e) {}
     return true;
   } catch (e) {
-    try { actionLog('error', 'donate QR fail'); } catch (e2) {}
+    try { actionLog('error', 'donate QR fail: ' + (e && e.message)); } catch (e2) {}
     return false;
   }
 }
@@ -1738,7 +1782,12 @@ async function runCmd(cmd, userText) {
   if (cmd === 'donate') {
     try { actionLog('info', 'user /donate'); } catch (e) {}
     await tgSend(formatDonate(), { reply_markup: mainKeyboard() });
-    try { await tgSendPhoto(donateQrUrl(), 'QR Donate · MB 0905428801 · TRAN HUU NGHI'); } catch (e) {}
+    const qr = donateQrPath();
+    if (qr) {
+      await tgSendPhotoFile(qr, 'VietQR MB · 0905428801 · TRAN HUU NGHI\n' + randomDonateThanks());
+    } else {
+      try { actionLog('warn', 'donate QR file missing'); } catch (e) {}
+    }
     return true;
   }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
@@ -1882,16 +1931,43 @@ const MIME = {
 let INDEX = '<h1>Pi Node SoloHost ' + VERSION + '</h1><p>/api/status</p>';
 try { INDEX = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'); } catch (e) {}
 
+// Simple in-memory rate limit (community safety for local HTTP API)
+const rateBuckets = Object.create(null);
+function rateLimit(key, max, windowMs) {
+  const now = Date.now();
+  let b = rateBuckets[key];
+  if (!b || now > b.reset) b = rateBuckets[key] = { n: 0, reset: now + windowMs };
+  b.n++;
+  return b.n <= max;
+}
+function isLocalReq(req) {
+  const ip = String(req.socket && req.socket.remoteAddress || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('172.') || ip.startsWith('10.');
+}
+function setSecHeaders(res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Cache-Control', 'no-store');
+}
+
 const srv = http.createServer(async (req, res) => {
   const u = (req.url || '/').split('?')[0];
+  setSecHeaders(res);
   try {
     if (u === '/healthz') { res.end('ok'); return; }
     if (u === '/api/status') {
+      if (!rateLimit('status:' + (req.socket.remoteAddress || ''), 30, 60000)) {
+        res.statusCode = 429; res.end('rate limit'); return;
+      }
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify(cache || await getTelemetry()));
       return;
     }
     if (u === '/api/selftest') {
+      if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) {
+        res.statusCode = 429; res.end('rate limit'); return;
+      }
       const checks = [];
       const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
       ok('version', !!VERSION, VERSION);
@@ -1916,11 +1992,18 @@ const srv = http.createServer(async (req, res) => {
     }
     
     if (u === '/api/chat' && (req.method === 'POST' || req.method === 'GET')) {
+      if (!rateLimit('chat:' + (req.socket.remoteAddress || ''), 12, 60000)) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'rate limit' }));
+        return;
+      }
       let body = '';
       if (req.method === 'POST') {
         body = await new Promise(resolve => {
           let b = '';
-          req.on('data', d => b += d);
+          let n = 0;
+          req.on('data', d => { n += d.length; if (n > 8000) return; b += d; });
           req.on('end', () => resolve(b));
           req.on('error', () => resolve(''));
         });
@@ -1975,8 +2058,9 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
     if (u === '/api/logs') {
+      if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      try { res.end(fs.readFileSync(LOG_F, 'utf8').slice(-8000)); } catch (e) { res.end(''); }
+      try { res.end(redactSecrets(fs.readFileSync(LOG_F, 'utf8').slice(-8000))); } catch (e) { res.end(''); }
       return;
     }
     if (u === '/' || u === '/index.html') {
@@ -1994,7 +2078,11 @@ const srv = http.createServer(async (req, res) => {
         return;
       }
     }
-    const f = path.join(PUBLIC, path.normalize(u).replace(/^(\.\.[/\\])+/, ''));
+    // Static files only under PUBLIC (no path traversal)
+    const rel = path.normalize(u).replace(/^(\.\.[/\\])+/, '').replace(/^[/\\]+/, '');
+    if (rel.includes('..')) { res.statusCode = 400; res.end('bad path'); return; }
+    const f = path.join(PUBLIC, rel);
+    if (!f.startsWith(PUBLIC)) { res.statusCode = 400; res.end('bad path'); return; }
     fs.readFile(f, (err, data) => {
       if (err) { res.statusCode = 404; return res.end('not found'); }
       res.setHeader('Content-Type', MIME[path.extname(f)] || 'application/octet-stream');

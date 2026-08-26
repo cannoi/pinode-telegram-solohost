@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.9","description":"SoloHost AI readable format + may request more data","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.10","description":"SoloHost community QR donate + security hardening","main":"loader.js","private":true}

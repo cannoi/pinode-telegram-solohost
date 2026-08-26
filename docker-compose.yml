@@ -1,6 +1,6 @@
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.9
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.10
     labels:
       pi.ui.primary: "true"
     ports:
@@ -16,3 +16,6 @@ services:
     volumes:
       - ./data:/data
     restart: unless-stopped
+    # read-only root optional; data volume writable
+    security_opt:
+      - no-new-privileges:true
