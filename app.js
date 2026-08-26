@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.6-solohost';
+const VERSION = '2.6.8-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1251,6 +1251,280 @@ function financialBoundaryReply(lang) {
 
 
 
+
+
+// ---------- Gemini model discovery + sticky preferred model ----------
+const GEMINI_FALLBACK_ORDER = [
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-preview',
+  'gemini-3-flash-preview',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash'
+];
+
+function geminiScore(name) {
+  const n = String(name || '').toLowerCase();
+  if (/3\.1.*flash.*lite.*preview/.test(n)) return 100;
+  if (/3\.1.*flash.*lite/.test(n)) return 95;
+  if (/3\.1.*flash.*preview/.test(n)) return 90;
+  if (/3\.1.*flash/.test(n)) return 88;
+  if (/3\.5.*flash/.test(n)) return 85;
+  if (/3.*flash.*preview/.test(n)) return 82;
+  if (/3.*flash/.test(n)) return 80;
+  if (/2\.5.*flash.*lite/.test(n)) return 70;
+  if (/2\.5.*flash/.test(n)) return 65;
+  if (/2\.0.*flash.*lite/.test(n)) return 55;
+  if (/2\.0.*flash/.test(n)) return 50;
+  if (/1\.5.*flash/.test(n)) return 40;
+  if (/flash/.test(n)) return 30;
+  return 10;
+}
+
+function stripModelsPrefix(id) {
+  return String(id || '').replace(/^models\//, '');
+}
+
+async function httpGetGemini(pathSuffix) {
+  if (!GEMINI_API_KEY) return null;
+  return new Promise(function (resolve) {
+    const path = '/v1beta/' + pathSuffix + (pathSuffix.indexOf('?') >= 0 ? '&' : '?') + 'key=' + encodeURIComponent(GEMINI_API_KEY);
+    const req = https.request({
+      hostname: 'generativelanguage.googleapis.com',
+      path: path,
+      method: 'GET',
+      headers: { 'Accept': 'application/json' }
+    }, function (r) {
+      let b = '';
+      r.on('data', function (d) { b += d; });
+      r.on('end', function () {
+        try { resolve({ status: r.statusCode, body: JSON.parse(b) }); } catch (e) { resolve(null); }
+      });
+    });
+    req.on('error', function () { resolve(null); });
+    req.setTimeout(15000, function () { try { req.destroy(); } catch (e) {} resolve(null); });
+    req.end();
+  });
+}
+
+async function discoverGeminiModels() {
+  if (!GEMINI_API_KEY) return [];
+  const now = Date.now();
+  if (state.geminiModels && state.geminiModelsAt && (now - state.geminiModelsAt < 6 * 3600 * 1000)) {
+    return state.geminiModels;
+  }
+  const r = await httpGetGemini('models');
+  let names = [];
+  if (r && r.body && Array.isArray(r.body.models)) {
+    r.body.models.forEach(function (m) {
+      const id = stripModelsPrefix(m.name || m.id || '');
+      const methods = m.supportedGenerationMethods || m.supported_generation_methods || [];
+      const canGen = !methods.length || methods.indexOf('generateContent') >= 0;
+      if (id && canGen && /gemini/i.test(id) && !/embedding|aqa|tts|vision|image/i.test(id)) {
+        names.push(id);
+      }
+    });
+  }
+  if (!names.length) names = GEMINI_FALLBACK_ORDER.slice();
+  names.sort(function (a, b) { return geminiScore(b) - geminiScore(a); });
+  // unique
+  const seen = {};
+  names = names.filter(function (n) { if (seen[n]) return false; seen[n] = true; return true; });
+  state.geminiModels = names.slice(0, 20);
+  state.geminiModelsAt = now;
+  try { saveJSON(STATE_F, state); } catch (e) {}
+  try { actionLog('info', 'Gemini models discovered · ' + state.geminiModels.slice(0, 5).join(', ')); } catch (e) {}
+  return state.geminiModels;
+}
+
+function orderedGeminiModels(discovered) {
+  const list = [];
+  const seen = {};
+  function add(n) {
+    n = stripModelsPrefix(n);
+    if (!n || seen[n]) return;
+    seen[n] = true;
+    list.push(n);
+  }
+  // 1) sticky preferred if still known-good
+  if (state.geminiPreferred) add(state.geminiPreferred);
+  // 2) prefer 3.1 flash lite preview family from discovery + fallback order
+  const pool = (discovered && discovered.length) ? discovered : GEMINI_FALLBACK_ORDER;
+  pool.slice().sort(function (a, b) { return geminiScore(b) - geminiScore(a); }).forEach(add);
+  GEMINI_FALLBACK_ORDER.forEach(add);
+  return list;
+}
+
+function rememberGeminiSuccess(model) {
+  if (!model) return;
+  if (state.geminiPreferred !== model) {
+    state.geminiPreferred = model;
+    state.geminiPreferredAt = Date.now();
+    state.geminiFailStreak = 0;
+    try { saveJSON(STATE_F, state); } catch (e) {}
+    try { actionLog('info', 'Gemini preferred · ' + model); } catch (e) {}
+  } else {
+    state.geminiFailStreak = 0;
+  }
+}
+
+function rememberGeminiFailure(model) {
+  state.geminiFailStreak = (state.geminiFailStreak || 0) + 1;
+  // Only drop preferred after repeated failures on that model
+  if (state.geminiPreferred === model && state.geminiFailStreak >= 2) {
+    try { actionLog('warn', 'Gemini drop preferred · ' + model); } catch (e) {}
+    state.geminiPreferred = null;
+    state.geminiFailStreak = 0;
+    try { saveJSON(STATE_F, state); } catch (e) {}
+  } else {
+    try { saveJSON(STATE_F, state); } catch (e) {}
+  }
+}
+
+async function callGeminiGenerate(model, body) {
+  return new Promise(function (resolve) {
+    const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
+    const req = https.request({
+      hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    }, function (r) {
+      let b = '';
+      r.on('data', function (d) { b += d; });
+      r.on('end', function () {
+        try {
+          const j = JSON.parse(b);
+          if (j.error) {
+            resolve({ ok: false, error: String(j.error.message || j.error.status || 'error').slice(0, 160) });
+            return;
+          }
+          const text = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text;
+          if (text && String(text).trim()) resolve({ ok: true, text: String(text).trim() });
+          else resolve({ ok: false, error: 'empty candidates' });
+        } catch (e) { resolve({ ok: false, error: 'parse' }); }
+      });
+    });
+    req.on('error', function (e) { resolve({ ok: false, error: e.message }); });
+    req.setTimeout(28000, function () { try { req.destroy(); } catch (e) {} resolve({ ok: false, error: 'timeout' }); });
+    req.write(body);
+    req.end();
+  });
+}
+
+/** Try preferred model first; only rotate on real failure */
+async function generateWithSmartGemini(promptText) {
+  if (!GEMINI_API_KEY) return null;
+  const discovered = await discoverGeminiModels();
+  const models = orderedGeminiModels(discovered);
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: promptText }] }],
+    generationConfig: { temperature: 0.85, maxOutputTokens: 2000 }
+  });
+  // Cap attempts to avoid long delays: preferred + up to 3 alternatives
+  const maxTry = Math.min(models.length, state.geminiPreferred ? 4 : 5);
+  for (let i = 0; i < maxTry; i++) {
+    const model = models[i];
+    const res = await callGeminiGenerate(model, body);
+    if (res.ok) {
+      rememberGeminiSuccess(model);
+      return res.text;
+    }
+    try { actionLog('warn', 'Gemini ' + model + ': ' + (res.error || 'fail')); } catch (e) {}
+    rememberGeminiFailure(model);
+  }
+  return null;
+}
+
+/** Offline technician narrative from real history (used when Gemini unavailable) */
+function technicianEvaluate(t, userQ, intent, lang) {
+  const vi = lang === 'vi';
+  const h = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
+  const rows7 = (typeof historyRowsDays === 'function') ? historyRowsDays(7) : [];
+  const sync = (t && t.sync) || (h && h.last_sync) || null;
+  const ledger = t && t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null;
+  const age = t && t.ledger_age != null ? t.ledger_age : null;
+  const ok = (t && t.level === 'ok') || (sync && /synced|live|horizon ok/i.test(String(sync)));
+  const lines = [];
+
+  lines.push(vi ? '🤖 ĐÁNH GIÁ KỸ THUẬT' : '🤖 TECHNICIAN ASSESSMENT');
+  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+
+  // Opening verdict in plain language
+  if (ok && (!h.samples || h.level_critical === 0)) {
+    lines.push(vi
+      ? 'Trong khoảng thời gian có dữ liệu, Node của bạn nhìn chung đang vận hành ổn định: đồng bộ tốt, không thấy mẫu Critical.'
+      : 'From available data, your Node looks stable overall: sync is healthy and there are no Critical samples.');
+  } else if (h.level_critical > 0) {
+    lines.push(vi
+      ? 'Có tín hiệu bất ổn trong lịch sử gần đây (xuất hiện mẫu Critical). Nên ưu tiên kiểm tra mạng, cổng 31401–31403 và đồng bộ.'
+      : 'Recent history shows Critical samples. Prioritize network, ports 31401–31403, and sync.');
+  } else {
+    lines.push(vi
+      ? 'Node đang cần theo dõi thêm — dữ liệu chưa đủ chắc hoặc có điểm chưa tối ưu.'
+      : 'The node needs closer watching — data is limited or some signals are not ideal.');
+  }
+  lines.push('');
+
+  // What the numbers mean
+  lines.push(vi ? 'Ý nghĩa số liệu:' : 'What the numbers mean:');
+  if (sync) lines.push(vi ? ('• Đồng bộ: ' + sync + (age != null ? (' (age ' + age + 's — block đóng khá đúng nhịp)') : '')) : ('• Sync: ' + sync + (age != null ? (' (age ' + age + 's)') : '')));
+  if (ledger) lines.push(vi ? ('• Ledger hiện tại: ' + ledger) : ('• Current ledger: ' + ledger));
+  if (h.samples) {
+    lines.push(vi
+      ? ('• Trong ~' + (h.approx_minutes || '?') + ' phút gần đây: ' + h.samples + ' mẫu đo, OK/Warn/Crit = ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical)
+      : ('• Last ~' + (h.approx_minutes || '?') + ' min: ' + h.samples + ' samples, OK/Warn/Crit = ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical));
+    if (h.ledger_delta != null) {
+      lines.push(vi
+        ? ('• Ledger tiến: ' + h.ledger_min + ' → ' + h.ledger_max + ' (delta ' + h.ledger_delta + ') — node vẫn bắt block mới')
+        : ('• Ledger moved: ' + h.ledger_min + ' → ' + h.ledger_max + ' (delta ' + h.ledger_delta + ')'));
+    }
+    if (h.sync_flips != null) {
+      lines.push(vi
+        ? ('• Đổi trạng thái sync: ' + h.sync_flips + ' lần' + (h.sync_flips === 0 ? ' (ổn định)' : ' (cần để ý nếu lặp lại)'))
+        : ('• Sync flips: ' + h.sync_flips + (h.sync_flips === 0 ? ' (stable)' : ' (watch if frequent)')));
+    }
+    if (h.age_max_s != null) {
+      lines.push(vi
+        ? ('• Ledger age cao nhất/TB: ' + h.age_max_s + 's / ' + h.age_avg_s + 's' + (h.age_max_s > 120 ? ' — từng chậm rõ' : ' — trong ngưỡng tốt'))
+        : ('• Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's'));
+    }
+    if (h.cpu_max != null) lines.push(vi ? ('• CPU peak (container): ' + h.cpu_max + '%') : ('• CPU peak (container): ' + h.cpu_max + '%'));
+    if (h.ram_max != null) lines.push(vi ? ('• RAM peak (container): ' + h.ram_max + '%') : ('• RAM peak (container): ' + h.ram_max + '%'));
+  } else {
+    lines.push(vi
+      ? '• Chưa đủ lịch sử dài — app mới thu ~60s/mẫu. Chạy thêm vài giờ sẽ đánh giá 24h chính xác hơn.'
+      : '• History still short — samples every ~60s. Run longer for a solid 24h review.');
+  }
+  lines.push('');
+
+  // Advice
+  lines.push(vi ? 'Gợi ý thực tế:' : 'Practical next steps:');
+  if (ok) {
+    lines.push(vi ? '1) Giữ máy online ổn định, tránh restart liên tục.' : '1) Keep the machine online; avoid frequent restarts.');
+    lines.push(vi ? '2) Đảm bảo cổng 31401–31403 mở.' : '2) Keep ports 31401–31403 open.');
+    lines.push(vi ? '3) Xem /report sau vài giờ khi đã có nhiều mẫu hơn.' : '3) Check /report after more samples accumulate.');
+  } else {
+    lines.push(vi ? '1) Chạy /diagnostic và kiểm tra cổng/mạng.' : '1) Run /diagnostic and verify ports/network.');
+    lines.push(vi ? '2) Theo dõi /report xem có SYNC LOST lặp lại không.' : '2) Watch /report for repeated SYNC LOST.');
+  }
+  lines.push('');
+  lines.push(vi
+    ? 'Bạn muốn mình phân tích sâu hơn phần sync, peer, hay tài nguyên (RAM/CPU)?'
+    : 'Want a deeper look at sync, peers, or resources (RAM/CPU)?');
+
+  if (!GEMINI_API_KEY) {
+    lines.push('');
+    lines.push(vi
+      ? '💡 Thêm GEMINI_API_KEY trong cấu hình SoloHost để bật AI phân tích đầy đủ (giọng kỹ thuật viên + ngữ cảnh hội thoại).'
+      : '💡 Set GEMINI_API_KEY in SoloHost config for full AI technician analysis.');
+  }
+  return lines.join('\n');
+}
+
 async function aiAnalyze(t, userQ) {
   try {
     const intent = detectIntent(userQ || '');
@@ -1316,32 +1590,9 @@ async function aiAnalyze(t, userQ) {
       ].filter(Boolean).join('\n');
 
       try {
-        const body = JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.85, maxOutputTokens: 2000 }
-        });
-        const text = await new Promise(function (resolve) {
-          const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY));
-          const req = https.request({
-            hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-          }, function (r) {
-            let b = '';
-            r.on('data', function (d) { b += d; });
-            r.on('end', function () {
-              try {
-                const j = JSON.parse(b);
-                resolve(j.candidates && j.candidates[0] && j.candidates[0].content.parts[0].text);
-              } catch (e) { resolve(null); }
-            });
-          });
-          req.on('error', function () { resolve(null); });
-          req.setTimeout(28000, function () { try { req.destroy(); } catch (e) {} resolve(null); });
-          req.write(body);
-          req.end();
-        });
+        const text = await generateWithSmartGemini(prompt);
         if (text && String(text).trim()) {
-          try { actionLog('info', 'AI reply ok · intent ' + intent); } catch (e) {}
+          try { actionLog('info', 'AI reply ok · intent ' + intent + ' · model ' + (state.geminiPreferred || '?')); } catch (e) {}
           return '🤖 AI APP GUIDE\n\n' + String(text).trim().slice(0, 3500);
         }
       } catch (e) {
@@ -1349,19 +1600,17 @@ async function aiAnalyze(t, userQ) {
       }
     }
 
-    // Fallback when no API key or Gemini failed: structured data + local technician text
-    if (mk && metricBlock) {
-      const note = lang === 'vi'
-        ? '\n\n(Không có Gemini API key hoặc AI tạm lỗi — đây là số liệu lịch sử thật. Thêm GEMINI_API_KEY để có phân tích kỹ thuật viên đầy đủ.)'
-        : '\n\n(No Gemini API key or AI failed — raw history stats. Set GEMINI_API_KEY for full technician analysis.)';
-      return metricBlock + note;
-    }
+    // Fallback: technician narrative (never dump-only metrics as the main answer)
+    try { actionLog('warn', GEMINI_API_KEY ? 'Gemini empty/fail · local technician' : 'no GEMINI_API_KEY · local technician'); } catch (e) {}
     if (intent === 'FINANCE') {
       const base = financialBoundaryReply(lang);
-      const h = hist24;
-      return base + (h && h.samples ? ('\n\n' + formatHistory24hText(h)) : '');
+      return base + '\n\n' + technicianEvaluate(t, userQ, intent, lang);
     }
-    return localAssistantReply(t, intent, userQ || '');
+    if (mk && metricBlock) {
+      // Metric question: table + plain-language verdict
+      return metricBlock + '\n\n' + technicianEvaluate(t, userQ, intent, lang);
+    }
+    return technicianEvaluate(t, userQ, intent, lang);
   } catch (e) {
     try { actionLog('error', 'aiAnalyze ' + (e && e.message)); } catch (e2) {}
     try { return localAssistantReply(t, detectIntent(userQ || ''), userQ || ''); } catch (e3) { return 'Assistant error. Try /status.'; }

@@ -1,6 +1,8 @@
-# SoloHost v2.6.6
+# SoloHost v2.6.8
 
-- **AI-first**: every free-text question uses Gemini when GEMINI_API_KEY is set, with HISTORY_24H + STATS_7D + related metric blocks
-- getUpdates conflict: single-flight poll, longer backoff, clearer log (only one instance per BOT_TOKEN)
+Smart Gemini models:
+- Discover available models via Google AI API (`models.list`)
+- Prefer **gemini-3.1-flash-lite-preview** family first
+- Sticky preferred model in `data/state` — rotate only after real failures
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.6`
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.8`
