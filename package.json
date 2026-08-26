@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.10","description":"SoloHost community QR donate + security hardening","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.11","description":"SoloHost dual donate QR Pi+MB + security","main":"loader.js","private":true}

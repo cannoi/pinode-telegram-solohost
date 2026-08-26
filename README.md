@@ -1,17 +1,12 @@
-# SoloHost v2.6.10
+# SoloHost v2.6.11
 
-## Donate
-Exact VietQR image: `public/donate-qr.jpg` (MB 0905428801 · TRAN HUU NGHI)
-`/donate` sends text + QR + random thank-you.
+## Donate (2 options)
+1. **Pay with Pi** — @cannoi — wallet GAQAZ5XLWREKQYMMN247A44PNPLAKRORZOPZNVG3CDPCSSFMEVFIYJJL — `public/donate-qr-pi.jpg`
+2. **MB Bank** — 0905428801 — TRAN HUU NGHI — `public/donate-qr-mb.jpg`
 
-## Security (community baseline)
-- Port bound to `127.0.0.1:18780` only
-- CHAT_ID whitelist for Telegram
-- Secrets redacted in logs
-- Rate limit on `/api/chat` and `/api/status`
-- `/api/logs` local-only + redacted
-- Path traversal blocked on static files
-- `no-new-privileges` in compose
-- No docker.sock
+`/donate` shows both + buttons. Random thank-you captions.
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.10`
+## Security (kept)
+127.0.0.1 bind, CHAT_ID whitelist, log redact, rate limits, local /api/logs, no docker.sock, no-new-privileges
+
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.11`

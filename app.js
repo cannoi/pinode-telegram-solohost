@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.10-solohost';
+const VERSION = '2.6.11-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -798,7 +798,9 @@ function randomDonateThanks() {
     'Ly cà phê này ý nghĩa lắm — cảm ơn bạn đã đồng hành cùng dự án.',
     'Ủng hộ của bạn ý nghĩa hơn cả con số. Cảm ơn và chúc bạn may mắn!',
     'Wow, cảm ơn bạn! Mình sẽ dùng để cải thiện bot và báo cáo tốt hơn.',
-    'Cảm ơn nhé — mỗi đóng góp đều giúp app ổn định hơn cho mọi người.'
+    'Cảm ơn nhé — mỗi đóng góp đều giúp app ổn định hơn cho mọi người.',
+    'Pi hay MB đều trân trọng như nhau. Cảm ơn bạn đã ủng hộ!',
+    'Thank you for supporting open Pi Node tools for the community.'
   ];
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -806,21 +808,68 @@ function formatDonate() {
   return [
     '💛 DONATE · DEV COFFEE',
     '────────',
-    '🏦 MB Bank (Ngan hang Quan Doi)',
-    '💳 STK: 0905428801',
-    '👤 TRAN HUU NGHI',
+    'Chọn 1 trong 2 cách ủng hộ:',
     '',
-    '📱 Quet QR VietQR (anh gui kem)',
-    'hoac chuyen khoan dung thong tin tren.',
+    '🟣 1) Pay with Pi',
+    '   User: @cannoi',
+    '   Wallet:',
+    '   GAQAZ5XLWREKQYMMN247A44PNPLAKRORZOPZNVG3CDPCSSFMEVFIYJJL',
+    '',
+    '🏦 2) MB Bank (Ngan hang Quan Doi)',
+    '   STK: 0905428801',
+    '   Ten: TRAN HUU NGHI',
+    '',
+    '📱 QR sẽ gửi kèm theo từng lựa chọn.',
     '',
     '🙏 ' + randomDonateThanks()
   ].join('\n');
 }
-function donateQrPath() {
-  const f = path.join(PUBLIC, 'donate-qr.jpg');
-  return fs.existsSync(f) ? f : null;
+function donateQrPath(kind) {
+  const name = kind === 'pi' ? 'donate-qr-pi.jpg' : 'donate-qr-mb.jpg';
+  const f = path.join(PUBLIC, name);
+  if (fs.existsSync(f)) return f;
+  const fallback = path.join(PUBLIC, 'donate-qr.jpg');
+  return fs.existsSync(fallback) ? fallback : null;
 }
-/** Upload local QR file to Telegram (exact community QR image) */
+function donateKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🟣 Pay with Pi', callback_data: 'cmd_donate_pi' },
+        { text: '🏦 MB Bank', callback_data: 'cmd_donate_mb' }
+      ],
+      [
+        { text: '📦 Gửi cả 2 QR', callback_data: 'cmd_donate_both' }
+      ],
+      [
+        { text: '📊 STATUS', callback_data: 'cmd_status' },
+        { text: '💬 ANALYZE', callback_data: 'cmd_analyze' }
+      ]
+    ]
+  };
+}
+async function sendDonateQr(kind) {
+  const thanks = randomDonateThanks();
+  if (kind === 'pi' || kind === 'both') {
+    const qr = donateQrPath('pi');
+    if (qr) {
+      await tgSendPhotoFile(qr,
+        '🟣 Pay with Pi\n@cannoi\nGAQAZ5XLWREKQYMMN247A44PNPLAKRORZOPZNVG3CDPCSSFMEVFIYJJL\n\n🙏 ' + thanks);
+    } else {
+      try { actionLog('warn', 'donate Pi QR missing'); } catch (e) {}
+    }
+  }
+  if (kind === 'mb' || kind === 'both') {
+    const qr = donateQrPath('mb');
+    if (qr) {
+      await tgSendPhotoFile(qr,
+        '🏦 MB Bank\n0905428801 · TRAN HUU NGHI\n\n🙏 ' + thanks);
+    } else {
+      try { actionLog('warn', 'donate MB QR missing'); } catch (e) {}
+    }
+  }
+  return true;
+}
 async function tgSendPhotoFile(filePath, caption) {
   if (!BOT_TOKEN || !CHAT_ID || !filePath || !fs.existsSync(filePath)) return false;
   try {
@@ -1779,15 +1828,22 @@ async function runCmd(cmd, userText) {
     try { actionLog('info', 'user /winpro'); } catch (e) {}
     return tgSend(formatWindowsPro(), { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'donate') {
-    try { actionLog('info', 'user /donate'); } catch (e) {}
-    await tgSend(formatDonate(), { reply_markup: mainKeyboard() });
-    const qr = donateQrPath();
-    if (qr) {
-      await tgSendPhotoFile(qr, 'VietQR MB · 0905428801 · TRAN HUU NGHI\n' + randomDonateThanks());
-    } else {
-      try { actionLog('warn', 'donate QR file missing'); } catch (e) {}
-    }
+  if (cmd === 'donate' || cmd === 'donate_both') {
+    try { actionLog('info', 'user /' + cmd); } catch (e) {}
+    await tgSend(formatDonate(), { reply_markup: donateKeyboard() });
+    await sendDonateQr('both');
+    return true;
+  }
+  if (cmd === 'donate_pi') {
+    try { actionLog('info', 'user /donate_pi'); } catch (e) {}
+    await tgSend('🟣 Pay with Pi\n@cannoi\n\n' + randomDonateThanks(), { reply_markup: donateKeyboard() });
+    await sendDonateQr('pi');
+    return true;
+  }
+  if (cmd === 'donate_mb') {
+    try { actionLog('info', 'user /donate_mb'); } catch (e) {}
+    await tgSend('🏦 MB Bank · 0905428801 · TRAN HUU NGHI\n\n' + randomDonateThanks(), { reply_markup: donateKeyboard() });
+    await sendDonateQr('mb');
     return true;
   }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
