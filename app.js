@@ -32,6 +32,15 @@ const ALERT_COOLDOWN = Math.max(60, parseInt(process.env.ALERT_COOLDOWN_SEC || '
 const GITHUB_PRO = 'https://github.com/cannoi/pinode-telegram-controller';
 const NODE_PORTS = [31401, 31402, 31403];
 
+// Fast endpoint discovery/cache.
+// Core is authoritative for sync; Horizon is supplementary and refreshed less often.
+const ENDPOINT_CACHE_TTL = 10 * 60 * 1000;
+const HORIZON_REFRESH_SEC = Math.max(120, parseInt(process.env.HORIZON_REFRESH_SEC || '300', 10) || 300);
+let endpointCache = { core: null, horizon: null, ports: null };
+let endpointAt = { core: 0, horizon: 0, ports: 0 };
+let horizonCache = null;
+let horizonCacheAt = 0;
+
 const DIR_HIST = path.join(DATA, 'history');
 const DIR_HOURLY = path.join(DATA, 'hourly');
 const DIR_DAILY = path.join(DATA, 'daily');
@@ -157,169 +166,189 @@ function probeTcp(host, port, timeout) {
 }
 
 // ---------- sources ----------
-async function fetchHorizon() {
-  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1', '10.0.2.2', 'localhost'];
-  const ports = [HORIZON_PORT, 31401, 8000];
-  for (const host of hosts) {
-    for (const port of ports) {
-      const r = await httpGetUrl('http://' + host + ':' + port + '/', {}, 2800);
-      if (!r || r.status !== 200 || !r.body) continue;
-      try {
-        let j = JSON.parse(r.body);
-        // AI / flexible field extraction when schema drifts
-        const pick = (...keys) => {
-          for (const k of keys) {
-            if (j[k] != null && j[k] !== '') return j[k];
-          }
-          return null;
-        };
-        let ledger = Number(pick('core_latest_ledger', 'history_latest_ledger', 'ingest_latest_ledger'));
-        if (!ledger && j._embedded && j._embedded.records && j._embedded.records[0])
-          ledger = Number(j._embedded.records[0].sequence);
-        if (!ledger || !isFinite(ledger)) {
-          // last resort: scan numeric fields looking like ledger
-          for (const k of Object.keys(j)) {
-            if (/ledger/i.test(k) && typeof j[k] === 'number' && j[k] > 1000) { ledger = j[k]; break; }
-          }
-        }
-        if (!ledger) continue;
-
-        let ledger_age = null;
-        const closedAt = pick('history_latest_ledger_closed_at', 'core_latest_ledger_closed_at', 'closed_at');
-        if (closedAt) {
-          const ts = new Date(closedAt).getTime();
-          if (isFinite(ts)) ledger_age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-        }
-
-        const coreL = Number(pick('core_latest_ledger'));
-        const ingestL = Number(pick('ingest_latest_ledger'));
-        let ingest_lag = null;
-        if (isFinite(coreL) && isFinite(ingestL)) ingest_lag = Math.max(0, coreL - ingestL);
-
-        // Horizon alone must NOT claim Core "Synced" (avoids Desktop mismatch)
-        let syncStatus = 'Horizon OK';
-        let sync_confidence = 'low';
-        if (ledger_age != null) {
-          if (ledger_age <= 35) { syncStatus = 'Horizon live'; sync_confidence = 'medium'; }
-          else if (ledger_age <= 120) { syncStatus = 'Horizon slow'; sync_confidence = 'medium'; }
-          else if (ledger_age <= 300) { syncStatus = 'Horizon behind'; sync_confidence = 'low'; }
-          else { syncStatus = 'Horizon catching up (~' + Math.round(ledger_age / 60) + 'm)'; sync_confidence = 'low'; }
-        }
-        if (ingest_lag != null && ingest_lag > 10) {
-          syncStatus = 'Horizon ingest lag · ' + ingest_lag;
-          sync_confidence = 'low';
-        }
-
-        const network = pick('network_passphrase', 'network') || null;
-        let network_kind = null;
-        if (network) {
-          const n = String(network).toLowerCase();
-          if (n.indexOf('test') >= 0) network_kind = 'Testnet';
-          else if (n.indexOf('public') >= 0 || n.indexOf('main') >= 0 || n.indexOf('pi network') >= 0) network_kind = 'Mainnet';
-          else network_kind = 'Custom';
-        }
-
-        return {
-          source: 'Horizon',
-          ledger: ledger,
-          ledger_age: ledger_age,
-          sync: syncStatus,
-          sync_confidence: typeof sync_confidence !== 'undefined' ? sync_confidence : 'low',
-          core_verified: false,
-          core_version: pick('core_version') || null,
-          horizon_version: pick('horizon_version', 'version') || null,
-          protocol: pick('current_protocol_version', 'protocol_version') || null,
-          network: network,
-          network_kind: network_kind,
-          ingest_lag: ingest_lag,
-          core_ledger: isFinite(coreL) ? coreL : null,
-          ingest_ledger: isFinite(ingestL) ? ingestL : null,
-          closed_at: closedAt || null,
-          confidence: (ledger_age != null && ledger_age < 60 && !(ingest_lag != null && ingest_lag > 10)) ? 'medium' : 'low',
-          horizon_host: host + ':' + port,
-          raw_keys: Object.keys(j).slice(0, 40)
-        };
-      } catch (e) {}
-    }
-  }
-  return null;
+async function findHttpEndpoint(hosts, ports, pathName, timeout) {
+  const candidates = [];
+  for (const host of hosts) for (const port of ports) candidates.push({host, port});
+  const results = await Promise.all(candidates.map(async ep => {
+    const r = await httpGetUrl('http://' + ep.host + ':' + ep.port + pathName, {}, timeout);
+    if (!r || r.status !== 200 || !r.body) return null;
+    try { return { ep, json: JSON.parse(r.body) }; } catch (e) { return null; }
+  }));
+  return results.find(Boolean) || null;
 }
 
-/** Optional Core HTTP /info + /peers (Stellar default 11626) */
-async function fetchCoreHttp() {
-  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1', '10.0.2.2', 'localhost'];
-  // 11626 = Stellar Core HTTP default; 31400 sometimes used on Pi setups
-  const ports = [11626, 31400, 11625, 11627];
-  for (const host of hosts) {
-    for (const port of ports) {
-      const r = await httpGetUrl('http://' + host + ':' + port + '/info', {}, 2500);
-      if (!r || r.status !== 200 || !r.body) continue;
+const NODE_HOSTS = () => Array.from(new Set([
+  NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1', '10.0.2.2', 'localhost'
+].filter(Boolean)));
+
+async function fetchHorizon() {
+  const hosts = NODE_HOSTS();
+  const ports = [HORIZON_PORT, 31401, 8000];
+
+  // Reuse a known-good endpoint first.
+  const cached = endpointCache.horizon;
+  if (cached) {
+    const r = await httpGetUrl('http://' + cached.host + ':' + cached.port + '/', {}, 1200);
+    if (r && r.status === 200 && r.body) {
       try {
-        const j = JSON.parse(r.body);
-        const info = j.info || j;
-        const o = { source: 'Core', core_port: port, core_host: host, core_verified: true };
-        const stateRaw = info.state != null ? String(info.state) : (info.state_details != null ? String(info.state_details) : null);
-        if (info.ledger) {
-          if (info.ledger.num != null) o.ledger = Number(info.ledger.num);
-          if (info.ledger.age != null) o.ledger_age = Number(info.ledger.age);
-        }
-        // Map Core state → operator-facing sync (aligned with Pi Desktop)
-        if (stateRaw) {
-          const s = stateRaw;
-          o.core_state = s;
-          if (/synced/i.test(s) && !/not\s*synced|unsynced/i.test(s)) {
-            o.sync = 'Synced';
-            o.sync_confidence = 'high';
-          } else if (/catching\s*up/i.test(s)) {
-            o.sync = 'Catching up';
-            o.sync_confidence = 'high';
-          } else if (/joining|scp|booting|starting/i.test(s)) {
-            o.sync = s.length > 40 ? s.slice(0, 40) : s;
-            o.sync_confidence = 'high';
-          } else if (/stop|error|fail/i.test(s)) {
-            o.sync = s;
-            o.sync_confidence = 'high';
-          } else {
-            o.sync = s;
-            o.sync_confidence = 'high';
-          }
-        }
-        // peers endpoint
-        try {
-          const pr = await httpGetUrl('http://' + host + ':' + port + '/peers', {}, 2000);
-          if (pr && pr.status === 200 && pr.body) {
-            const pj = JSON.parse(pr.body);
-            if (pj.authenticated_peers) {
-              const inn = pj.authenticated_peers.inbound;
-              const out = pj.authenticated_peers.outbound;
-              o.peer_in = Array.isArray(inn) ? inn.length : (inn ? Object.keys(inn).length : 0);
-              o.peer_out = Array.isArray(out) ? out.length : (out ? Object.keys(out).length : 0);
-            }
-          }
-        } catch (e) {}
-        o.confidence = 'high';
-        return o;
+        const parsed = parseHorizonJSON(JSON.parse(r.body), cached.host, cached.port);
+        if (parsed) { endpointAt.horizon = Date.now(); return parsed; }
       } catch (e) {}
     }
+    endpointCache.horizon = null;
   }
-  return null;
+
+  const found = await findHttpEndpoint(hosts, ports, '/', 1400);
+  if (!found) return null;
+  const parsed = parseHorizonJSON(found.json, found.ep.host, found.ep.port);
+  if (parsed) {
+    endpointCache.horizon = found.ep;
+    endpointAt.horizon = Date.now();
+  }
+  return parsed;
+}
+
+function parseHorizonJSON(j, host, port) {
+  try {
+    const pick = (...keys) => {
+      for (const k of keys) if (j[k] != null && j[k] !== '') return j[k];
+      return null;
+    };
+    let ledger = Number(pick('core_latest_ledger', 'history_latest_ledger', 'ingest_latest_ledger'));
+    if (!ledger && j._embedded && j._embedded.records && j._embedded.records[0])
+      ledger = Number(j._embedded.records[0].sequence);
+    if (!ledger || !isFinite(ledger)) {
+      for (const k of Object.keys(j)) {
+        if (/ledger/i.test(k) && typeof j[k] === 'number' && j[k] > 1000) { ledger = j[k]; break; }
+      }
+    }
+    if (!ledger) return null;
+
+    const closedAt = pick('history_latest_ledger_closed_at', 'core_latest_ledger_closed_at', 'closed_at');
+    let ledger_age = null;
+    if (closedAt) {
+      const ts = new Date(closedAt).getTime();
+      if (isFinite(ts)) ledger_age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    }
+    const coreL = Number(pick('core_latest_ledger'));
+    const ingestL = Number(pick('ingest_latest_ledger'));
+    const ingest_lag = (isFinite(coreL) && isFinite(ingestL)) ? Math.max(0, coreL - ingestL) : null;
+
+    let syncStatus = 'Horizon OK', sync_confidence = 'low';
+    if (ledger_age != null) {
+      if (ledger_age <= 35) { syncStatus = 'Horizon live'; sync_confidence = 'medium'; }
+      else if (ledger_age <= 120) { syncStatus = 'Horizon slow'; sync_confidence = 'medium'; }
+      else if (ledger_age <= 300) { syncStatus = 'Horizon behind'; sync_confidence = 'low'; }
+      else { syncStatus = 'Horizon catching up (~' + Math.round(ledger_age / 60) + 'm)'; sync_confidence = 'low'; }
+    }
+    if (ingest_lag != null && ingest_lag > 10) {
+      syncStatus = 'Horizon ingest lag · ' + ingest_lag;
+      sync_confidence = 'low';
+    }
+
+    const network = pick('network_passphrase', 'network') || null;
+    let network_kind = null;
+    if (network) {
+      const n = String(network).toLowerCase();
+      if (n.indexOf('test') >= 0) network_kind = 'Testnet';
+      else if (n.indexOf('public') >= 0 || n.indexOf('main') >= 0 || n.indexOf('pi network') >= 0) network_kind = 'Mainnet';
+      else network_kind = 'Custom';
+    }
+    return {
+      source: 'Horizon', ledger, ledger_age, sync: syncStatus, sync_confidence,
+      core_verified: false, core_version: pick('core_version') || null,
+      horizon_version: pick('horizon_version', 'version') || null,
+      protocol: pick('current_protocol_version', 'protocol_version') || null,
+      network, network_kind, ingest_lag,
+      core_ledger: isFinite(coreL) ? coreL : null,
+      ingest_ledger: isFinite(ingestL) ? ingestL : null,
+      closed_at: closedAt || null,
+      confidence: (ledger_age != null && ledger_age < 60 && !(ingest_lag != null && ingest_lag > 10)) ? 'medium' : 'low',
+      horizon_host: host + ':' + port
+    };
+  } catch (e) { return null; }
+}
+
+/** Fast Core HTTP /info + /peers. Known endpoint is reused; discovery is parallel. */
+async function fetchCoreHttp() {
+  const hosts = NODE_HOSTS();
+  const ports = [11626, 31400, 11625, 11627];
+
+  async function readEndpoint(ep, timeout) {
+    const r = await httpGetUrl('http://' + ep.host + ':' + ep.port + '/info', {}, timeout);
+    if (!r || r.status !== 200 || !r.body) return null;
+    try {
+      const j = JSON.parse(r.body), info = j.info || j;
+      const o = { source: 'Core', core_port: ep.port, core_host: ep.host, core_verified: true };
+      const stateRaw = info.state != null ? String(info.state) : (info.state_details != null ? String(info.state_details) : null);
+      if (info.ledger) {
+        if (info.ledger.num != null) o.ledger = Number(info.ledger.num);
+        if (info.ledger.age != null) o.ledger_age = Number(info.ledger.age);
+      }
+      if (stateRaw) {
+        o.core_state = stateRaw;
+        if (/synced/i.test(stateRaw) && !/not\s*synced|unsynced/i.test(stateRaw)) {
+          o.sync = 'Synced'; o.sync_confidence = 'high';
+        } else if (/catching\s*up/i.test(stateRaw)) {
+          o.sync = 'Catching up'; o.sync_confidence = 'high';
+        } else {
+          o.sync = stateRaw.length > 60 ? stateRaw.slice(0, 60) : stateRaw;
+          o.sync_confidence = 'high';
+        }
+      }
+      // /peers is supplementary; never blocks Core /info.
+      try {
+        const pr = await httpGetUrl('http://' + ep.host + ':' + ep.port + '/peers', {}, 900);
+        if (pr && pr.status === 200 && pr.body) {
+          const pj = JSON.parse(pr.body);
+          if (pj.authenticated_peers) {
+            const inn = pj.authenticated_peers.inbound, out = pj.authenticated_peers.outbound;
+            o.peer_in = Array.isArray(inn) ? inn.length : (inn ? Object.keys(inn).length : 0);
+            o.peer_out = Array.isArray(out) ? out.length : (out ? Object.keys(out).length : 0);
+          }
+        }
+      } catch (e) {}
+      o.confidence = 'high';
+      return o;
+    } catch (e) { return null; }
+  }
+
+  if (endpointCache.core) {
+    const hit = await readEndpoint(endpointCache.core, 1200);
+    if (hit) { endpointAt.core = Date.now(); return hit; }
+    endpointCache.core = null;
+  }
+
+  const candidates = [];
+  for (const host of hosts) for (const port of ports) candidates.push({host, port});
+  const results = await Promise.all(candidates.map(ep => readEndpoint(ep, 1400)));
+  const hit = results.find(Boolean);
+  if (hit) {
+    endpointCache.core = {host: hit.core_host, port: hit.core_port};
+    endpointAt.core = Date.now();
+  }
+  return hit || null;
 }
 
 async function fetchPorts() {
-  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1'];
-  let best = {};
-  let bestN = 0;
-  for (const host of hosts) {
+  const cached = endpointCache.ports;
+  const hosts = NODE_HOSTS().filter(h => h !== 'localhost');
+  const orderedHosts = cached ? [cached, ...hosts.filter(h => h !== cached)] : hosts;
+  for (const host of orderedHosts) {
     const ports = {};
     let n = 0;
     await Promise.all(NODE_PORTS.map(async p => {
-      const ok = await probeTcp(host, p, 800);
+      const ok = await probeTcp(host, p, cached === host ? 500 : 650);
       ports[String(p)] = ok ? 'OPEN' : 'CLOSED';
       if (ok) n++;
     }));
-    if (n > bestN) { best = ports; bestN = n; if (n === 3) break; }
+    if (n >= 2) {
+      endpointCache.ports = host;
+      endpointAt.ports = Date.now();
+      return { ports, openCount: n };
+    }
   }
-  return { ports: best, openCount: bestN };
+  return { ports: {}, openCount: 0 };
 }
 
 function normalizeAny(j, sourceTag) {
@@ -398,12 +427,25 @@ function mergeTelemetry(primary, horizon, portSnap) {
 }
 
 async function collectTelemetry() {
-  const portSnap = await fetchPorts();
-  const core = await fetchCoreHttp();
-  const horizon = await fetchHorizon();
-  const cg = readCgroupResources();
-  // Core state is authoritative for sync (Pi Desktop compatible).
-  // Horizon only fills ledger / network when Core missing — never overrides Core sync.
+  // Independent reads run in parallel. This removes the old serial 10–30s scan.
+  const [portSnap, core, cg] = await Promise.all([
+    fetchPorts(),
+    fetchCoreHttp(),
+    Promise.resolve(readCgroupResources())
+  ]);
+
+  // Horizon is supplementary. Refresh every few minutes while Core is healthy;
+  // fetch immediately when Core is unavailable so fallback remains responsive.
+  let horizon = horizonCache;
+  const horizonFresh = horizon && (Date.now() - horizonCacheAt < HORIZON_REFRESH_SEC * 1000);
+  if (!horizonFresh || !core) {
+    horizon = await fetchHorizon();
+    if (horizon) {
+      horizonCache = horizon;
+      horizonCacheAt = Date.now();
+    }
+  }
+
   let primary = null;
   if (core && horizon) {
     primary = Object.assign({}, horizon, core);
@@ -423,14 +465,11 @@ async function collectTelemetry() {
     primary = Object.assign({}, horizon);
     primary.core_verified = false;
     primary.sync_confidence = horizon.sync_confidence || 'low';
-    // Explicit: Horizon-only is not Core-synced
-    if (primary.sync && /Synced \(Live\)/i.test(String(primary.sync))) {
-      primary.sync = 'Horizon live';
-    }
-    if (!/unverified|horizon only/i.test(String(primary.sync || ''))) {
+    if (!/unverified|horizon only|core n\/a/i.test(String(primary.sync || ''))) {
       primary.sync = (primary.sync || 'Horizon OK') + ' · Core n/a';
     }
   }
+
   const t = mergeTelemetry(primary, horizon, portSnap);
   if (t) {
     t.core_verified = !!(primary && primary.core_verified);
@@ -450,11 +489,8 @@ async function collectTelemetry() {
   if (horizon && horizon.protocol != null) t.protocol = horizon.protocol;
   if (horizon && horizon.ingest_lag != null) t.ingest_lag = horizon.ingest_lag;
   if (NODE_LABEL) t.container = NODE_LABEL;
-  // History enrichment every cycle (~60s)
-  try {
-    appendHistory(t);
-    saveJSON(LATEST_F, t);
-  } catch (e) {}
+
+  try { appendHistory(t); saveJSON(LATEST_F, t); } catch (e) {}
   cache = t;
   cacheAt = Date.now();
   return t;

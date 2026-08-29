@@ -1,6 +1,6 @@
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.12
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.13
     labels:
       pi.ui.primary: "true"
     ports:
@@ -12,6 +12,7 @@ services:
       - NODE_HOST=host.docker.internal
       - HORIZON_PORT=31401
       - TELEMETRY_SEC=60
+      - HORIZON_REFRESH_SEC=300
       - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data
