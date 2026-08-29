@@ -1,1 +1,8 @@
-{"name":"pinode-telegram-solohost","version":"2.6.12","description":"SoloHost Core-first sync to match Pi Desktop","main":"loader.js","private":true}
+{
+  "name": "pinode-telegram-solohost",
+  "version": "2.6.13",
+  "description": "Pi Node SoloHost Fast Core-first reader and Telegram controller",
+  "main": "loader.js",
+  "private": true,
+  "engines": { "node": ">=20" }
+}

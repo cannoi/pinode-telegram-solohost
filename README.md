@@ -1,11 +1,56 @@
-# SoloHost v2.6.13 — Fast Core-first data reader
+# Pi Node SoloHost v2.6.13 — Fast Core-first Reader
 
-- Core `/info` is authoritative for sync and ledger.
-- Core endpoint discovery is parallel and cached after the first successful read.
-- `/info` and `/peers` reuse the same Core endpoint; peers never block Core status.
-- Port probes run in parallel and reuse the last successful host.
-- Horizon is supplementary and refreshed every 5 minutes by default; it is queried immediately when Core is unavailable.
-- Telegram/UI reads use the in-memory telemetry cache and do not trigger a full scan while fresh.
-- No `docker.sock` and no Windows DataLive dependency.
+Production-ready Docker/ GHCR package for SoloHost.
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.13`
+## Data reading architecture
+
+- **Core `/info` is authoritative** for sync and ledger.
+- Core endpoint discovery runs in parallel and the successful endpoint is cached.
+- Core `/peers` is supplementary and never prevents `/info` from returning.
+- Ports `31401/31402/31403` are probed in parallel.
+- Horizon is a fallback/supplementary source and refreshes every 300 seconds by default.
+- Telemetry is cached in memory; UI/API reads do not start a full scan when the cache is fresh.
+- No `docker.sock` mount and no Windows DataLive dependency.
+
+## Build locally
+
+```bash
+docker build -t ghcr.io/cannoi/pinode-telegram-solohost:v2.6.13 .
+```
+
+## Push to GHCR
+
+The included GitHub Actions workflow publishes automatically:
+
+- `latest` on pushes to `main`
+- `vX.Y.Z` when a matching Git tag is pushed
+- immutable `sha-...` tags for traceability
+
+Create a release tag with:
+
+```bash
+git tag v2.6.13
+git push origin v2.6.13
+```
+
+## SoloHost
+
+The included `docker-compose.yml` uses:
+
+`ghcr.io/cannoi/pinode-telegram-solohost:v2.6.13`
+
+Default local UI/API binding:
+
+`127.0.0.1:18780 -> 8080`
+
+Telemetry interval: `60s`
+
+Horizon refresh interval: `300s`
+
+## Required configuration
+
+`config_options.yml` exposes:
+
+- `BOT_TOKEN` — Telegram bot token
+- `CHAT_ID` — Telegram chat ID
+- `GEMINI_API_KEY` — optional AI key

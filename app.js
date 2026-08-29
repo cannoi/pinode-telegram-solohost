@@ -2190,7 +2190,7 @@ const srv = http.createServer(async (req, res) => {
 
 srv.listen(PORT, '0.0.0.0', () => {
   log('SoloHost Controller v' + VERSION + ' :' + PORT);
-  log('telemetry=' + TELEMETRY_SEC + 's · Horizon-first (no DataLive)');
+  log('telemetry=' + TELEMETRY_SEC + 's · Core-first / Horizon-fallback (no DataLive)');
   log('Telegram long-poll independent of telemetry');
 });
 
