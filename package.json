@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.11","description":"SoloHost dual donate QR Pi+MB + security","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.12","description":"SoloHost Core-first sync to match Pi Desktop","main":"loader.js","private":true}

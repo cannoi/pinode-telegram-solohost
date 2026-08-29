@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.11-solohost';
+const VERSION = '2.6.12-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -196,15 +196,18 @@ async function fetchHorizon() {
         let ingest_lag = null;
         if (isFinite(coreL) && isFinite(ingestL)) ingest_lag = Math.max(0, coreL - ingestL);
 
+        // Horizon alone must NOT claim Core "Synced" (avoids Desktop mismatch)
         let syncStatus = 'Horizon OK';
+        let sync_confidence = 'low';
         if (ledger_age != null) {
-          if (ledger_age <= 35) syncStatus = 'Synced (Live)';
-          else if (ledger_age <= 120) syncStatus = 'Syncing (Slow)';
-          else if (ledger_age <= 300) syncStatus = 'Behind';
-          else syncStatus = 'Catching Up (~' + Math.round(ledger_age / 60) + 'm)';
+          if (ledger_age <= 35) { syncStatus = 'Horizon live'; sync_confidence = 'medium'; }
+          else if (ledger_age <= 120) { syncStatus = 'Horizon slow'; sync_confidence = 'medium'; }
+          else if (ledger_age <= 300) { syncStatus = 'Horizon behind'; sync_confidence = 'low'; }
+          else { syncStatus = 'Horizon catching up (~' + Math.round(ledger_age / 60) + 'm)'; sync_confidence = 'low'; }
         }
         if (ingest_lag != null && ingest_lag > 10) {
-          syncStatus = (syncStatus.indexOf('Synced') >= 0 ? 'Ingest lag' : syncStatus) + ' · lag ' + ingest_lag;
+          syncStatus = 'Horizon ingest lag · ' + ingest_lag;
+          sync_confidence = 'low';
         }
 
         const network = pick('network_passphrase', 'network') || null;
@@ -221,6 +224,8 @@ async function fetchHorizon() {
           ledger: ledger,
           ledger_age: ledger_age,
           sync: syncStatus,
+          sync_confidence: typeof sync_confidence !== 'undefined' ? sync_confidence : 'low',
+          core_verified: false,
           core_version: pick('core_version') || null,
           horizon_version: pick('horizon_version', 'version') || null,
           protocol: pick('current_protocol_version', 'protocol_version') || null,
@@ -230,7 +235,7 @@ async function fetchHorizon() {
           core_ledger: isFinite(coreL) ? coreL : null,
           ingest_ledger: isFinite(ingestL) ? ingestL : null,
           closed_at: closedAt || null,
-          confidence: ledger_age != null && ledger_age < 60 ? 'high' : 'medium',
+          confidence: (ledger_age != null && ledger_age < 60 && !(ingest_lag != null && ingest_lag > 10)) ? 'medium' : 'low',
           horizon_host: host + ':' + port,
           raw_keys: Object.keys(j).slice(0, 40)
         };
@@ -242,94 +247,62 @@ async function fetchHorizon() {
 
 /** Optional Core HTTP /info + /peers (Stellar default 11626) */
 async function fetchCoreHttp() {
-  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1'];
-  const ports = [11626, 31400, 11625];
+  const hosts = [NODE_HOST, 'host.docker.internal', '172.17.0.1', '172.18.0.1', '10.0.2.2', 'localhost'];
+  // 11626 = Stellar Core HTTP default; 31400 sometimes used on Pi setups
+  const ports = [11626, 31400, 11625, 11627];
   for (const host of hosts) {
     for (const port of ports) {
-      const r = await httpGetUrl('http://' + host + ':' + port + '/info', {}, 2000);
+      const r = await httpGetUrl('http://' + host + ':' + port + '/info', {}, 2500);
       if (!r || r.status !== 200 || !r.body) continue;
       try {
         const j = JSON.parse(r.body);
         const info = j.info || j;
-        const o = { source: 'CoreHTTP', confidence: 'high' };
-        if (info.state) o.sync = String(info.state);
-        else if (info.status) o.sync = String(info.status);
-        const ledger = info.ledger || info.ledger_num || (info.ledger && info.ledger.num);
-        if (ledger != null) o.ledger = Number(ledger.num || ledger);
-        if (info.ledger && info.ledger.age != null) o.ledger_age = Number(info.ledger.age);
-        if (info.protocol_version != null) o.protocol = info.protocol_version;
-        if (info.build) o.core_version = String(info.build);
-        if (info.network) o.network = String(info.network);
-        // peers endpoint
-        const rp = await httpGetUrl('http://' + host + ':' + port + '/peers', {}, 1500);
-        if (rp && rp.status === 200 && rp.body) {
-          try {
-            const pj = JSON.parse(rp.body);
-            const peers = pj.peers || pj;
-            if (Array.isArray(peers)) {
-              let inn = 0, out = 0;
-              peers.forEach(function (x) {
-                const d = String((x && (x.direction || x.dir)) || '').toLowerCase();
-                if (d.indexOf('in') >= 0) inn++;
-                else if (d.indexOf('out') >= 0) out++;
-              });
-              if (inn || out) { o.peer_in = inn; o.peer_out = out; }
-              else { o.peer_in = peers.length; }
-            }
-          } catch (e2) {}
+        const o = { source: 'Core', core_port: port, core_host: host, core_verified: true };
+        const stateRaw = info.state != null ? String(info.state) : (info.state_details != null ? String(info.state_details) : null);
+        if (info.ledger) {
+          if (info.ledger.num != null) o.ledger = Number(info.ledger.num);
+          if (info.ledger.age != null) o.ledger_age = Number(info.ledger.age);
         }
-        o.core_host = host + ':' + port;
+        // Map Core state → operator-facing sync (aligned with Pi Desktop)
+        if (stateRaw) {
+          const s = stateRaw;
+          o.core_state = s;
+          if (/synced/i.test(s) && !/not\s*synced|unsynced/i.test(s)) {
+            o.sync = 'Synced';
+            o.sync_confidence = 'high';
+          } else if (/catching\s*up/i.test(s)) {
+            o.sync = 'Catching up';
+            o.sync_confidence = 'high';
+          } else if (/joining|scp|booting|starting/i.test(s)) {
+            o.sync = s.length > 40 ? s.slice(0, 40) : s;
+            o.sync_confidence = 'high';
+          } else if (/stop|error|fail/i.test(s)) {
+            o.sync = s;
+            o.sync_confidence = 'high';
+          } else {
+            o.sync = s;
+            o.sync_confidence = 'high';
+          }
+        }
+        // peers endpoint
+        try {
+          const pr = await httpGetUrl('http://' + host + ':' + port + '/peers', {}, 2000);
+          if (pr && pr.status === 200 && pr.body) {
+            const pj = JSON.parse(pr.body);
+            if (pj.authenticated_peers) {
+              const inn = pj.authenticated_peers.inbound;
+              const out = pj.authenticated_peers.outbound;
+              o.peer_in = Array.isArray(inn) ? inn.length : (inn ? Object.keys(inn).length : 0);
+              o.peer_out = Array.isArray(out) ? out.length : (out ? Object.keys(out).length : 0);
+            }
+          }
+        } catch (e) {}
+        o.confidence = 'high';
         return o;
       } catch (e) {}
     }
   }
   return null;
-}
-
-/** Container cgroup RAM/CPU (SoloHost container view — best effort without host agent) */
-function readCgroupResources() {
-  const o = {};
-  try {
-    // cgroup v2
-    const memCur = PathRead('/sys/fs/cgroup/memory.current');
-    const memMax = PathRead('/sys/fs/cgroup/memory.max');
-    if (memCur && memMax && memMax !== 'max') {
-      const used = Number(memCur), max = Number(memMax);
-      if (max > 0) o.ram = Math.round(used / max * 1000) / 10;
-    }
-  } catch (e) {}
-  try {
-    // cgroup v1
-    if (o.ram == null) {
-      const u = PathRead('/sys/fs/cgroup/memory/memory.usage_in_bytes');
-      const l = PathRead('/sys/fs/cgroup/memory/memory.limit_in_bytes');
-      if (u && l) {
-        const used = Number(u), max = Number(l);
-        if (max > 0 && max < 1e15) o.ram = Math.round(used / max * 1000) / 10;
-      }
-    }
-  } catch (e) {}
-  try {
-    const st = PathRead('/proc/stat');
-    if (st) {
-      const line = st.split('\n')[0];
-      const parts = line.trim().split(/\s+/).slice(1).map(Number);
-      if (parts.length >= 4) {
-        const idle = parts[3], total = parts.reduce((a, b) => a + b, 0);
-        if (!readCgroupResources._prev) readCgroupResources._prev = { idle, total };
-        else {
-          const di = idle - readCgroupResources._prev.idle;
-          const dt = total - readCgroupResources._prev.total;
-          readCgroupResources._prev = { idle, total };
-          if (dt > 0) o.cpu = Math.round((1 - di / dt) * 1000) / 10;
-        }
-      }
-    }
-  } catch (e) {}
-  return Object.keys(o).length ? o : null;
-}
-function PathRead(f) {
-  try { return fs.readFileSync(f, 'utf8').trim(); } catch (e) { return null; }
 }
 
 async function fetchPorts() {
@@ -406,14 +379,18 @@ function mergeTelemetry(primary, horizon, portSnap) {
   const portsAllOpen = t.ports && NODE_PORTS.every(p => t.ports[String(p)] === 'OPEN');
   const portsAllClosed = t.ports && NODE_PORTS.every(p => t.ports[String(p)] === 'CLOSED');
   const dockerStopped = t.docker && /stop|exit/i.test(t.docker);
-  const syncBad = t.sync && /not synced|error|fail/i.test(t.sync) && t.sync !== 'Horizon OK';
+  const syncStr = String(t.sync || '');
+  const syncBad = /not synced|unsynced|error|fail/i.test(syncStr);
+  const catching = /catching|joining|booting|behind|slow|ingest lag/i.test(syncStr);
+  const coreMissing = t.core_verified === false || /core n\/a|unverified/i.test(syncStr);
 
   let level = 'ok';
   if (dockerStopped || portsAllClosed) level = 'critical';
   else if (syncBad || (t.ledger_age != null && t.ledger_age > 300)) level = 'warning';
-  else if (t.sync && /syncing|catch/i.test(t.sync)) level = 'soft';
+  else if (catching) level = 'soft';
+  else if (coreMissing && (primary || horizon)) level = 'soft'; // Horizon-only: not full OK
   else if (primary || horizon || (portSnap && portSnap.openCount >= 2)) level = 'ok';
-  else level = 'soft'; // no sources — degraded knowledge, NOT node offline
+  else level = 'soft';
 
   t.level = level;
   t.ports_all_open = !!portsAllOpen;
@@ -425,16 +402,41 @@ async function collectTelemetry() {
   const core = await fetchCoreHttp();
   const horizon = await fetchHorizon();
   const cg = readCgroupResources();
-  // Priority: Core HTTP (if peers/sync) then Horizon deep then ports
-  let primary = core || horizon;
+  // Core state is authoritative for sync (Pi Desktop compatible).
+  // Horizon only fills ledger / network when Core missing — never overrides Core sync.
+  let primary = null;
   if (core && horizon) {
     primary = Object.assign({}, horizon, core);
-    primary.source = core.peer_in != null ? 'Core+Horizon' : (horizon.source || 'Horizon');
-    if (horizon.ledger != null && core.ledger == null) primary.ledger = horizon.ledger;
-    if (horizon.ledger_age != null && primary.ledger_age == null) primary.ledger_age = horizon.ledger_age;
-    if (horizon.sync && (!core.sync || core.sync === 'Horizon OK')) primary.sync = horizon.sync;
+    primary.source = 'Core+Horizon';
+    primary.core_verified = true;
+    primary.sync = core.sync || core.core_state || horizon.sync;
+    primary.sync_confidence = core.sync_confidence || 'high';
+    if (core.ledger != null) primary.ledger = core.ledger;
+    else if (horizon.ledger != null) primary.ledger = horizon.ledger;
+    if (core.ledger_age != null) primary.ledger_age = core.ledger_age;
+    else if (horizon.ledger_age != null) primary.ledger_age = horizon.ledger_age;
+    if (core.core_state) primary.core_state = core.core_state;
+  } else if (core) {
+    primary = core;
+    primary.core_verified = true;
+  } else if (horizon) {
+    primary = Object.assign({}, horizon);
+    primary.core_verified = false;
+    primary.sync_confidence = horizon.sync_confidence || 'low';
+    // Explicit: Horizon-only is not Core-synced
+    if (primary.sync && /Synced \(Live\)/i.test(String(primary.sync))) {
+      primary.sync = 'Horizon live';
+    }
+    if (!/unverified|horizon only/i.test(String(primary.sync || ''))) {
+      primary.sync = (primary.sync || 'Horizon OK') + ' · Core n/a';
+    }
   }
   const t = mergeTelemetry(primary, horizon, portSnap);
+  if (t) {
+    t.core_verified = !!(primary && primary.core_verified);
+    t.sync_confidence = (primary && primary.sync_confidence) || (t.core_verified ? 'high' : 'low');
+    if (primary && primary.core_state) t.core_state = primary.core_state;
+  }
   if (cg) {
     if (cg.ram != null && t.ram == null) t.ram = cg.ram;
     if (cg.cpu != null && t.cpu == null) t.cpu = cg.cpu;
