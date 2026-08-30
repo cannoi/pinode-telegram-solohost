@@ -4,7 +4,7 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pi Node Controller PRO</title>
 <style>
-:root{--p:rgba(12,18,32,.92);--bd:rgba(212,168,75,.35);--t:#f5f0e8;--m:#b8a990;--gold:#d4a84b;--ok:#2d9b6f;--warn:#c47a1a}
+:root{--p:rgba(12,18,32,.92);--bd:rgba(212,168,75,.35);--t:#f5f0e8;--m:#b8a990;--gold:#d4a84b}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;color:var(--t);min-height:100vh;
 background:linear-gradient(165deg,rgba(8,10,18,.78),rgba(20,14,8,.82)),url('/avatar.jpg') center top/cover no-repeat fixed;
@@ -19,27 +19,16 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
 .card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(212,168,75,.12);font-size:.85rem}
 .k{color:var(--m)}.val{font-weight:700}
-#chatbox{height:180px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.82rem}
+#chatbox{height:220px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.82rem}
 .msg{margin:6px 0;padding:6px 8px;border-radius:8px;max-width:92%;white-space:pre-wrap}
 .msg.user{background:rgba(77,163,255,.2);margin-left:auto;text-align:right}
 .msg.bot{background:rgba(212,168,75,.12)}
+.hint{font-size:.72rem;color:var(--m);opacity:.9;margin-top:4px}
 .bar{display:flex;gap:6px}
 .bar input{flex:1;padding:10px;border-radius:10px;border:1px solid var(--bd);background:rgba(0,0,0,.35);color:var(--t)}
 .bar button{padding:10px 14px;border-radius:10px;border:0;background:var(--gold);color:#1a1208;font-weight:800;cursor:pointer}
 .foot{text-align:center;font-size:.62rem;color:#6a5a48;margin-top:6px}
-.dk{font-size:.8rem;line-height:1.4;color:var(--t)}
-.dk p{margin:0 0 6px}
-.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-.btn{flex:1;min-width:120px;padding:10px 12px;border-radius:10px;border:0;font-weight:700;cursor:pointer;font-size:.82rem}
-.btn-yes{background:var(--ok);color:#fff}
-.btn-no{background:#555;color:#fff}
-.btn-ghost{background:transparent;border:1px solid var(--bd);color:var(--gold)}
-.note{font-size:.72rem;color:var(--m);margin-top:8px}
-.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.7rem;font-weight:700}
-.pill-on{background:rgba(45,155,111,.25);color:#7dceb0}
-.pill-off{background:rgba(100,100,100,.3);color:#ccc}
-.steps{background:rgba(0,0,0,.2);border-radius:8px;padding:8px;margin-top:8px;font-size:.78rem}
-.steps ol{margin-left:1.1rem}
+.link{color:var(--gold);cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
 </style>
 </head>
 <body>
@@ -47,55 +36,23 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.25</p>
+    <p class="sub">SoloHost · v2.6.26</p>
   </div>
-
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
-
-  <div class="card" id="dockerCard">
-    <h2>Optional Docker access</h2>
-    <div class="dk">
-      <p>Default SoloHost = <b>no docker.sock</b> (sandbox). Optional: Core/container probe after <b>you</b> agree.</p>
-      <p>Status: preference <span id="dkPref" class="pill pill-off">…</span> · socket <span id="dkSock" class="pill pill-off">…</span></p>
-      <div class="steps">
-        <b>After Agree:</b>
-        <ol>
-          <li>App prepares <code>docker-compose.yml</code> (with sock).</li>
-          <li>On SoloHost bar: press <b>Stop</b> → then start the app again (or use Restart if your UI applies compose on Restart).</li>
-          <li>Check socket shows YES.</li>
-        </ol>
-      </div>
-      <div class="btns">
-        <button type="button" class="btn btn-yes" id="dkYes">Agree — enable &amp; prepare</button>
-        <button type="button" class="btn btn-no" id="dkNo">Disable</button>
-      </div>
-      <p class="note" id="dkMsg">SoloHost Terms: Operator consent for elevated permissions. Listing does not include docker.sock by default.</p>
-    </div>
-  </div>
-
   <div class="card">
     <h2>Chat</h2>
     <div id="chatbox"></div>
+    <p class="hint">Tip: type <b>docker</b> for optional advanced probe (off by default). <button type="button" class="link" id="dkTip">Enable…</button></p>
     <div class="bar">
-      <input id="inp" type="text" placeholder="Message… or type docker" autocomplete="off">
+      <input id="inp" type="text" placeholder="Message…" autocomplete="off">
       <button id="send" type="button">Send</button>
     </div>
   </div>
-  <p class="foot">Telegram /status /docker · Stop then Start after compose change</p>
+  <p class="foot">Telegram /status /docker · SoloHost sandbox default</p>
 </div>
 <script>
 const box=document.getElementById('chatbox');
 function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
-function pill(el,on,yes,no){el.className='pill '+(on?'pill-on':'pill-off');el.textContent=on?yes:no;}
-
-async function loadDocker(){
-  try{
-    const j=await fetch('/api/docker').then(r=>r.json());
-    pill(document.getElementById('dkPref'),!!j.enabled,'ON','OFF');
-    pill(document.getElementById('dkSock'),!!j.sock,'YES','NO');
-  }catch(e){}
-}
-
 async function loadStatus(){
   try{
     const t=await fetch('/api/status').then(r=>r.json());
@@ -104,37 +61,9 @@ async function loadStatus(){
     addR('Source',t.source);addR('Sync',t.sync);addR('Ledger',t.ledger);addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
     addR('Peers',(t.peer_in!=null||t.peer_out!=null)?('IN '+(t.peer_in??'?')+' / OUT '+(t.peer_out??'?')):null);
     addR('Network',t.network_kind||t.network);
-    addR('Docker sock',t.docker_sock?'yes':'no');
     document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
   }catch(e){document.getElementById('s').textContent='Status error';}
-  loadDocker();
 }
-
-async function dockerAction(on){
-  const msg=document.getElementById('dkMsg');
-  msg.textContent='Working…';
-  try{
-    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!!on,consent:!!on})});
-    const j=await r.json();
-    if(!j.ok){msg.textContent=j.error||'Failed';return;}
-    if(on){
-      msg.textContent=(j.wrote_host
-        ? 'Compose updated. On SoloHost: press Stop, then start the app again.'
-        : 'Files ready in data/docker-enable/. Copy compose to app folder if needed. Then Stop → Start.');
-      add('bot','Docker preference ON.\n'+(j.wrote_host
-        ? 'Compose prepared. SoloHost: Stop → Start the app.'
-        : 'See data/docker-enable/. SoloHost: Stop → Start.'));
-    }else{
-      msg.textContent='Preference OFF — SoloHost sandbox default.';
-      add('bot','Docker preference OFF (sandbox default).');
-    }
-    loadDocker();
-  }catch(e){msg.textContent='Network error';}
-}
-
-document.getElementById('dkYes').onclick=()=>dockerAction(true);
-document.getElementById('dkNo').onclick=()=>dockerAction(false);
-
 async function send(){
   const inp=document.getElementById('inp');const msg=(inp.value||'').trim();if(!msg)return;inp.value='';
   add('user',msg);add('bot','…');
@@ -142,13 +71,24 @@ async function send(){
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
     const j=await r.json();
     box.lastChild.textContent=j.reply||j.error||'No reply';
-    if(/docker/i.test(msg)) loadDocker();
   }catch(e){box.lastChild.textContent='Chat error';}
+}
+async function enableDocker(){
+  add('bot','Optional Docker: sandbox default has no socket.\nAgree will overwrite app docker-compose.yml (with sock), then SoloHost Stop → Start.');
+  add('bot','…');
+  try{
+    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true})});
+    const j=await r.json();
+    if(!j.ok){box.lastChild.textContent=j.error||'Failed';return;}
+    box.lastChild.textContent=j.wrote_host
+      ? 'Consent OK. docker-compose.yml updated in app folder.\nSoloHost: press Stop, then Start the app again.'
+      : (j.hint||'Preference saved. SoloHost: Stop → Start if compose was updated.');
+  }catch(e){box.lastChild.textContent='Network error';}
 }
 document.getElementById('send').onclick=send;
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+document.getElementById('dkTip').onclick=enableDocker;
 loadStatus();setInterval(loadStatus,15000);
-add('bot','Welcome. Optional Docker: use the panel above (Agree on this PC). After compose change: SoloHost Stop → Start.');
 </script>
 </body>
 </html>

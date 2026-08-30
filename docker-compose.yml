@@ -1,7 +1,7 @@
-# SoloHost Official — sandbox permissions only (no docker.sock)
+# SoloHost Official — sandbox; no docker.sock until Operator consents and Stop→Start
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.25
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.26
     labels:
       pi.ui.primary: "true"
     ports:
@@ -19,4 +19,5 @@ services:
       - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data
+      - ./:/solohost-config:rw
     restart: unless-stopped

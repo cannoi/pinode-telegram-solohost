@@ -1,10 +1,8 @@
-# SoloHost v2.6.24
+# SoloHost v2.6.26
 
-After **Agree** (Telegram or http://127.0.0.1:18780/docker):
-- Writes ready `data/docker-enable/docker-compose.yml` (+ APPLY scripts)
-- If `./:/solohost-config` mounted, fills host `docker-compose.yml` (consent only)
-- User Restarts SoloHost app
+- Default: no docker.sock
+- Mount `./:/solohost-config:rw` (install dir only) so after **Operator consent** the app can overwrite **app-root** `docker-compose.yml`
+- UI: small chat tip only (no large Docker panel)
+- After consent: SoloHost **Stop → Start**
 
-Default install: still no docker.sock.
-
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.24`
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.26`

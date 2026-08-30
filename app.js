@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.25-solohost';
+const VERSION = '2.6.26-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1196,7 +1196,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.25-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.26-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -1335,18 +1335,15 @@ function dockerManageKeyboard() {
 async function formatDockerHelp(tel) {
   const pref = readDockerPref();
   const sock = !!(tel && tel.docker_sock);
-  const lines = [];
-  lines.push('DOCKER OPTIONAL');
-  lines.push('==============');
-  lines.push('Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock: ' + (sock ? 'YES' : 'NO'));
-  lines.push('');
-  lines.push('Simple steps after you Agree:');
-  lines.push('1) Prefer: open http://127.0.0.1:18780/ (panel on home)');
-  lines.push('2) Agree — app prepares compose files');
-  lines.push('3) SoloHost UI: Stop → then Start the app');
-  lines.push('');
-  lines.push('Default SoloHost = no docker.sock. You opt in.');
-  return lines.join('\n');
+  return [
+    'DOCKER OPTIONAL (advanced)',
+    'Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock: ' + (sock ? 'YES' : 'NO'),
+    '',
+    'After Agree: app overwrites docker-compose.yml in the app folder.',
+    'Then SoloHost: Stop → Start.',
+    '',
+    'Default = no docker.sock (SoloHost sandbox).'
+  ].join('\n');
 }
 async function formatDockerRules() {
   return [
@@ -2070,7 +2067,7 @@ async function runCmd(cmd, userText) {
       return tgSend(await formatDockerRules(), { reply_markup: dockerConsentKeyboard() });
     }
     if (cmd === 'docker_local') {
-      return tgSend('Confirm on the PC running the node (SoloHost app window):\nhttp://127.0.0.1:18780/\n\nUse the Optional Docker panel → Agree.\nThen SoloHost: Stop → Start.', { reply_markup: dockerConsentKeyboard() });
+      return tgSend('On the PC SoloHost window:\nhttp://127.0.0.1:18780/\n\nChat tip: Enable… (or Telegram Agree below).\nThen SoloHost: Stop → Start.', { reply_markup: dockerConsentKeyboard() });
     }
     if (cmd === 'docker_cancel') {
       return tgSend('Cancelled. Docker preference unchanged.\nSoloHost default: no docker.sock.', { reply_markup: mainKeyboard() });
@@ -2457,7 +2454,9 @@ const srv = http.createServer(async (req, res) => {
               wrote_host: !!(applied && applied.wrote_host),
               wrote_data: !!(applied && applied.wrote_data),
               hint: on
-                ? 'SoloHost: press Stop, then Start the app again so compose volumes apply.'
+                ? (applied && applied.wrote_host
+                  ? 'docker-compose.yml updated in app folder. SoloHost: Stop → Start.'
+                  : 'SoloHost: Stop → Start after compose is in app folder.')
                 : 'Sandbox default.'
             }));
           } catch (e) {
