@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.18-solohost';
+const VERSION = '2.6.19-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();

@@ -3,10 +3,10 @@ WORKDIR /app
 RUN apk add --no-cache wget tzdata docker-cli \
  && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
  && echo "Asia/Ho_Chi_Minh" > /etc/timezone
-COPY package.json app.js loader.js status-monitor.js pi-node-discovery.js optimized-pi-node-reader.js docker-probe.js ./
+COPY package.json app.js loader.js auto-compose.js status-monitor.js pi-node-discovery.js optimized-pi-node-reader.js docker-probe.js ./
 COPY public/ ./public/
 COPY scripts/ ./scripts/
-ENV DATA_DIR=/data PORT=8080 TZ=Asia/Ho_Chi_Minh TELEMETRY_SEC=60
+ENV DATA_DIR=/data PORT=8080 TZ=Asia/Ho_Chi_Minh TELEMETRY_SEC=60 AUTO_DOCKER_SOCK=1
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

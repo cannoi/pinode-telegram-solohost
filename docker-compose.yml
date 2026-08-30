@@ -1,6 +1,6 @@
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.18
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.19
     labels:
       pi.ui.primary: "true"
     ports:
@@ -13,8 +13,10 @@ services:
       - HORIZON_PORT=31401
       - CORE_HTTP_PORT=11626
       - DOCKER_PROBE=auto
+      - AUTO_DOCKER_SOCK=1
       - TELEMETRY_SEC=60
       - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data
+      - ./:/solohost-config:rw
     restart: unless-stopped

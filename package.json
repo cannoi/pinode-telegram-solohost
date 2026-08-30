@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.18","description":"Horizon optimized + optional Docker sock/exec","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.19","description":"Auto-overwrite compose for docker.sock after SoloHost install","main":"loader.js","private":true}

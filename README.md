@@ -1,15 +1,11 @@
-# SoloHost v2.6.18
+# SoloHost v2.6.19 — Auto docker.sock compose
 
-Data sources (max):
-1. Horizon root `/` (optimized, primary)
-2. Horizon `/ledgers` (detailed)
-3. Core HTTP host ports
-4. TCP 31401–31403
-5. **Docker socket API** (optional — if `/var/run/docker.sock` mounted)
-6. **docker exec** into Pi Node container → Core `/info`, `/peers`, Horizon inside
-7. State file fallback
+## How it works
+1. **Install** package: compose has NO `/var/run/docker.sock` (SoloHost validation OK).
+2. Mounts `./:/solohost-config:rw` (path inside install dir — allowed).
+3. On **first container start**, `loader.js` → `auto-compose.js` overwrites host `docker-compose.yml` to add docker.sock.
+4. **Restart app once** → SoloHost applies sock; `docker-probe` + exec work.
 
-SoloHost default compose: **no sock** (platform restriction).
-Optional: `docker-compose.with-docker.yml` mounts sock (`DOCKER_PROBE=1`).
+Disable: `AUTO_DOCKER_SOCK=0`
 
-Env: `DOCKER_PROBE=auto|1|0`
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.19`
