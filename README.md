@@ -1,11 +1,15 @@
-# SoloHost v2.6.17
+# SoloHost v2.6.18
 
-Optimized status (from live Horizon analysis):
-- Primary: single GET Horizon `/` (~150–200ms) — ledger, versions, protocol, network
-- Optional: `/ledgers?limit=1` for tx/fee/precise age
-- Core + ports still probed in parallel when available
-- Full field set fed to Telegram formatters + AI `buildFacts`
+Data sources (max):
+1. Horizon root `/` (optimized, primary)
+2. Horizon `/ledgers` (detailed)
+3. Core HTTP host ports
+4. TCP 31401–31403
+5. **Docker socket API** (optional — if `/var/run/docker.sock` mounted)
+6. **docker exec** into Pi Node container → Core `/info`, `/peers`, Horizon inside
+7. State file fallback
 
-Endpoints: `/api/status` `/api/status/fast` `/api/status/detailed`
+SoloHost default compose: **no sock** (platform restriction).
+Optional: `docker-compose.with-docker.yml` mounts sock (`DOCKER_PROBE=1`).
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.17`
+Env: `DOCKER_PROBE=auto|1|0`

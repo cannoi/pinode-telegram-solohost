@@ -2,6 +2,7 @@
 
 const PiNodeDiscovery = require('./pi-node-discovery');
 const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
+const dockerProbe = require('./docker-probe');
 
 /**
  * Pi Node multi-source status — optimized for SoloHost
@@ -435,13 +436,15 @@ class PiNodeStatusMonitor {
       }
     }
 
-    // SECONDARY parallel: Core + Ports (do not block on Core)
+    // SECONDARY parallel: Core HTTP + Ports + optional Docker sock/exec
     const pair = await Promise.all([
       this.fetchCoreFast().catch(function (e) { return { ok: false, error: e.message }; }),
-      this.probePortsFast().catch(function () { return { ports: {}, openCount: 0 }; })
+      this.probePortsFast().catch(function () { return { ports: {}, openCount: 0 }; }),
+      dockerProbe.probeDocker().catch(function (e) { return { available: false, error: e.message }; })
     ]);
     core = pair[0];
     portSnap = pair[1];
+    const dock = pair[2] || { available: false };
 
     let primary = null;
     let fallbackUsed = false;
@@ -514,6 +517,7 @@ class PiNodeStatusMonitor {
     else if (/catching|joining|behind|slow|ingest lag/i.test(syncStr)) level = 'soft';
     else if (!primary.core_verified) level = 'soft';
     else level = 'ok';
+    if (primary.level_hint === 'soft') level = 'soft';
     primary.level = level;
 
     this.metrics.requests++;
@@ -521,7 +525,45 @@ class PiNodeStatusMonitor {
     this.metrics.lastSource = primary.source;
     if (!hz.ok && !core.ok) this.metrics.failures++;
 
-    if (this.discovery && this.discovery.discovered) {
+    // Docker sock / exec enrichment (when available)
+    if (dock && dock.available) {
+      primary.docker_probe = true;
+      primary.docker_sock = !!dock.docker_sock;
+      if (dock.docker) primary.docker = dock.docker;
+      if (dock.pi_container) primary.container = dock.pi_container;
+      if (dock.core_from_exec) {
+        const ce = dock.core_from_exec;
+        primary.core_verified = true;
+        primary.core_state = ce.core_state || primary.core_state;
+        primary.sync = ce.sync || primary.sync;
+        primary.sync_confidence = 'high';
+        if (ce.ledger != null) primary.ledger = ce.ledger;
+        if (ce.ledger_age != null) primary.ledger_age = ce.ledger_age;
+        primary.source = primary.source && /Horizon/i.test(primary.source)
+          ? 'DockerExec+Horizon' : 'DockerExec';
+        if (!primary.sources) primary.sources = {};
+        primary.sources.docker_exec = true;
+      }
+      if (dock.peers_from_exec) {
+        if (dock.peers_from_exec.peer_in != null) primary.peer_in = dock.peers_from_exec.peer_in;
+        if (dock.peers_from_exec.peer_out != null) primary.peer_out = dock.peers_from_exec.peer_out;
+      }
+      if (dock.horizon_from_exec && !hz.ok) {
+        const he = dock.horizon_from_exec;
+        if (he.ledger != null) primary.ledger = he.ledger;
+        if (he.network) primary.network = he.network;
+        if (he.core_version) primary.core_version = he.core_version;
+        if (he.horizon_version) primary.horizon_version = he.horizon_version;
+        primary.sources = primary.sources || {};
+        primary.sources.docker_exec_horizon = true;
+      }
+      primary.docker_containers = dock.containers;
+    } else {
+      primary.docker_probe = false;
+      primary.docker_sock = false;
+    }
+
+        if (this.discovery && this.discovery.discovered) {
       primary.discovery = {
         strategy: this.discovery.discovered.strategy,
         horizon: this.discovery.discovered.horizonHost

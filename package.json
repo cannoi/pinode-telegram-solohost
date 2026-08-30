@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.17","description":"Horizon-root optimized reader + full fields for AI","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.18","description":"Horizon optimized + optional Docker sock/exec","main":"loader.js","private":true}

@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.17-solohost';
+const VERSION = '2.6.18-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1165,7 +1165,11 @@ function buildFacts(t) {
     operation_count: t.operation_count != null ? t.operation_count : null,
     base_fee: t.base_fee != null ? t.base_fee : null,
     level: t.level || null,
-    responseTime: t.responseTime != null ? t.responseTime : null
+    responseTime: t.responseTime != null ? t.responseTime : null,
+    docker: t.docker || null,
+    docker_sock: t.docker_sock === true,
+    docker_probe: t.docker_probe === true,
+    container: t.container || null
   };
   return o;
 }
