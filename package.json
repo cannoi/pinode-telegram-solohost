@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.13","description":"SoloHost multi-source status monitor (Horizon→Core→state→ports)","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.15","description":"SoloHost universal discovery + parallel multi-source status","main":"loader.js","private":true}

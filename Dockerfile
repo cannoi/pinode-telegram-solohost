@@ -3,7 +3,7 @@ WORKDIR /app
 RUN apk add --no-cache wget tzdata \
  && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
  && echo "Asia/Ho_Chi_Minh" > /etc/timezone
-COPY package.json app.js loader.js status-monitor.js ./
+COPY package.json app.js loader.js status-monitor.js pi-node-discovery.js ./
 COPY public/ ./public/
 COPY scripts/ ./scripts/
 ENV DATA_DIR=/data PORT=8080 TZ=Asia/Ho_Chi_Minh TELEMETRY_SEC=60

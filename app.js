@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.13-solohost';
+const VERSION = '2.6.15-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -2099,6 +2099,18 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
 
+    if (u === '/api/discover') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      try {
+        const force = /force=1|fresh=1/.test(req.url || '');
+        const d = await statusMonitor.discovery.discover(force);
+        res.end(JSON.stringify({ ok: true, discovery: d, report: statusMonitor.discovery.getReport() }));
+      } catch (e) {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+      }
+      return;
+    }
     if (u === '/api/info') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({

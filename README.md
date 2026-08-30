@@ -1,11 +1,10 @@
-# SoloHost v2.6.13
+# SoloHost v2.6.15
 
-Multi-source status (network-agnostic):
-1. Horizon HTTP (31401/8000)
-2. Core HTTP (11626/11826/31400…) — authoritative sync when available
-3. Local state file fallback
-4. TCP ports 31401–31403
+Universal Pi Node discovery (SoloHost-safe, no docker.sock) + parallel reads.
 
-No dependency on container name (testnet2/mainnet).
+Discovery strategies: env → sticky → host.docker.internal → bridge IPs → port sweep 31401–31410
+Then: parallel Horizon + Core + Ports (sticky race)
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.13`
+GET /api/discover — discovery report
+
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.15`
