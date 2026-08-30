@@ -16,7 +16,7 @@ const CONFIG_DIR = process.env.SOLOHOST_CONFIG_DIR || '/solohost-config';
 const TARGET = path.join(CONFIG_DIR, 'docker-compose.yml');
 const DATA = process.env.DATA_DIR || '/data';
 const MARKER = path.join(DATA, 'state', 'auto-compose.json');
-const IMAGE = process.env.AUTO_COMPOSE_IMAGE || 'ghcr.io/cannoi/pinode-telegram-solohost:v2.6.20';
+const IMAGE = process.env.AUTO_COMPOSE_IMAGE || 'ghcr.io/cannoi/pinode-telegram-solohost:v2.6.21';
 const SOCK = process.env.DOCKER_SOCK || '/var/run/docker.sock';
 
 function log(msg) {

@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.20","description":"Auto compose overwrite + best-effort container recreate for docker.sock","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.21","description":"SoloHost-safe multi-source monitor; optional docker.sock","main":"loader.js","private":true}

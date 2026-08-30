@@ -1,8 +1,15 @@
-# SoloHost v2.6.20
+# SoloHost v2.6.21 — Official sandbox-friendly
 
-1. Install (no sock in package — validation OK)
-2. First start: overwrites `docker-compose.yml` with docker.sock
-3. Best-effort **auto recreate** (`docker compose up --force-recreate` / `docker restart`) when engine reachable
-4. If sock still missing: Telegram hint + `APPLY_DOCKER_SOCK.bat` in app folder
+## Default (SoloHost listing compliant)
+- **No docker.sock** in install compose
+- Sources: Horizon `/` → Core HTTP → TCP ports → state files
+- Multi-source consensus (HEALTHY / DEGRADED / PARTIAL)
+- Full Horizon fields for Telegram + AI
 
-`AUTO_DOCKER_SOCK=0` to disable
+## Optional (user opts in after install)
+Overwrite compose with `docker-compose.with-docker.yml` or set:
+`DOCKER_PROBE=1` + mount `/var/run/docker.sock:ro`
+
+`AUTO_DOCKER_SOCK=0` by default (no auto privilege escalation)
+
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.21`

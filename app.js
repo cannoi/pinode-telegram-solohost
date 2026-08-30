@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.20-solohost';
+const VERSION = '2.6.21-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1138,7 +1138,8 @@ function localAssistantReply(t, intent, userQ) {
 
 function buildFacts(t) {
   t = t || {};
-  const o = {
+  const v = t.verification || {};
+  return {
     source: t.source || null,
     sync: t.sync || null,
     core_state: t.core_state || null,
@@ -1151,6 +1152,7 @@ function buildFacts(t) {
     elder_ledger: t.elder_ledger != null ? t.elder_ledger : null,
     ledger_age: t.ledger_age != null ? t.ledger_age : null,
     ledger_closed_at: t.ledger_closed_at || null,
+    ledger_gap: t.ledger_gap != null ? t.ledger_gap : null,
     ingest_lag: t.ingest_lag != null ? t.ingest_lag : null,
     peer_in: t.peer_in != null ? t.peer_in : null,
     peer_out: t.peer_out != null ? t.peer_out : null,
@@ -1165,13 +1167,15 @@ function buildFacts(t) {
     operation_count: t.operation_count != null ? t.operation_count : null,
     base_fee: t.base_fee != null ? t.base_fee : null,
     level: t.level || null,
+    fsm: t.fsm || null,
+    verification_confidence_pct: v.confidence_pct != null ? v.confidence_pct : null,
+    verification_consensus: v.consensus || null,
+    sources_ok: t.sources || null,
     responseTime: t.responseTime != null ? t.responseTime : null,
     docker: t.docker || null,
     docker_sock: t.docker_sock === true,
-    docker_probe: t.docker_probe === true,
     container: t.container || null
   };
-  return o;
 }
 
 function historySnippet(n) {
