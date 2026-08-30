@@ -19,11 +19,11 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
 .card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(212,168,75,.12);font-size:.85rem}
 .k{color:var(--m)}.val{font-weight:700}
-#chatbox{height:220px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.82rem}
-.msg{margin:6px 0;padding:6px 8px;border-radius:8px;max-width:92%;white-space:pre-wrap}
+#chatbox{height:240px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.8rem}
+.msg{margin:6px 0;padding:6px 8px;border-radius:8px;max-width:96%;white-space:pre-wrap}
 .msg.user{background:rgba(77,163,255,.2);margin-left:auto;text-align:right}
 .msg.bot{background:rgba(212,168,75,.12)}
-.hint{font-size:.72rem;color:var(--m);opacity:.9;margin-top:4px}
+.hint{font-size:.72rem;color:var(--m);margin-top:4px}
 .bar{display:flex;gap:6px}
 .bar input{flex:1;padding:10px;border-radius:10px;border:1px solid var(--bd);background:rgba(0,0,0,.35);color:var(--t)}
 .bar button{padding:10px 14px;border-radius:10px;border:0;background:var(--gold);color:#1a1208;font-weight:800;cursor:pointer}
@@ -36,13 +36,13 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.26</p>
+    <p class="sub">SoloHost · v2.6.27</p>
   </div>
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
     <h2>Chat</h2>
     <div id="chatbox"></div>
-    <p class="hint">Tip: type <b>docker</b> for optional advanced probe (off by default). <button type="button" class="link" id="dkTip">Enable…</button></p>
+    <p class="hint">Optional advanced Docker probe is off by default. <button type="button" class="link" id="dkTip">Terms &amp; enable…</button></p>
     <div class="bar">
       <input id="inp" type="text" placeholder="Message…" autocomplete="off">
       <button id="send" type="button">Send</button>
@@ -53,6 +53,28 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
 <script>
 const box=document.getElementById('chatbox');
 function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
+const TERMS =
+`OPTIONAL DOCKER ACCESS — TERMS
+
+What this is
+Optional use of Docker socket on YOUR PC to read Pi Node container status. OFF by default.
+
+SoloHost default
+Sandbox: CPU/memory, localhost port, own data, network. docker.sock is NOT a default permission. Normal monitoring does not need it.
+
+If you Agree
+• App may overwrite app-folder docker-compose.yml to mount docker.sock (read-only).
+• App may list containers and run limited read/exec for node status.
+• Higher privilege than default sandbox.
+
+Your responsibility
+You are the Operator. You accept the risk of elevated Docker access on this machine. Publisher / SoloHost / Pi Network are not liable for damage or misuse from access you enable. You may disable later and remove the volume (Stop → Start).
+
+Purpose
+Best monitoring within clear limits. Docker is optional and never required for core features.
+
+Agree only if you accept these terms.`;
+
 async function loadStatus(){
   try{
     const t=await fetch('/api/status').then(r=>r.json());
@@ -74,14 +96,17 @@ async function send(){
   }catch(e){box.lastChild.textContent='Chat error';}
 }
 async function enableDocker(){
-  add('bot','Optional Docker: sandbox default has no socket.\nAgree will overwrite app docker-compose.yml (with sock), then SoloHost Stop → Start.');
+  add('bot', TERMS);
+  add('bot','Do you agree? Type YES in chat to enable, or tap below after reading.');
+  const ok = window.confirm('I have read the Optional Docker terms and agree to enable on this PC.\n\nSoloHost: Stop → Start after compose is updated.');
+  if(!ok){add('bot','Cancelled. Sandbox default kept.');return;}
   add('bot','…');
   try{
     const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true})});
     const j=await r.json();
     if(!j.ok){box.lastChild.textContent=j.error||'Failed';return;}
     box.lastChild.textContent=j.wrote_host
-      ? 'Consent OK. docker-compose.yml updated in app folder.\nSoloHost: press Stop, then Start the app again.'
+      ? 'Terms accepted. docker-compose.yml updated in app folder.\nSoloHost: press Stop, then Start the app again.'
       : (j.hint||'Preference saved. SoloHost: Stop → Start if compose was updated.');
   }catch(e){box.lastChild.textContent='Network error';}
 }

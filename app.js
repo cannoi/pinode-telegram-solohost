@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.26-solohost';
+const VERSION = '2.6.27-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1196,7 +1196,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.26-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.27-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -1227,6 +1227,7 @@ function applyDockerConsentFiles() {
     '      - TZ=Asia/Ho_Chi_Minh',
     '    volumes:',
     '      - ./data:/data',
+    '      - ./:/solohost-config:rw',
     '      - /var/run/docker.sock:/var/run/docker.sock:ro',
     '    restart: unless-stopped',
     ''
@@ -1314,10 +1315,10 @@ function applyDockerConsentFiles() {
 function dockerConsentKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: 'I understand — enable preference', callback_data: 'cmd_docker_confirm' }],
+      [{ text: '1) Read terms', callback_data: 'cmd_docker_rules' }],
+      [{ text: '2) I agree — enable & write compose', callback_data: 'cmd_docker_confirm' }],
       [{ text: 'Cancel', callback_data: 'cmd_docker_cancel' }],
-      [{ text: 'SoloHost rules', callback_data: 'cmd_docker_rules' }],
-      [{ text: 'Open SoloHost UI http://127.0.0.1:18780/', callback_data: 'cmd_docker_local' }]
+      [{ text: 'Open app UI on this PC', callback_data: 'cmd_docker_local' }]
     ]
   };
 }
@@ -1332,35 +1333,58 @@ function dockerManageKeyboard() {
     ]
   };
 }
+
+function dockerTermsText() {
+  return [
+    'OPTIONAL DOCKER ACCESS — TERMS',
+    '==============================',
+    '',
+    'What this is',
+    'The app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.',
+    '',
+    'SoloHost default',
+    'SoloHost installs this app as a sandbox: CPU/memory, one localhost port, its own data folder, and outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring (Horizon, ports, reports, AI).',
+    '',
+    'What you grant if you Agree',
+    '- Read-only mount of /var/run/docker.sock into this app container (after Stop → Start).',
+    '- Ability for the app to list containers and run limited read commands related to Pi Node status.',
+    '- A higher privilege level than the default sandbox.',
+    '',
+    'What we do NOT claim',
+    '- We do not control your host Docker daemon beyond what the socket allows.',
+    '- We do not access your Pi wallet or keys.',
+    '- We do not guarantee security of any elevated setup you enable.',
+    '',
+    'Your responsibility (Operator)',
+    'Under SoloHost Terms, YOU decide permissions on your machine. By agreeing you confirm that:',
+    '1) You understand docker.sock is powerful and may expose Docker control surfaces on this PC.',
+    '2) You accept the risk of enabling it for optional diagnostics only.',
+    '3) You may turn the preference OFF later; removing the socket volume from compose returns to sandbox mode after Stop → Start.',
+    '4) Pi Network / SoloHost / the publisher are not responsible for damage, data loss, or misuse arising from optional elevated access you enable.',
+    '',
+    'Purpose of the app',
+    'Provide the best monitoring help we can within clear limits. Elevated Docker access is optional, user-controlled, and never required to use core features.',
+    '',
+    'Agree only if you accept these terms.'
+  ].join('\n');
+}
+async function formatDockerRules() {
+  return dockerTermsText();
+}
 async function formatDockerHelp(tel) {
   const pref = readDockerPref();
   const sock = !!(tel && tel.docker_sock);
   return [
-    'DOCKER OPTIONAL (advanced)',
-    'Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock: ' + (sock ? 'YES' : 'NO'),
+    'DOCKER OPTIONAL — STATUS',
+    'Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock in container: ' + (sock ? 'YES' : 'NO'),
     '',
-    'After Agree: app overwrites docker-compose.yml in the app folder.',
-    'Then SoloHost: Stop → Start.',
+    'Read the terms first (button: Terms).',
+    'If you Agree: app overwrites app-folder docker-compose.yml with sock, then you SoloHost Stop → Start.',
     '',
-    'Default = no docker.sock (SoloHost sandbox).'
+    'Normal monitoring works without Docker.'
   ].join('\n');
 }
-async function formatDockerRules() {
-  return [
-    'SOLOHOST RULES (summary)',
-    '=======================',
-    '',
-    'Default app: sandboxed container, no docker.sock, read-only style monitoring.',
-    '',
-    'Permissions at install: CPU/memory, one 127.0.0.1 port, own data folder, outbound network.',
-    '',
-    'Elevated Docker access requires Operator action on the host machine.',
-    'By enabling preference you confirm you understand the risk on YOUR node.',
-    '',
-    'SoloHost Terms: Permissions; Operator Consent and Responsibility.',
-    'Listing description: no Docker socket by default.'
-  ].join('\n');
-}
+
 
 function historySnippet(n) {
   try {
@@ -2064,7 +2088,12 @@ async function runCmd(cmd, userText) {
     const arg = raw.split(/\s+/)[1] || '';
     try { actionLog('info', 'user /' + cmd + (arg ? ' ' + arg : '')); } catch (e) {}
     if (cmd === 'docker_rules') {
-      return tgSend(await formatDockerRules(), { reply_markup: dockerConsentKeyboard() });
+      return tgSend(await formatDockerRules(), { reply_markup: {
+        inline_keyboard: [
+          [{ text: 'I agree — enable & write compose', callback_data: 'cmd_docker_confirm' }],
+          [{ text: 'Cancel', callback_data: 'cmd_docker_cancel' }]
+        ]
+      }});
     }
     if (cmd === 'docker_local') {
       return tgSend('On the PC SoloHost window:\nhttp://127.0.0.1:18780/\n\nChat tip: Enable… (or Telegram Agree below).\nThen SoloHost: Stop → Start.', { reply_markup: dockerConsentKeyboard() });
@@ -2082,7 +2111,8 @@ async function runCmd(cmd, userText) {
         at: new Date().toISOString(),
         by: 'telegram',
         consent: true,
-        consent_text: 'Operator confirmed optional Docker probe; host must mount docker.sock'
+        consent_version: 'docker-optional-v1',
+        consent_text: 'Operator accepted Optional Docker Access Terms; compose may include docker.sock; Stop then Start required'
       });
       const applied = applyDockerConsentFiles();
       let note = '';
@@ -2097,7 +2127,7 @@ async function runCmd(cmd, userText) {
       }
       return tgSend('Consent OK — preference ON\n\n' + note + '\n\n' + await formatDockerHelp(tel), { reply_markup: dockerManageKeyboard() });
     }
-    return tgSend(await formatDockerHelp(tel), { reply_markup: dockerConsentKeyboard() });
+    return tgSend((await formatDockerHelp(tel)) + '\n\nPlease open Terms before Agree.', { reply_markup: dockerConsentKeyboard() });
   }
 if (cmd === 'start' || cmd === 'help') {
     return tgSend(
@@ -2442,6 +2472,8 @@ const srv = http.createServer(async (req, res) => {
             writeDockerPref({
               enabled: on,
               consent: on ? true : false,
+              consent_version: on ? 'docker-optional-v1' : null,
+              consent_text: on ? 'Operator accepted Optional Docker Access Terms via SoloHost UI' : null,
               at: new Date().toISOString(),
               by: 'local_ui_home'
             });

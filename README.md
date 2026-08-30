@@ -1,8 +1,5 @@
-# SoloHost v2.6.26
+# SoloHost v2.6.27
 
-- Default: no docker.sock
-- Mount `./:/solohost-config:rw` (install dir only) so after **Operator consent** the app can overwrite **app-root** `docker-compose.yml`
-- UI: small chat tip only (no large Docker panel)
-- After consent: SoloHost **Stop → Start**
+Optional Docker requires explicit Operator consent with English terms aligned to SoloHost sandbox rules.
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.26`
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.27`
