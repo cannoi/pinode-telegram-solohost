@@ -1,14 +1,13 @@
 'use strict';
 
 /**
- * SoloHost-safe Pi Node discovery (from universal discovery concepts)
- * - No docker.sock / docker CLI required
- * - Auto-find Horizon + Core ports on host.docker.internal / bridge IPs
- * - Sticky verified endpoints
+ * SoloHost-safe adaptive discovery (runs INSIDE Controller container)
+ * - Finds Horizon + Core independently (does not stop when only Horizon works)
+ * - No docker.sock / machine-specific container names
+ * - Sticky + multi-host + port pairs + sweep
  */
 
 const http = require('http');
-const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
@@ -17,215 +16,201 @@ class PiNodeDiscovery {
     options = options || {};
     this.stateDir = options.stateDir || process.env.DATA_DIR || '/data';
     this.cacheFile = path.join(this.stateDir, 'state', 'discovery.json');
-    this.cacheTTL = options.cacheTTL || 300000; // 5 min
+    this.cacheTTL = options.cacheTTL || 180000; // 3 min
     this.discovered = loadJson(this.cacheFile, null);
     this.log = [];
   }
 
   note(msg) {
-    this.log.push({ t: Date.now(), msg: String(msg) });
-    if (this.log.length > 80) this.log.shift();
+    this.log.push({ t: Date.now(), msg: String(msg).slice(0, 200) });
+    if (this.log.length > 100) this.log.shift();
+  }
+
+  hosts() {
+    return uniq([
+      process.env.NODE_HOST || 'host.docker.internal',
+      'host.docker.internal',
+      '172.17.0.1',
+      '172.18.0.1',
+      '172.19.0.1',
+      '10.0.2.2',
+      'localhost',
+      '127.0.0.1'
+    ]);
+  }
+
+  horizonPorts() {
+    return uniq([
+      parseInt(process.env.HORIZON_PORT || '31401', 10) || 31401,
+      31401, 8000, 31400, 3000
+    ]);
+  }
+
+  corePorts() {
+    return uniq([
+      parseInt(process.env.CORE_HTTP_PORT || process.env.CORE_RPC_PORT || '11626', 10) || 11626,
+      11626, 11826, 31400, 11625, 11627, 8001
+    ]);
   }
 
   async discover(force) {
     if (!force && this.discovered && this.discovered.verified &&
         this.discovered.at && Date.now() - this.discovered.at < this.cacheTTL) {
+      // If Core still missing, occasionally re-probe Core only
+      if (!this.discovered.coreOk && Date.now() - this.discovered.at > 60000) {
+        await this.refineCore(this.discovered);
+        this.discovered.at = Date.now();
+        saveJson(this.cacheFile, this.discovered);
+      }
       return this.discovered;
     }
+
     this.log = [];
-    this.note('discovery start');
+    this.note('discovery start (adaptive)');
 
-    const strategies = [
-      () => this.byEnv(),
-      () => this.bySticky(),
-      () => this.byHostDockerInternal(),
-      () => this.byBridgeHosts(),
-      () => this.byPortSweep()
-    ];
-
-    for (let i = 0; i < strategies.length; i++) {
-      try {
-        const r = await strategies[i]();
-        if (r && r.verified) {
-          r.at = Date.now();
-          this.discovered = r;
-          saveJson(this.cacheFile, r);
-          this.note('success ' + r.strategy);
-          return r;
-        }
-      } catch (e) {
-        this.note('strategy err: ' + (e && e.message));
-      }
-    }
-
-    // Best effort unverified
-    const best = this.discovered && this.discovered.horizonHost ? this.discovered : {
-      strategy: 'none',
+    const result = {
+      strategy: 'adaptive',
       verified: false,
-      horizonHost: process.env.NODE_HOST || 'host.docker.internal',
-      horizonPort: parseInt(process.env.HORIZON_PORT || '31401', 10) || 31401,
-      coreHost: process.env.NODE_HOST || 'host.docker.internal',
-      corePort: parseInt(process.env.CORE_HTTP_PORT || '11626', 10) || 11626,
+      horizonHost: null,
+      horizonPort: null,
+      coreHost: null,
+      corePort: null,
+      horizonOk: false,
+      coreOk: false,
+      network_kind: null,
       at: Date.now()
     };
-    this.discovered = best;
-    this.note('fallback unverified');
-    return best;
-  }
 
-  async byEnv() {
-    const hh = process.env.NODE_HOST || process.env.HORIZON_HOST;
-    const hp = parseInt(process.env.HORIZON_PORT || '', 10);
-    const cp = parseInt(process.env.CORE_HTTP_PORT || process.env.CORE_RPC_PORT || '', 10);
-    if (!hh && !hp && !cp) return null;
-    const host = hh || 'host.docker.internal';
-    const horizonPort = hp || 31401;
-    const corePort = cp || 11626;
-    const v = await this.verify(host, horizonPort, host, corePort);
-    if (v.horizonOk || v.coreOk) {
-      return {
-        strategy: 'environment_vars',
-        verified: true,
-        horizonHost: host,
-        horizonPort: horizonPort,
-        coreHost: host,
-        corePort: corePort,
-        horizonOk: v.horizonOk,
-        coreOk: v.coreOk,
-        network_kind: v.network_kind
-      };
-    }
-    return null;
-  }
-
-  async bySticky() {
-    const s = this.discovered;
-    if (!s || !s.horizonHost) return null;
-    const v = await this.verify(s.horizonHost, s.horizonPort, s.coreHost || s.horizonHost, s.corePort);
-    if (v.horizonOk || v.coreOk) {
-      return Object.assign({}, s, {
-        strategy: 'sticky',
-        verified: true,
-        horizonOk: v.horizonOk,
-        coreOk: v.coreOk,
-        network_kind: v.network_kind || s.network_kind
-      });
-    }
-    return null;
-  }
-
-  async byHostDockerInternal() {
-    const host = 'host.docker.internal';
-    const pairs = [
-      [31401, 11626], [31401, 11826], [31401, 31400],
-      [8000, 11626], [8000, 11826],
-      [31401, null], [8000, null]
-    ];
-    for (let i = 0; i < pairs.length; i++) {
-      const hp = pairs[i][0];
-      const cp = pairs[i][1];
-      const v = await this.verify(host, hp, host, cp);
-      if (v.horizonOk || v.coreOk) {
-        return {
-          strategy: 'host_docker_internal',
-          verified: true,
-          horizonHost: host,
-          horizonPort: hp,
-          coreHost: host,
-          corePort: cp || 11626,
-          horizonOk: v.horizonOk,
-          coreOk: v.coreOk,
-          network_kind: v.network_kind
-        };
+    // Phase 1: sticky endpoints first (fast)
+    if (this.discovered && this.discovered.horizonHost) {
+      const hz = await this.verifyHorizon(this.discovered.horizonHost, this.discovered.horizonPort);
+      if (hz) {
+        result.horizonHost = this.discovered.horizonHost;
+        result.horizonPort = this.discovered.horizonPort;
+        result.horizonOk = true;
+        result.network_kind = hz.network_kind;
+        result.strategy = 'sticky+adaptive';
+        this.note('horizon sticky ok ' + result.horizonHost + ':' + result.horizonPort);
       }
-    }
-    return null;
-  }
-
-  async byBridgeHosts() {
-    const hosts = ['172.17.0.1', '172.18.0.1', '10.0.2.2', 'localhost', '127.0.0.1'];
-    const hPorts = [31401, 8000];
-    const cPorts = [11626, 11826, 31400];
-    for (let hi = 0; hi < hosts.length; hi++) {
-      for (let pi = 0; pi < hPorts.length; pi++) {
-        const v = await this.verify(hosts[hi], hPorts[pi], hosts[hi], cPorts[0]);
-        if (v.horizonOk) {
-          // try find core on same host
-          let corePort = cPorts[0];
-          let coreOk = v.coreOk;
-          for (let ci = 0; ci < cPorts.length && !coreOk; ci++) {
-            const cv = await this.verifyCore(hosts[hi], cPorts[ci]);
-            if (cv) { corePort = cPorts[ci]; coreOk = true; }
-          }
-          return {
-            strategy: 'bridge_hosts',
-            verified: true,
-            horizonHost: hosts[hi],
-            horizonPort: hPorts[pi],
-            coreHost: hosts[hi],
-            corePort: corePort,
-            horizonOk: true,
-            coreOk: coreOk,
-            network_kind: v.network_kind
-          };
+      if (this.discovered.coreHost && this.discovered.corePort) {
+        if (await this.verifyCore(this.discovered.coreHost, this.discovered.corePort)) {
+          result.coreHost = this.discovered.coreHost;
+          result.corePort = this.discovered.corePort;
+          result.coreOk = true;
+          this.note('core sticky ok ' + result.coreHost + ':' + result.corePort);
         }
       }
     }
-    return null;
+
+    // Phase 2: find Horizon if missing (parallel candidates, race)
+    if (!result.horizonOk) {
+      const hzHit = await this.findHorizon();
+      if (hzHit) {
+        result.horizonHost = hzHit.host;
+        result.horizonPort = hzHit.port;
+        result.horizonOk = true;
+        result.network_kind = hzHit.network_kind;
+        result.strategy = hzHit.via || 'horizon-scan';
+        this.note('horizon found ' + hzHit.host + ':' + hzHit.port + ' via ' + result.strategy);
+      }
+    }
+
+    // Phase 3: ALWAYS try to find Core (even if Horizon already ok)
+    // This fixes early-stop on environment_vars with coreOk:false
+    if (!result.coreOk) {
+      const coreHit = await this.findCore(result.horizonHost);
+      if (coreHit) {
+        result.coreHost = coreHit.host;
+        result.corePort = coreHit.port;
+        result.coreOk = true;
+        this.note('core found ' + coreHit.host + ':' + coreHit.port);
+      } else {
+        this.note('core not reachable (will label Horizon-only)');
+      }
+    }
+
+    result.verified = !!(result.horizonOk || result.coreOk);
+    result.at = Date.now();
+    this.discovered = result;
+    saveJson(this.cacheFile, result);
+    this.note(result.verified
+      ? ('done horizon=' + result.horizonOk + ' core=' + result.coreOk)
+      : 'done — no sources');
+    return result;
   }
 
-  async byPortSweep() {
-    // Scan common host-mapped Horizon range on host.docker.internal
-    const host = 'host.docker.internal';
+  async refineCore(result) {
+    if (!result || result.coreOk) return result;
+    this.note('refine core probe');
+    const coreHit = await this.findCore(result.horizonHost);
+    if (coreHit) {
+      result.coreHost = coreHit.host;
+      result.corePort = coreHit.port;
+      result.coreOk = true;
+      this.note('core refined ' + coreHit.host + ':' + coreHit.port);
+    }
+    return result;
+  }
+
+  async findHorizon() {
+    const hosts = this.hosts();
+    const ports = this.horizonPorts();
+    // Prefer env host/port first by ordering
+    const urls = [];
+    for (let h = 0; h < hosts.length; h++) {
+      for (let p = 0; p < ports.length; p++) {
+        urls.push({ host: hosts[h], port: ports[p] });
+      }
+    }
+    // Sweep 31401-31410 on primary host
+    const primary = hosts[0];
     for (let p = 31401; p <= 31410; p++) {
-      const hz = await this.verifyHorizon(host, p);
-      if (hz) {
-        let corePort = 11626;
-        let coreOk = false;
-        const cands = [11626, 11826, 31400, p + 25];
-        for (let i = 0; i < cands.length; i++) {
-          if (await this.verifyCore(host, cands[i])) {
-            corePort = cands[i];
-            coreOk = true;
-            break;
-          }
-        }
-        return {
-          strategy: 'port_sweep',
-          verified: true,
-          horizonHost: host,
-          horizonPort: p,
-          coreHost: host,
-          corePort: corePort,
-          horizonOk: true,
-          coreOk: coreOk,
-          network_kind: hz.network_kind
-        };
-      }
+      urls.push({ host: primary, port: p });
+    }
+
+    // Parallel batches of 6
+    for (let i = 0; i < urls.length; i += 6) {
+      const batch = urls.slice(i, i + 6);
+      const found = await raceFirst(batch.map((u) => {
+        return this.verifyHorizon(u.host, u.port).then(function (hz) {
+          if (!hz) return null;
+          return { host: u.host, port: u.port, network_kind: hz.network_kind, via: 'scan' };
+        });
+      }));
+      if (found) return found;
     }
     return null;
   }
 
-  async verify(horizonHost, horizonPort, coreHost, corePort) {
-    const out = { horizonOk: false, coreOk: false, network_kind: null };
-    if (horizonHost && horizonPort) {
-      const hz = await this.verifyHorizon(horizonHost, horizonPort);
-      if (hz) {
-        out.horizonOk = true;
-        out.network_kind = hz.network_kind;
+  async findCore(preferHost) {
+    const hosts = uniq([preferHost].concat(this.hosts()).filter(Boolean));
+    const ports = this.corePorts();
+    const urls = [];
+    for (let h = 0; h < hosts.length; h++) {
+      for (let p = 0; p < ports.length; p++) {
+        urls.push({ host: hosts[h], port: ports[p] });
       }
     }
-    if (coreHost && corePort) {
-      out.coreOk = !!(await this.verifyCore(coreHost, corePort));
+    for (let i = 0; i < urls.length; i += 6) {
+      const batch = urls.slice(i, i + 6);
+      const found = await raceFirst(batch.map((u) => {
+        return this.verifyCore(u.host, u.port).then(function (ok) {
+          if (!ok) return null;
+          return { host: u.host, port: u.port };
+        });
+      }));
+      if (found) return found;
     }
-    return out;
+    return null;
   }
 
   async verifyHorizon(host, port) {
+    if (!host || !port) return null;
     try {
-      const body = await httpGet('http://' + host + ':' + port + '/', 1600);
+      const body = await httpGet('http://' + host + ':' + port + '/', 1500);
       const j = JSON.parse(body);
-      if (j.core_latest_ledger == null && j.history_latest_ledger == null && !j.network_passphrase) {
+      if (j.core_latest_ledger == null && j.history_latest_ledger == null &&
+          j.ingest_latest_ledger == null && !j.network_passphrase) {
         return null;
       }
       let network_kind = null;
@@ -235,15 +220,16 @@ class PiNodeDiscovery {
         else if (/public|main/.test(n)) network_kind = 'mainnet';
         else network_kind = 'custom';
       }
-      return { network_kind: network_kind };
+      return { network_kind: network_kind, sample: j };
     } catch (e) {
       return null;
     }
   }
 
   async verifyCore(host, port) {
+    if (!host || !port) return false;
     try {
-      const body = await httpGet('http://' + host + ':' + port + '/info', 1400);
+      const body = await httpGet('http://' + host + ':' + port + '/info', 1300);
       const j = JSON.parse(body);
       const info = j.info || j;
       return !!(info && (info.state != null || (info.ledger && info.ledger.num != null)));
@@ -253,10 +239,7 @@ class PiNodeDiscovery {
   }
 
   getReport() {
-    return {
-      discovered: this.discovered,
-      log: this.log.slice(-30)
-    };
+    return { discovered: this.discovered, log: this.log.slice(-40) };
   }
 }
 
@@ -271,8 +254,45 @@ function httpGet(url, timeoutMs) {
       });
     });
     req.on('error', reject);
-    req.on('timeout', function () { try { req.destroy(); } catch (e) {} reject(new Error('timeout')); });
+    req.on('timeout', function () {
+      try { req.destroy(); } catch (e) {}
+      reject(new Error('timeout'));
+    });
   });
+}
+
+function raceFirst(promises) {
+  return new Promise(function (resolve) {
+    let left = promises.length;
+    if (!left) return resolve(null);
+    let done = false;
+    promises.forEach(function (p) {
+      Promise.resolve(p).then(function (v) {
+        if (!done && v) {
+          done = true;
+          resolve(v);
+        } else {
+          left--;
+          if (!done && left <= 0) resolve(null);
+        }
+      }).catch(function () {
+        left--;
+        if (!done && left <= 0) resolve(null);
+      });
+    });
+  });
+}
+
+function uniq(arr) {
+  const s = {};
+  const out = [];
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i];
+    if (v == null || s[String(v)]) continue;
+    s[String(v)] = true;
+    out.push(v);
+  }
+  return out;
 }
 
 function loadJson(f, fb) {

@@ -428,6 +428,20 @@ class PiNodeStatusMonitor {
       if (core.data.ledger != null) primary.ledger = core.data.ledger;
       if (core.data.ledger_age != null) primary.ledger_age = core.data.ledger_age;
       if (core.data.core_state) primary.core_state = core.data.core_state;
+      // Cross-check: large ledger gap between Core and Horizon => lower confidence
+      if (core.data.ledger != null && hz.data.ledger != null) {
+        const gap = Math.abs(Number(core.data.ledger) - Number(hz.data.ledger));
+        primary.ledger_gap = gap;
+        if (gap > 50) {
+          primary.sync_confidence = 'medium';
+          primary.cross_check = 'ledger_gap_' + gap;
+        }
+      }
+      // Core Catching up always wins over Horizon "live"
+      if (core.data.sync && /catching|joining/i.test(String(core.data.sync))) {
+        primary.sync = core.data.sync;
+        primary.level_hint = 'soft';
+      }
     } else if (core.ok) {
       primary = Object.assign({}, core.data);
       primary.core_verified = true;
