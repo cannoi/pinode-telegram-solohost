@@ -11,16 +11,38 @@
 
 const http = require('http');
 const fs = require('fs');
+const path = require('path');
 const { execFile } = require('child_process');
 
 const SOCK = process.env.DOCKER_SOCK || '/var/run/docker.sock';
 const ENABLED = String(process.env.DOCKER_PROBE || 'auto').toLowerCase(); // auto|1|0
 
+function readUserPref() {
+  try {
+    const f = path.join(process.env.DATA_DIR || '/data', 'state', 'docker-pref.json');
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    return j;
+  } catch (e) { return null; }
+}
+
 function dockerAllowed() {
+  // Explicit off via env always wins
   if (ENABLED === '0' || ENABLED === 'false' || ENABLED === 'off') return false;
-  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on') return true;
-  // auto
-  try { return fs.existsSync(SOCK); } catch (e) { return false; }
+  // Explicit on via env
+  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on') {
+    try { return fs.existsSync(SOCK); } catch (e) { return false; }
+  }
+  // User preference from chat (/docker on) — only if socket already mounted by operator
+  const pref = readUserPref();
+  if (pref && pref.enabled === false) return false;
+  if (pref && pref.enabled === true) {
+    try { return fs.existsSync(SOCK); } catch (e) { return false; }
+  }
+  // auto: use sock only if present (never force)
+  if (ENABLED === 'auto') {
+    try { return fs.existsSync(SOCK); } catch (e) { return false; }
+  }
+  return false;
 }
 
 function dockerApi(path, timeoutMs) {

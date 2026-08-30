@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.21","description":"SoloHost-safe multi-source monitor; optional docker.sock","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.22","description":"SoloHost-safe monitor + /docker opt-in help","main":"loader.js","private":true}

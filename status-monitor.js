@@ -189,8 +189,14 @@ class PiNodeStatusMonitor {
       this.probeCoreHttp(),
       this.probeNetwork()
     ];
-    const dockerOn = String(process.env.DOCKER_PROBE || '0').toLowerCase();
-    const wantDocker = dockerOn === '1' || dockerOn === 'true' || dockerOn === 'on' || dockerOn === 'auto';
+    // Docker only when operator opted in (env or /docker on) AND socket exists
+    let wantDocker = false;
+    try {
+      wantDocker = dockerProbe.dockerAllowed();
+    } catch (e) {
+      const dockerOn = String(process.env.DOCKER_PROBE || '0').toLowerCase();
+      wantDocker = dockerOn === '1' || dockerOn === 'true' || dockerOn === 'on' || dockerOn === 'auto';
+    }
     if (wantDocker) {
       tasks.push(dockerProbe.probeDocker().catch(function (e) {
         return { available: false, error: e.message };

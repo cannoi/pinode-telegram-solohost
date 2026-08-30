@@ -1,15 +1,13 @@
-# SoloHost v2.6.21 — Official sandbox-friendly
+# SoloHost v2.6.22
 
-## Default (SoloHost listing compliant)
-- **No docker.sock** in install compose
-- Sources: Horizon `/` → Core HTTP → TCP ports → state files
-- Multi-source consensus (HEALTHY / DEGRADED / PARTIAL)
-- Full Horizon fields for Telegram + AI
+Default: no docker.sock (listing compliant).
 
-## Optional (user opts in after install)
-Overwrite compose with `docker-compose.with-docker.yml` or set:
-`DOCKER_PROBE=1` + mount `/var/run/docker.sock:ro`
+Chat:
+- `/docker` — status + how to opt in
+- `/docker on` — preference ON (uses sock only if operator mounted it)
+- `/docker off` — preference OFF
+- Button **DOCKER** on keyboard
 
-`AUTO_DOCKER_SOCK=0` by default (no auto privilege escalation)
+Mount sock only by editing host compose after install (user responsibility).
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.21`
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.22`

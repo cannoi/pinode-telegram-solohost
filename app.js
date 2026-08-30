@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.21-solohost';
+const VERSION = '2.6.22-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1178,6 +1178,49 @@ function buildFacts(t) {
   };
 }
 
+function dockerPrefPath() {
+  return path.join(DATA, 'state', 'docker-pref.json');
+}
+function readDockerPref() {
+  try { return JSON.parse(fs.readFileSync(dockerPrefPath(), 'utf8')); } catch (e) { return { enabled: false }; }
+}
+function writeDockerPref(obj) {
+  try {
+    fs.mkdirSync(path.dirname(dockerPrefPath()), { recursive: true });
+    fs.writeFileSync(dockerPrefPath(), JSON.stringify(obj, null, 2));
+  } catch (e) {}
+}
+async function formatDockerHelp(tel) {
+  const pref = readDockerPref();
+  const sock = tel && tel.docker_sock;
+  const lines = [];
+  lines.push('🐳 DOCKER OPTIONAL');
+  lines.push('━━━━━━━━━━━━━━━━━━');
+  lines.push('Pref: ' + (pref.enabled ? 'ON (use sock if mounted)' : 'OFF (SoloHost default)'));
+  lines.push('Sock in container: ' + (sock ? 'yes' : 'no'));
+  lines.push('Probe: ' + (tel && tel.docker_probe ? 'yes' : 'no'));
+  if (tel && tel.docker) lines.push('Docker: ' + tel.docker);
+  if (tel && tel.container) lines.push('Container: ' + tel.container);
+  lines.push('');
+  lines.push('SoloHost default = no docker.sock (sandbox).');
+  lines.push('You may opt in on your machine only:');
+  lines.push('1) Stop app in SoloHost');
+  lines.push('2) Edit docker-compose.yml in app folder');
+  lines.push('   volumes: add');
+  lines.push('   /var/run/docker.sock:/var/run/docker.sock:ro');
+  lines.push('   env: DOCKER_PROBE=1');
+  lines.push('3) Start app again');
+  lines.push('');
+  lines.push('Chat toggles (preference only):');
+  lines.push('/docker on  — prefer Docker probe when sock exists');
+  lines.push('/docker off — disable Docker probe');
+  lines.push('/docker     — this status');
+  lines.push('');
+  lines.push('Cannot mount sock from chat (needs host compose).');
+  return lines.join('\n');
+}
+
+
 function historySnippet(n) {
   try {
     return readHistory(2).slice(-(n || 24)).map(function (r) {
@@ -1774,6 +1817,9 @@ function mainKeyboard() {
       [
         { text: '💻 Windows PRO', callback_data: 'cmd_winpro' },
         { text: '💛 DONATE', callback_data: 'cmd_donate' }
+      ],
+      [
+        { text: '🐳 DOCKER', callback_data: 'cmd_docker' }
       ]
     ]
   };
@@ -1871,6 +1917,21 @@ async function runCmd(cmd, userText) {
     return true;
   }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
+  if (cmd === 'docker' || cmd === 'dockersock' || cmd.indexOf('docker ') === 0) {
+    const arg = (text || '').trim().split(/\s+/)[1] || '';
+    const tel = await getTelemetry();
+    if (arg === 'on' || arg === 'enable' || arg === '1') {
+      writeDockerPref({ enabled: true, at: new Date().toISOString(), by: 'telegram' });
+      actionLog('ok', 'docker pref ON');
+      return tgSend('🐳 Docker probe preference: ON\n\nStill need docker.sock mounted on the host compose.\n' + await formatDockerHelp(tel));
+    }
+    if (arg === 'off' || arg === 'disable' || arg === '0') {
+      writeDockerPref({ enabled: false, at: new Date().toISOString(), by: 'telegram' });
+      actionLog('ok', 'docker pref OFF');
+      return tgSend('🐳 Docker probe preference: OFF\nSoloHost default sandbox mode.');
+    }
+    return tgSend(await formatDockerHelp(tel));
+  }
   if (cmd === 'start' || cmd === 'help') {
     return tgSend(
       'PI NODE CONTROLLER · SoloHost\n' +
