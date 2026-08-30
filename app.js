@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.22-solohost';
+const VERSION = '2.6.23-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1190,36 +1190,76 @@ function writeDockerPref(obj) {
     fs.writeFileSync(dockerPrefPath(), JSON.stringify(obj, null, 2));
   } catch (e) {}
 }
+
+function dockerConsentKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: 'I understand — enable preference', callback_data: 'cmd_docker_confirm' }],
+      [{ text: 'Cancel', callback_data: 'cmd_docker_cancel' }],
+      [{ text: 'SoloHost rules', callback_data: 'cmd_docker_rules' }],
+      [{ text: 'Open local confirm UI', callback_data: 'cmd_docker_local' }]
+    ]
+  };
+}
+function dockerManageKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: 'Keep ON', callback_data: 'cmd_docker_confirm' },
+        { text: 'Turn OFF', callback_data: 'cmd_docker_off' }
+      ],
+      [{ text: 'STATUS', callback_data: 'cmd_status' }]
+    ]
+  };
+}
 async function formatDockerHelp(tel) {
   const pref = readDockerPref();
-  const sock = tel && tel.docker_sock;
+  const sock = !!(tel && tel.docker_sock);
   const lines = [];
-  lines.push('🐳 DOCKER OPTIONAL');
-  lines.push('━━━━━━━━━━━━━━━━━━');
-  lines.push('Pref: ' + (pref.enabled ? 'ON (use sock if mounted)' : 'OFF (SoloHost default)'));
-  lines.push('Sock in container: ' + (sock ? 'yes' : 'no'));
-  lines.push('Probe: ' + (tel && tel.docker_probe ? 'yes' : 'no'));
-  if (tel && tel.docker) lines.push('Docker: ' + tel.docker);
-  if (tel && tel.container) lines.push('Container: ' + tel.container);
+  lines.push('DOCKER OPTIONAL EXTENSION');
+  lines.push('========================');
   lines.push('');
-  lines.push('SoloHost default = no docker.sock (sandbox).');
-  lines.push('You may opt in on your machine only:');
-  lines.push('1) Stop app in SoloHost');
-  lines.push('2) Edit docker-compose.yml in app folder');
-  lines.push('   volumes: add');
-  lines.push('   /var/run/docker.sock:/var/run/docker.sock:ro');
-  lines.push('   env: DOCKER_PROBE=1');
-  lines.push('3) Start app again');
+  lines.push('Purpose');
+  lines.push('- Optional Core status via docker when YOU mount the socket');
+  lines.push('- Default monitoring stays Horizon + ports (no sock required)');
   lines.push('');
-  lines.push('Chat toggles (preference only):');
-  lines.push('/docker on  — prefer Docker probe when sock exists');
-  lines.push('/docker off — disable Docker probe');
-  lines.push('/docker     — this status');
+  lines.push('Current');
+  lines.push('- Preference: ' + (pref.enabled ? 'ON' : 'OFF'));
+  lines.push('- Socket in container: ' + (sock ? 'YES' : 'NO'));
+  lines.push('- Probe active: ' + ((tel && tel.docker_probe) ? 'YES' : 'NO'));
+  if (tel && tel.container) lines.push('- Container: ' + tel.container);
   lines.push('');
-  lines.push('Cannot mount sock from chat (needs host compose).');
+  lines.push('SoloHost boundary');
+  lines.push('- Install permissions: sandbox, localhost port, own data, network');
+  lines.push('- docker.sock is NOT a default SoloHost permission');
+  lines.push('- Only the Operator may mount it on the host (Terms: Operator Consent)');
+  lines.push('');
+  lines.push('To really enable on the PC running the node');
+  lines.push('1) Edit app docker-compose.yml');
+  lines.push('2) volumes: /var/run/docker.sock:/var/run/docker.sock:ro');
+  lines.push('3) DOCKER_PROBE=1');
+  lines.push('4) Restart SoloHost app');
+  lines.push('5) Confirm with the button below (or http://127.0.0.1:18780/docker)');
+  lines.push('');
+  lines.push('This chat stores preference only. Mounting sock is a host action.');
   return lines.join('\n');
 }
-
+async function formatDockerRules() {
+  return [
+    'SOLOHOST RULES (summary)',
+    '=======================',
+    '',
+    'Default app: sandboxed container, no docker.sock, read-only style monitoring.',
+    '',
+    'Permissions at install: CPU/memory, one 127.0.0.1 port, own data folder, outbound network.',
+    '',
+    'Elevated Docker access requires Operator action on the host machine.',
+    'By enabling preference you confirm you understand the risk on YOUR node.',
+    '',
+    'SoloHost Terms: Permissions; Operator Consent and Responsibility.',
+    'Listing description: no Docker socket by default.'
+  ].join('\n');
+}
 
 function historySnippet(n) {
   try {
@@ -1819,7 +1859,7 @@ function mainKeyboard() {
         { text: '💛 DONATE', callback_data: 'cmd_donate' }
       ],
       [
-        { text: '🐳 DOCKER', callback_data: 'cmd_docker' }
+        { text: '🐳 Docker optional', callback_data: 'cmd_docker' }
       ]
     ]
   };
@@ -1917,22 +1957,40 @@ async function runCmd(cmd, userText) {
     return true;
   }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
-  if (cmd === 'docker' || cmd === 'dockersock' || cmd.indexOf('docker ') === 0) {
-    const arg = (text || '').trim().split(/\s+/)[1] || '';
+    if (cmd === 'docker' || cmd === 'dockersock' || cmd === 'docker_confirm' || cmd === 'docker_cancel' || cmd === 'docker_off' || cmd === 'docker_rules' || cmd === 'docker_local' || (typeof cmd === 'string' && cmd.indexOf('docker ') === 0)) {
     const tel = await getTelemetry();
-    if (arg === 'on' || arg === 'enable' || arg === '1') {
-      writeDockerPref({ enabled: true, at: new Date().toISOString(), by: 'telegram' });
-      actionLog('ok', 'docker pref ON');
-      return tgSend('🐳 Docker probe preference: ON\n\nStill need docker.sock mounted on the host compose.\n' + await formatDockerHelp(tel));
+    const raw = String(userText || cmd || '').trim();
+    const arg = raw.split(/\s+/)[1] || '';
+    try { actionLog('info', 'user /' + cmd + (arg ? ' ' + arg : '')); } catch (e) {}
+    if (cmd === 'docker_rules') {
+      return tgSend(await formatDockerRules(), { reply_markup: dockerConsentKeyboard() });
     }
-    if (arg === 'off' || arg === 'disable' || arg === '0') {
-      writeDockerPref({ enabled: false, at: new Date().toISOString(), by: 'telegram' });
-      actionLog('ok', 'docker pref OFF');
-      return tgSend('🐳 Docker probe preference: OFF\nSoloHost default sandbox mode.');
+    if (cmd === 'docker_local') {
+      return tgSend('Confirm on the PC running the node:\nhttp://127.0.0.1:18780/docker\n\n(That page is the SoloHost local UI consent.)', { reply_markup: dockerConsentKeyboard() });
     }
-    return tgSend(await formatDockerHelp(tel));
+    if (cmd === 'docker_cancel') {
+      return tgSend('Cancelled. Docker preference unchanged.\nSoloHost default: no docker.sock.', { reply_markup: mainKeyboard() });
+    }
+    if (cmd === 'docker_off' || arg === 'off' || arg === 'disable' || arg === '0') {
+      writeDockerPref({ enabled: false, at: new Date().toISOString(), by: 'telegram', consent: false });
+      return tgSend('Docker preference: OFF\nSandbox mode (SoloHost default).', { reply_markup: mainKeyboard() });
+    }
+    if (cmd === 'docker_confirm' || arg === 'on' || arg === 'enable' || arg === '1') {
+      writeDockerPref({
+        enabled: true,
+        at: new Date().toISOString(),
+        by: 'telegram',
+        consent: true,
+        consent_text: 'Operator confirmed optional Docker probe; host must mount docker.sock'
+      });
+      const note = (tel && tel.docker_sock)
+        ? 'Socket detected — probe can run on next /status.'
+        : 'Preference ON but socket NOT mounted yet.\nEdit host compose, then Restart app.\nOr open http://127.0.0.1:18780/docker on this PC.';
+      return tgSend('Consent recorded: preference ON\n\n' + note + '\n\n' + await formatDockerHelp(tel), { reply_markup: dockerManageKeyboard() });
+    }
+    return tgSend(await formatDockerHelp(tel), { reply_markup: dockerConsentKeyboard() });
   }
-  if (cmd === 'start' || cmd === 'help') {
+if (cmd === 'start' || cmd === 'help') {
     return tgSend(
       'PI NODE CONTROLLER · SoloHost\n' +
       '━━━━━━━━━━━━━━━━━━\n' +
@@ -2200,6 +2258,46 @@ const srv = http.createServer(async (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
       }
+      return;
+    }
+
+    
+    if (u === '/docker' || u === '/docker/' || u.indexOf('/docker/confirm') === 0 || u.indexOf('/docker/off') === 0) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      const pref = readDockerPref();
+      if (u.indexOf('/docker/confirm') === 0) {
+        writeDockerPref({ enabled: true, at: new Date().toISOString(), by: 'local_ui', consent: true });
+        try { actionLog('ok', 'docker pref ON via local UI'); } catch (e) {}
+        res.end('<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:2rem auto"><h2>Consent saved</h2><p>Docker preference <b>ON</b>.</p><p>Mount <code>docker.sock</code> in host compose if not done, then Restart app.</p><p><a href="/docker">Back</a></p></body></html>');
+        return;
+      }
+      if (u.indexOf('/docker/off') === 0) {
+        writeDockerPref({ enabled: false, at: new Date().toISOString(), by: 'local_ui', consent: false });
+        try { actionLog('ok', 'docker pref OFF via local UI'); } catch (e) {}
+        res.end('<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:2rem auto"><h2>OFF</h2><p>Sandbox default.</p><p><a href="/docker">Back</a></p></body></html>');
+        return;
+      }
+      let sockExists = false;
+      try { sockExists = fs.existsSync('/var/run/docker.sock'); } catch (e) {}
+      res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docker optional</title>'
+        + '<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:1.5rem auto;padding:0 1rem;line-height:1.45}'
+        + '.box{border:1px solid #ccc;border-radius:8px;padding:1rem;margin:1rem 0;background:#f8f8f8}'
+        + '.btn{display:inline-block;margin:.3rem .4rem .3rem 0;padding:.65rem 1rem;border-radius:6px;text-decoration:none;color:#fff;font-weight:600}'
+        + '.yes{background:#0a7}.no{background:#555} code{background:#eee;padding:0 .25rem}</style></head><body>'
+        + '<h1>Optional Docker access</h1>'
+        + '<p>Confirm on <b>this computer</b> (SoloHost node). Default app stays sandboxed.</p>'
+        + '<div class="box"><p><b>Preference:</b> ' + (pref.enabled ? 'ON' : 'OFF') + '<br>'
+        + '<b>Socket in container:</b> ' + (sockExists ? 'YES' : 'NO') + '</p>'
+        + '<p><b>Purpose:</b> optional Core/container probe when you mount the engine socket.</p>'
+        + '<p><b>SoloHost:</b> install does <u>not</u> include docker.sock. Mounting it is Operator choice under SoloHost Terms (Permissions &amp; Operator Consent).</p></div>'
+        + '<div class="box"><p><b>Host steps:</b></p><ol>'
+        + '<li>Edit <code>docker-compose.yml</code> in this app folder</li>'
+        + '<li>Add <code>/var/run/docker.sock:/var/run/docker.sock:ro</code></li>'
+        + '<li>Set <code>DOCKER_PROBE=1</code></li>'
+        + '<li>Restart the app in SoloHost</li></ol></div>'
+        + '<p><a class="btn yes" href="/docker/confirm">I understand — enable preference</a> '
+        + '<a class="btn no" href="/docker/off">Disable</a></p>'
+        + '<p><a href="/">Controller home</a></p></body></html>');
       return;
     }
 

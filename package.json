@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.22","description":"SoloHost-safe monitor + /docker opt-in help","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.23","description":"Docker optional with explicit consent Telegram + local UI","main":"loader.js","private":true}

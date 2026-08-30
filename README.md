@@ -1,13 +1,8 @@
-# SoloHost v2.6.22
+# SoloHost v2.6.23
 
-Default: no docker.sock (listing compliant).
+Docker optional with explicit consent:
+- Telegram: button **Docker optional** → explanation + Confirm / Cancel / Rules / Local UI
+- Local UI on the node PC: http://127.0.0.1:18780/docker
+- Default: no docker.sock (SoloHost sandbox)
 
-Chat:
-- `/docker` — status + how to opt in
-- `/docker on` — preference ON (uses sock only if operator mounted it)
-- `/docker off` — preference OFF
-- Button **DOCKER** on keyboard
-
-Mount sock only by editing host compose after install (user responsibility).
-
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.22`
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.23`
