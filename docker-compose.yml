@@ -11,8 +11,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - NODE_HOST=host.docker.internal
       - HORIZON_PORT=31401
+      - CORE_HTTP_PORT=11626
       - TELEMETRY_SEC=60
-      - HORIZON_REFRESH_SEC=300
       - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data

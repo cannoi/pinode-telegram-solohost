@@ -1,8 +1,1 @@
-{
-  "name": "pinode-telegram-solohost",
-  "version": "2.6.13",
-  "description": "Pi Node SoloHost Fast Core-first reader and Telegram controller",
-  "main": "loader.js",
-  "private": true,
-  "engines": { "node": ">=20" }
-}
+{"name":"pinode-telegram-solohost","version":"2.6.13","description":"SoloHost multi-source status monitor (Horizon→Core→state→ports)","main":"loader.js","private":true}
