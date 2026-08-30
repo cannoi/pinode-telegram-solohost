@@ -1,8 +1,10 @@
-# SoloHost v2.6.23
+# SoloHost v2.6.24
 
-Docker optional with explicit consent:
-- Telegram: button **Docker optional** → explanation + Confirm / Cancel / Rules / Local UI
-- Local UI on the node PC: http://127.0.0.1:18780/docker
-- Default: no docker.sock (SoloHost sandbox)
+After **Agree** (Telegram or http://127.0.0.1:18780/docker):
+- Writes ready `data/docker-enable/docker-compose.yml` (+ APPLY scripts)
+- If `./:/solohost-config` mounted, fills host `docker-compose.yml` (consent only)
+- User Restarts SoloHost app
 
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.23`
+Default install: still no docker.sock.
+
+Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.24`

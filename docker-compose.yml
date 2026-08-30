@@ -1,7 +1,7 @@
 # SoloHost Official — sandbox permissions only (no docker.sock)
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.23
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.25
     labels:
       pi.ui.primary: "true"
     ports:

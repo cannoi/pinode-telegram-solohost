@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.23-solohost';
+const VERSION = '2.6.25-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1184,6 +1184,7 @@ function dockerPrefPath() {
 function readDockerPref() {
   try { return JSON.parse(fs.readFileSync(dockerPrefPath(), 'utf8')); } catch (e) { return { enabled: false }; }
 }
+
 function writeDockerPref(obj) {
   try {
     fs.mkdirSync(path.dirname(dockerPrefPath()), { recursive: true });
@@ -1191,13 +1192,132 @@ function writeDockerPref(obj) {
   } catch (e) {}
 }
 
+/** After explicit Operator consent: drop ready-to-use compose + one-click scripts */
+function applyDockerConsentFiles() {
+  const result = { wrote_data: false, wrote_host: false, paths: [] };
+  const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
+  // normalize image tag from VERSION e.g. 2.6.25-solohost -> v2.6.24
+  let tag = 'v2.6.24';
+  try {
+    const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
+    if (m) tag = 'v' + m[1];
+  } catch (e) {}
+  const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
+
+  const composeBody = [
+    '# Generated after Operator consent in Pi Node Telegram Controller',
+    '# SoloHost default package does NOT ship this. You chose optional Docker access.',
+    'services:',
+    '  agent:',
+    '    image: ' + img,
+    '    labels:',
+    '      pi.ui.primary: "true"',
+    '    ports:',
+    '      - "127.0.0.1:18780:8080"',
+    '    environment:',
+    '      - BOT_TOKEN=${BOT_TOKEN}',
+    '      - CHAT_ID=${CHAT_ID}',
+    '      - GEMINI_API_KEY=${GEMINI_API_KEY}',
+    '      - NODE_HOST=host.docker.internal',
+    '      - HORIZON_PORT=31401',
+    '      - CORE_HTTP_PORT=11626',
+    '      - DOCKER_PROBE=1',
+    '      - AUTO_DOCKER_SOCK=0',
+    '      - TELEMETRY_SEC=60',
+    '      - TZ=Asia/Ho_Chi_Minh',
+    '    volumes:',
+    '      - ./data:/data',
+    '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+    '    restart: unless-stopped',
+    ''
+  ].join('\n');
+
+  const readme = [
+    'OPTIONAL DOCKER — Operator consent',
+    '=================================',
+    '',
+    '1) Copy docker-compose.yml over the one in this SoloHost app folder',
+    '   (or run APPLY.bat / APPLY.ps1 from the app folder).',
+    '2) SoloHost → Stop → Start the app.',
+    '3) Telegram: /docker  (should show Socket: YES when mount worked).',
+    '',
+    'This is NOT default SoloHost permission. You opted in.',
+    ''
+  ].join('\n');
+
+  const bat = [
+    '@echo off',
+    'cd /d "%~dp0"',
+    'if exist docker-compose.yml copy /Y docker-compose.yml docker-compose.yml.bak',
+    'copy /Y "%~dp0docker-compose.yml" "%~dp0..\\docker-compose.yml" 2>nul',
+    'copy /Y "%~dp0docker-compose.yml" "%~dp0docker-compose.yml"',
+    'echo.',
+    'echo If this folder is data\\docker-enable, copy docker-compose.yml to the app root then Restart SoloHost.',
+    'echo Done.',
+    'pause',
+    ''
+  ].join('\r\n');
+
+  const ps1 = [
+    '# Optional Docker enable — run from app folder after consent',
+    '$ErrorActionPreference = "Continue"',
+    '$here = $PSScriptRoot',
+    '$root = Split-Path $here -Parent',
+    '# If we are in data/docker-enable, app root is parent of data',
+    'if ((Split-Path $here -Leaf) -eq "docker-enable") { $root = Split-Path (Split-Path $here -Parent) -Parent }',
+    'if (-not (Test-Path $root)) { $root = $here }',
+    '$src = Join-Path $here "docker-compose.yml"',
+    '$dst = Join-Path $root "docker-compose.yml"',
+    'if (Test-Path $dst) { Copy-Item $dst ($dst + ".bak") -Force }',
+    'Copy-Item $src $dst -Force',
+    'Write-Host "Wrote $dst"',
+    'Write-Host "Stop → Start the SoloHost app now."',
+    ''
+  ].join('\n');
+
+  // Always write under /data/docker-enable (persisted volume)
+  try {
+    const dir = path.join(DATA, 'docker-enable');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docker-compose.yml'), composeBody);
+    fs.writeFileSync(path.join(dir, 'README.txt'), readme);
+    fs.writeFileSync(path.join(dir, 'APPLY.bat'), bat);
+    fs.writeFileSync(path.join(dir, 'APPLY.ps1'), ps1);
+    result.wrote_data = true;
+    result.paths.push(dir);
+  } catch (e) {
+    result.data_error = String(e && e.message);
+  }
+
+  // If operator mounted ./:/solohost-config, write compose to app root (after consent only)
+  const hostDir = process.env.SOLOHOST_CONFIG_DIR || '/solohost-config';
+  try {
+    if (fs.existsSync(hostDir)) {
+      const dst = path.join(hostDir, 'docker-compose.yml');
+      try {
+        if (fs.existsSync(dst)) fs.copyFileSync(dst, dst + '.bak');
+      } catch (e2) {}
+      fs.writeFileSync(dst, composeBody);
+      fs.writeFileSync(path.join(hostDir, 'DOCKER_ENABLE_README.txt'), readme);
+      result.wrote_host = true;
+      result.paths.push(dst);
+    }
+  } catch (e) {
+    result.host_error = String(e && e.message);
+  }
+
+  try { actionLog('ok', 'docker consent files ' + JSON.stringify(result)); } catch (e) {}
+  return result;
+}
+
+
 function dockerConsentKeyboard() {
   return {
     inline_keyboard: [
       [{ text: 'I understand — enable preference', callback_data: 'cmd_docker_confirm' }],
       [{ text: 'Cancel', callback_data: 'cmd_docker_cancel' }],
       [{ text: 'SoloHost rules', callback_data: 'cmd_docker_rules' }],
-      [{ text: 'Open local confirm UI', callback_data: 'cmd_docker_local' }]
+      [{ text: 'Open SoloHost UI http://127.0.0.1:18780/', callback_data: 'cmd_docker_local' }]
     ]
   };
 }
@@ -1216,32 +1336,16 @@ async function formatDockerHelp(tel) {
   const pref = readDockerPref();
   const sock = !!(tel && tel.docker_sock);
   const lines = [];
-  lines.push('DOCKER OPTIONAL EXTENSION');
-  lines.push('========================');
+  lines.push('DOCKER OPTIONAL');
+  lines.push('==============');
+  lines.push('Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock: ' + (sock ? 'YES' : 'NO'));
   lines.push('');
-  lines.push('Purpose');
-  lines.push('- Optional Core status via docker when YOU mount the socket');
-  lines.push('- Default monitoring stays Horizon + ports (no sock required)');
+  lines.push('Simple steps after you Agree:');
+  lines.push('1) Prefer: open http://127.0.0.1:18780/ (panel on home)');
+  lines.push('2) Agree — app prepares compose files');
+  lines.push('3) SoloHost UI: Stop → then Start the app');
   lines.push('');
-  lines.push('Current');
-  lines.push('- Preference: ' + (pref.enabled ? 'ON' : 'OFF'));
-  lines.push('- Socket in container: ' + (sock ? 'YES' : 'NO'));
-  lines.push('- Probe active: ' + ((tel && tel.docker_probe) ? 'YES' : 'NO'));
-  if (tel && tel.container) lines.push('- Container: ' + tel.container);
-  lines.push('');
-  lines.push('SoloHost boundary');
-  lines.push('- Install permissions: sandbox, localhost port, own data, network');
-  lines.push('- docker.sock is NOT a default SoloHost permission');
-  lines.push('- Only the Operator may mount it on the host (Terms: Operator Consent)');
-  lines.push('');
-  lines.push('To really enable on the PC running the node');
-  lines.push('1) Edit app docker-compose.yml');
-  lines.push('2) volumes: /var/run/docker.sock:/var/run/docker.sock:ro');
-  lines.push('3) DOCKER_PROBE=1');
-  lines.push('4) Restart SoloHost app');
-  lines.push('5) Confirm with the button below (or http://127.0.0.1:18780/docker)');
-  lines.push('');
-  lines.push('This chat stores preference only. Mounting sock is a host action.');
+  lines.push('Default SoloHost = no docker.sock. You opt in.');
   return lines.join('\n');
 }
 async function formatDockerRules() {
@@ -1966,7 +2070,7 @@ async function runCmd(cmd, userText) {
       return tgSend(await formatDockerRules(), { reply_markup: dockerConsentKeyboard() });
     }
     if (cmd === 'docker_local') {
-      return tgSend('Confirm on the PC running the node:\nhttp://127.0.0.1:18780/docker\n\n(That page is the SoloHost local UI consent.)', { reply_markup: dockerConsentKeyboard() });
+      return tgSend('Confirm on the PC running the node (SoloHost app window):\nhttp://127.0.0.1:18780/\n\nUse the Optional Docker panel → Agree.\nThen SoloHost: Stop → Start.', { reply_markup: dockerConsentKeyboard() });
     }
     if (cmd === 'docker_cancel') {
       return tgSend('Cancelled. Docker preference unchanged.\nSoloHost default: no docker.sock.', { reply_markup: mainKeyboard() });
@@ -1983,10 +2087,18 @@ async function runCmd(cmd, userText) {
         consent: true,
         consent_text: 'Operator confirmed optional Docker probe; host must mount docker.sock'
       });
-      const note = (tel && tel.docker_sock)
-        ? 'Socket detected — probe can run on next /status.'
-        : 'Preference ON but socket NOT mounted yet.\nEdit host compose, then Restart app.\nOr open http://127.0.0.1:18780/docker on this PC.';
-      return tgSend('Consent recorded: preference ON\n\n' + note + '\n\n' + await formatDockerHelp(tel), { reply_markup: dockerManageKeyboard() });
+      const applied = applyDockerConsentFiles();
+      let note = '';
+      if (tel && tel.docker_sock) {
+        note = 'Socket already present — probe can run on next /status.';
+      } else if (applied && applied.wrote_host) {
+        note = 'Compose with docker.sock was written to the app folder.\nSoloHost: press Stop, then start the app again.';
+      } else if (applied && applied.wrote_data) {
+        note = 'Ready files created in app data:\ndata/docker-enable/docker-compose.yml\nCopy over app docker-compose.yml then Stop → Start.\nOr on the PC open: http://127.0.0.1:18780/docker';
+      } else {
+        note = 'Preference ON. Open on this PC: http://127.0.0.1:18780/docker';
+      }
+      return tgSend('Consent OK — preference ON\n\n' + note + '\n\n' + await formatDockerHelp(tel), { reply_markup: dockerManageKeyboard() });
     }
     return tgSend(await formatDockerHelp(tel), { reply_markup: dockerConsentKeyboard() });
   }
@@ -2267,8 +2379,12 @@ const srv = http.createServer(async (req, res) => {
       const pref = readDockerPref();
       if (u.indexOf('/docker/confirm') === 0) {
         writeDockerPref({ enabled: true, at: new Date().toISOString(), by: 'local_ui', consent: true });
+        const applied = applyDockerConsentFiles();
         try { actionLog('ok', 'docker pref ON via local UI'); } catch (e) {}
-        res.end('<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:2rem auto"><h2>Consent saved</h2><p>Docker preference <b>ON</b>.</p><p>Mount <code>docker.sock</code> in host compose if not done, then Restart app.</p><p><a href="/docker">Back</a></p></body></html>');
+        const extra = applied && applied.wrote_host
+          ? '<p><b>docker-compose.yml</b> updated in app folder. SoloHost: Stop → Start the app.</p>'
+          : '<p>Files ready under <code>data/docker-enable/</code>. Copy <code>docker-compose.yml</code> to app root if needed, then Stop → Start.</p>';
+        res.end('<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:2rem auto"><h2>Consent saved</h2><p>Docker preference <b>ON</b>.</p>' + extra + '<p><a href="/docker">Back</a></p></body></html>');
         return;
       }
       if (u.indexOf('/docker/off') === 0) {
@@ -2290,14 +2406,69 @@ const srv = http.createServer(async (req, res) => {
         + '<b>Socket in container:</b> ' + (sockExists ? 'YES' : 'NO') + '</p>'
         + '<p><b>Purpose:</b> optional Core/container probe when you mount the engine socket.</p>'
         + '<p><b>SoloHost:</b> install does <u>not</u> include docker.sock. Mounting it is Operator choice under SoloHost Terms (Permissions &amp; Operator Consent).</p></div>'
-        + '<div class="box"><p><b>Host steps:</b></p><ol>'
-        + '<li>Edit <code>docker-compose.yml</code> in this app folder</li>'
-        + '<li>Add <code>/var/run/docker.sock:/var/run/docker.sock:ro</code></li>'
-        + '<li>Set <code>DOCKER_PROBE=1</code></li>'
-        + '<li>Restart the app in SoloHost</li></ol></div>'
-        + '<p><a class="btn yes" href="/docker/confirm">I understand — enable preference</a> '
+        + '<div class="box"><p><b>After you click Agree:</b></p><ol>'
+        + '<li>App prepares a ready <code>docker-compose.yml</code> (with sock)</li>'
+        + '<li>If the app folder is writable, it is filled automatically</li>'
+        + '<li>Otherwise use files in <code>data/docker-enable/</code></li>'
+        + '<li>Stop → Start this SoloHost app</li></ol>'
+        + '<p style="font-size:.95rem">SoloHost default has no docker.sock. Agree = your Operator choice.</p></div>'
+        + '<p><a class="btn yes" href="/docker/confirm">Agree — enable &amp; prepare files</a> '
         + '<a class="btn no" href="/docker/off">Disable</a></p>'
         + '<p><a href="/">Controller home</a></p></body></html>');
+      return;
+    }
+
+    
+    if (u === '/api/docker') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      if (req.method === 'GET') {
+        let sock = false;
+        try { sock = fs.existsSync('/var/run/docker.sock'); } catch (e) {}
+        const pref = readDockerPref();
+        res.end(JSON.stringify({
+          ok: true,
+          enabled: !!pref.enabled,
+          consent: !!pref.consent,
+          sock: sock,
+          by: pref.by || null,
+          at: pref.at || null
+        }));
+        return;
+      }
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', function (c) { body += c; if (body.length > 8000) req.destroy(); });
+        req.on('end', function () {
+          try {
+            const j = JSON.parse(body || '{}');
+            const on = !!j.enabled;
+            writeDockerPref({
+              enabled: on,
+              consent: on ? true : false,
+              at: new Date().toISOString(),
+              by: 'local_ui_home'
+            });
+            let applied = { wrote_host: false, wrote_data: false };
+            if (on) applied = applyDockerConsentFiles() || applied;
+            try { actionLog('ok', 'docker pref ' + (on ? 'ON' : 'OFF') + ' via /api/docker'); } catch (e) {}
+            res.end(JSON.stringify({
+              ok: true,
+              enabled: on,
+              wrote_host: !!(applied && applied.wrote_host),
+              wrote_data: !!(applied && applied.wrote_data),
+              hint: on
+                ? 'SoloHost: press Stop, then Start the app again so compose volumes apply.'
+                : 'Sandbox default.'
+            }));
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+          }
+        });
+        return;
+      }
+      res.statusCode = 405;
+      res.end(JSON.stringify({ ok: false, error: 'method' }));
       return;
     }
 
