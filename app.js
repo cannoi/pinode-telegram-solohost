@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.16-solohost';
+const VERSION = '2.6.17-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -410,7 +410,7 @@ async function collectTelemetry() {
   // Network-agnostic: no dependency on testnet2 / mainnet container names
   let t = null;
   try {
-    t = await statusMonitor.getStatus(true);
+    t = await statusMonitor.getStatus(true, { detailed: false });
   } catch (e) {
     try { actionLog('error', 'statusMonitor: ' + (e && e.message)); } catch (e2) {}
   }
@@ -1138,14 +1138,36 @@ function localAssistantReply(t, intent, userQ) {
 
 function buildFacts(t) {
   t = t || {};
-  const f = { source: t.source || null, level: t.level || null };
-  ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'container', 'cpu', 'ram', 'temp',
-   'ports_open', 'network', 'network_kind', 'core_version', 'protocol', 'ingest_lag', 'confidence'].forEach(function (k) {
-    if (t[k] != null) f[k] = t[k];
-  });
-  if (t.ports) f.ports = t.ports;
-  if (t.sources) f.sources = t.sources;
-  return f;
+  const o = {
+    source: t.source || null,
+    sync: t.sync || null,
+    core_state: t.core_state || null,
+    core_verified: t.core_verified === true,
+    sync_confidence: t.sync_confidence || null,
+    ledger: t.ledger != null ? t.ledger : null,
+    core_ledger: t.core_ledger != null ? t.core_ledger : null,
+    history_ledger: t.history_ledger != null ? t.history_ledger : null,
+    ingest_ledger: t.ingest_ledger != null ? t.ingest_ledger : null,
+    elder_ledger: t.elder_ledger != null ? t.elder_ledger : null,
+    ledger_age: t.ledger_age != null ? t.ledger_age : null,
+    ledger_closed_at: t.ledger_closed_at || null,
+    ingest_lag: t.ingest_lag != null ? t.ingest_lag : null,
+    peer_in: t.peer_in != null ? t.peer_in : null,
+    peer_out: t.peer_out != null ? t.peer_out : null,
+    ports_open: t.ports_open != null ? t.ports_open : null,
+    ports: t.ports || null,
+    network: t.network || null,
+    network_kind: t.network_kind || null,
+    protocol: t.protocol != null ? t.protocol : null,
+    core_version: t.core_version || null,
+    horizon_version: t.horizon_version || null,
+    tx_count: t.tx_count != null ? t.tx_count : null,
+    operation_count: t.operation_count != null ? t.operation_count : null,
+    base_fee: t.base_fee != null ? t.base_fee : null,
+    level: t.level || null,
+    responseTime: t.responseTime != null ? t.responseTime : null
+  };
+  return o;
 }
 
 function historySnippet(n) {
@@ -2006,12 +2028,25 @@ const srv = http.createServer(async (req, res) => {
   setSecHeaders(res);
   try {
     if (u === '/healthz') { res.end('ok'); return; }
-    if (u === '/api/status') {
-      if (!rateLimit('status:' + (req.socket.remoteAddress || ''), 30, 60000)) {
+    if (u === '/api/status' || u === '/api/status/fast' || u === '/api/status/detailed') {
+      if (!rateLimit('status:' + (req.socket.remoteAddress || ''), 40, 60000)) {
         res.statusCode = 429; res.end('rate limit'); return;
       }
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(cache || await getTelemetry()));
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      try {
+        const detailed = u.indexOf('detailed') >= 0;
+        const fresh = detailed || u.indexOf('fast') < 0;
+        let tel;
+        if (u.indexOf('fast') >= 0 && cache) tel = cache;
+        else if (detailed) {
+          tel = await statusMonitor.getStatus(true, { detailed: true });
+          cache = tel; cacheAt = Date.now();
+        } else tel = cache || await getTelemetry();
+        res.end(JSON.stringify(tel || {}));
+      } catch (e) {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+      }
       return;
     }
     if (u === '/api/selftest') {

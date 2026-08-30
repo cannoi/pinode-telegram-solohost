@@ -1,6 +1,7 @@
 'use strict';
 
 const PiNodeDiscovery = require('./pi-node-discovery');
+const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
 
 /**
  * Pi Node multi-source status — optimized for SoloHost
@@ -53,6 +54,7 @@ class PiNodeStatusMonitor {
     this.sticky = loadJson(this.stickyFile, {});
     this.metrics = { requests: 0, failures: 0, lastSource: null, lastMs: 0 };
     this.discovery = new PiNodeDiscovery({ stateDir: this.stateDir, cacheTTL: 300000 });
+    this.optReader = new OptimizedPiNodeReader({ stateDir: this.stateDir });
   }
 
   /* ---------- low-level I/O ---------- */
@@ -390,7 +392,9 @@ class PiNodeStatusMonitor {
   /**
    * MAIN — parallel Horizon + Core + Ports, then merge
    */
-  async getStatus(forceFresh) {
+  async getStatus(forceFresh, opts) {
+    opts = opts || {};
+    const detailed = !!opts.detailed;
     const t0 = Date.now();
     if (!forceFresh && this.cache.data && Date.now() - this.cache.at < this.cache.ttl) {
       const c = Object.assign({}, this.cache.data);
@@ -398,19 +402,46 @@ class PiNodeStatusMonitor {
       return c;
     }
 
-    // Auto-discover endpoints (cached ~5 min) — universal, no container name lock-in
+    // Discover host/port (sticky), then OPTIMIZED Horizon root (single request)
     try {
-      await this.discovery.discover(!!forceFresh && !this.discovery.discovered);
+      await this.discovery.discover(false);
+      const d = this.discovery.discovered;
+      if (d && d.horizonHost && d.horizonPort) {
+        this.optReader.setEndpoint(d.horizonHost, d.horizonPort);
+        if (d.horizonHost) this.sticky.portHost = d.horizonHost;
+      }
     } catch (e) {}
 
+    let hz = { ok: false };
+    let core = { ok: false };
+    let portSnap = { ports: {}, openCount: 0 };
+
+    // PRIMARY: optimized Horizon root (+ optional ledger details)
+    try {
+      const data = await this.optReader.getStatus({ fresh: true, detailed: detailed });
+      hz = { ok: true, data: data };
+      if (data.probe_url) {
+        this.sticky.horizonUrl = data.probe_url;
+        this.saveSticky();
+      }
+    } catch (e) {
+      hz = { ok: false, error: e.message };
+      // fallback to race path
+      try {
+        const r = await this.fetchHorizonFast();
+        hz = r.ok ? r : { ok: false, error: r.error || e.message };
+      } catch (e2) {
+        hz = { ok: false, error: e.message };
+      }
+    }
+
+    // SECONDARY parallel: Core + Ports (do not block on Core)
     const pair = await Promise.all([
-      this.fetchHorizonFast().catch(function (e) { return { ok: false, error: e.message }; }),
       this.fetchCoreFast().catch(function (e) { return { ok: false, error: e.message }; }),
       this.probePortsFast().catch(function () { return { ports: {}, openCount: 0 }; })
     ]);
-    const hz = pair[0];
-    const core = pair[1];
-    const portSnap = pair[2];
+    core = pair[0];
+    portSnap = pair[1];
 
     let primary = null;
     let fallbackUsed = false;
