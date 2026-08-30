@@ -1,7 +1,7 @@
 # OPTIONAL extension — user opts in after install (not for SoloHost package validation)
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.27
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.28
     labels:
       pi.ui.primary: "true"
     ports:

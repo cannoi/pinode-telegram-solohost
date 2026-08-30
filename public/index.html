@@ -4,7 +4,7 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pi Node Controller PRO</title>
 <style>
-:root{--p:rgba(12,18,32,.92);--bd:rgba(212,168,75,.35);--t:#f5f0e8;--m:#b8a990;--gold:#d4a84b}
+:root{--p:rgba(12,18,32,.92);--bd:rgba(212,168,75,.35);--t:#f5f0e8;--m:#b8a990;--gold:#d4a84b;--ok:#2d9b6f}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;color:var(--t);min-height:100vh;
 background:linear-gradient(165deg,rgba(8,10,18,.78),rgba(20,14,8,.82)),url('/avatar.jpg') center top/cover no-repeat fixed;
@@ -19,7 +19,7 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
 .card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(212,168,75,.12);font-size:.85rem}
 .k{color:var(--m)}.val{font-weight:700}
-#chatbox{height:240px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.8rem}
+#chatbox{height:200px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.8rem}
 .msg{margin:6px 0;padding:6px 8px;border-radius:8px;max-width:96%;white-space:pre-wrap}
 .msg.user{background:rgba(77,163,255,.2);margin-left:auto;text-align:right}
 .msg.bot{background:rgba(212,168,75,.12)}
@@ -29,6 +29,17 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
 .bar button{padding:10px 14px;border-radius:10px;border:0;background:var(--gold);color:#1a1208;font-weight:800;cursor:pointer}
 .foot{text-align:center;font-size:.62rem;color:#6a5a48;margin-top:6px}
 .link{color:var(--gold);cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;align-items:center;justify-content:center;padding:16px}
+.modal.on{display:flex}
+.modal .box{background:#121820;border:1px solid var(--bd);border-radius:12px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column}
+.modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(212,168,75,.2)}
+.terms{padding:12px 14px;overflow-y:auto;flex:1;font-size:.78rem;line-height:1.45;white-space:pre-wrap;color:#e8e0d4}
+.modal .footbar{padding:10px 14px;border-top:1px solid rgba(212,168,75,.2);display:flex;flex-direction:column;gap:8px}
+.modal label{font-size:.75rem;color:var(--m);display:flex;gap:8px;align-items:flex-start}
+.btn{padding:10px;border-radius:8px;border:0;font-weight:700;cursor:pointer}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-ok{background:var(--ok);color:#fff}
+.btn-no{background:#444;color:#fff}
 </style>
 </head>
 <body>
@@ -36,44 +47,91 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.27</p>
+    <p class="sub">SoloHost · v2.6.28</p>
   </div>
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
     <h2>Chat</h2>
     <div id="chatbox"></div>
-    <p class="hint">Optional advanced Docker probe is off by default. <button type="button" class="link" id="dkTip">Terms &amp; enable…</button></p>
+    <p class="hint">Optional Docker probe (advanced) is configured only on this PC. <button type="button" class="link" id="dkTip">Optional Docker…</button></p>
     <div class="bar">
-      <input id="inp" type="text" placeholder="Message…" autocomplete="off">
+      <input id="inp" type="text" placeholder="Message…" autocomplete="off" maxlength="2000">
       <button id="send" type="button">Send</button>
     </div>
   </div>
-  <p class="foot">Telegram /status /docker · SoloHost sandbox default</p>
+  <p class="foot">Telegram for remote status · Docker only via this SoloHost UI</p>
 </div>
+
+<div class="modal" id="dkModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <h3>Optional Docker Access — Terms</h3>
+    <div class="terms" id="termsBox"></div>
+    <div class="footbar">
+      <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read the full terms</label>
+      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms and understand this is my Operator choice on this machine</label>
+      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm — write compose</button>
+      <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
-const box=document.getElementById('chatbox');
-function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
-const TERMS =
-`OPTIONAL DOCKER ACCESS — TERMS
+const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
 
 What this is
-Optional use of Docker socket on YOUR PC to read Pi Node container status. OFF by default.
+This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.
 
-SoloHost default
-Sandbox: CPU/memory, localhost port, own data, network. docker.sock is NOT a default permission. Normal monitoring does not need it.
+SoloHost default permissions
+Sandbox: CPU and memory, one localhost port, the app data folder, outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring (Horizon, ports, reports, AI chat).
 
-If you Agree
-• App may overwrite app-folder docker-compose.yml to mount docker.sock (read-only).
-• App may list containers and run limited read/exec for node status.
-• Higher privilege than default sandbox.
+What you grant if you Confirm
+• The app may overwrite docker-compose.yml in this app folder to mount /var/run/docker.sock read-only.
+• The app may list containers and run limited read/exec commands for node status.
+• A higher privilege level than the default sandbox.
 
-Your responsibility
-You are the Operator. You accept the risk of elevated Docker access on this machine. Publisher / SoloHost / Pi Network are not liable for damage or misuse from access you enable. You may disable later and remove the volume (Stop → Start).
+What we do not claim
+• No access to your Pi wallet or keys.
+• No guarantee of host security after you enable elevated access.
+• The publisher does not operate your Docker daemon.
 
-Purpose
-Best monitoring within clear limits. Docker is optional and never required for core features.
+Your responsibility (Operator)
+Under SoloHost Terms you decide permissions on your machine. By confirming you accept:
+1) docker.sock is powerful and may expose Docker on this PC.
+2) Risk of optional diagnostics is yours.
+3) You can disable later and remove the socket volume, then Stop → Start.
+4) Pi Network, SoloHost, and the publisher are not responsible for damage, data loss, or misuse from elevated access you enable.
 
-Agree only if you accept these terms.`;
+Purpose of the app
+Provide the best monitoring help within clear limits. Docker access is optional, user-controlled, and never required for core features.
+
+After Confirm
+SoloHost UI: press Stop, then Start the app again so the new compose applies.
+
+Confirm only if you accept these terms in full.`;
+
+const box=document.getElementById('chatbox');
+const termsBox=document.getElementById('termsBox');
+termsBox.textContent=TERMS;
+
+function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
+
+function setupTermsScroll(){
+  const read=document.getElementById('dkRead');
+  const agree=document.getElementById('dkAgree');
+  const conf=document.getElementById('dkConfirm');
+  function refresh(){conf.disabled=!(read.checked&&agree.checked);}
+  read.onchange=refresh;agree.onchange=refresh;
+  termsBox.onscroll=function(){
+    const el=termsBox;
+    if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){
+      read.disabled=false;
+    }
+  };
+  // short screens: allow mark read after brief delay if content fits
+  setTimeout(function(){
+    if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
+  },400);
+}
 
 async function loadStatus(){
   try{
@@ -87,7 +145,9 @@ async function loadStatus(){
   }catch(e){document.getElementById('s').textContent='Status error';}
 }
 async function send(){
-  const inp=document.getElementById('inp');const msg=(inp.value||'').trim();if(!msg)return;inp.value='';
+  const inp=document.getElementById('inp');let msg=(inp.value||'').trim();if(!msg)return;
+  if(msg.length>2000)msg=msg.slice(0,2000);
+  inp.value='';
   add('user',msg);add('bot','…');
   try{
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
@@ -95,24 +155,39 @@ async function send(){
     box.lastChild.textContent=j.reply||j.error||'No reply';
   }catch(e){box.lastChild.textContent='Chat error';}
 }
-async function enableDocker(){
-  add('bot', TERMS);
-  add('bot','Do you agree? Type YES in chat to enable, or tap below after reading.');
-  const ok = window.confirm('I have read the Optional Docker terms and agree to enable on this PC.\n\nSoloHost: Stop → Start after compose is updated.');
-  if(!ok){add('bot','Cancelled. Sandbox default kept.');return;}
+
+document.getElementById('dkTip').onclick=function(){
+  document.getElementById('dkRead').checked=false;
+  document.getElementById('dkAgree').checked=false;
+  document.getElementById('dkRead').disabled=true;
+  document.getElementById('dkAgree').disabled=false;
+  document.getElementById('dkConfirm').disabled=true;
+  document.getElementById('dkModal').classList.add('on');
+  termsBox.scrollTop=0;
+  setupTermsScroll();
+};
+document.getElementById('dkCancel').onclick=function(){
+  document.getElementById('dkModal').classList.remove('on');
+};
+document.getElementById('dkConfirm').onclick=async function(){
+  if(document.getElementById('dkConfirm').disabled)return;
+  document.getElementById('dkModal').classList.remove('on');
   add('bot','…');
   try{
-    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true})});
+    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
     const j=await r.json();
     if(!j.ok){box.lastChild.textContent=j.error||'Failed';return;}
     box.lastChild.textContent=j.wrote_host
-      ? 'Terms accepted. docker-compose.yml updated in app folder.\nSoloHost: press Stop, then Start the app again.'
-      : (j.hint||'Preference saved. SoloHost: Stop → Start if compose was updated.');
+      ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: press Stop, then Start the app again.'
+      : (j.hint||'Saved. SoloHost: Stop → Start if compose updated.');
   }catch(e){box.lastChild.textContent='Network error';}
-}
+};
+document.getElementById('dkAgree').onchange=function(){
+  document.getElementById('dkConfirm').disabled=!(document.getElementById('dkRead').checked&&document.getElementById('dkAgree').checked);
+};
+
 document.getElementById('send').onclick=send;
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
-document.getElementById('dkTip').onclick=enableDocker;
 loadStatus();setInterval(loadStatus,15000);
 </script>
 </body>

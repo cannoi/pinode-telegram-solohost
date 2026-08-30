@@ -15,7 +15,49 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.27-solohost';
+
+const APP_KNOWLEDGE = `
+APP: Pi Node Telegram Controller PRO (SoloHost Edition)
+Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI. Sandboxed Docker app on Pi Desktop.
+
+DEFAULT CAPABILITIES (no docker.sock):
+- Horizon HTTP status (ledger, sync lag, network, versions)
+- Optional Core HTTP if port published
+- TCP probes on node ports 31401-31403
+- History for trends/reports
+- Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /donate /winpro /ping
+- Natural-language questions answered with AI when GEMINI_API_KEY is set (or local rules)
+- Alerts on meaningful changes (not spam)
+- Local UI http://127.0.0.1:18780/ status + chat
+
+OPTIONAL DOCKER (advanced):
+- ONLY enable from SoloHost UI on the node PC (not Telegram)
+- User must read full terms and confirm
+- Writes docker-compose.yml with docker.sock, then user Stop → Start
+- Then app may docker exec/list for Core details
+- Never required for core monitoring
+
+CONFIG (SoloHost):
+- BOT_TOKEN, CHAT_ID required for Telegram
+- GEMINI_API_KEY optional for richer AI
+- NODE_HOST=host.docker.internal, HORIZON_PORT=31401
+
+SECURITY / PRIVACY:
+- Only responds to configured CHAT_ID
+- No wallet/key access
+- Logs redact tokens
+- docker.sock is Operator opt-in only
+
+HELP USER WITH:
+- How to install/configure bot token
+- What each command means
+- Why sync may differ Horizon vs Desktop
+- How to enable optional Docker (UI only)
+- Donate / Windows PRO link if asked
+`.trim();
+
+const chatRate = { n: 0, t: 0 };
+const VERSION = '2.6.28-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1196,7 +1238,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.27-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.28-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -1869,6 +1911,8 @@ function technicianEvaluate(t, userQ, intent, lang) {
 }
 
 async function aiAnalyze(t, userQ) {
+  const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 3500);
+
   try {
     const intent = detectIntent(userQ || '');
     const lang = detectUserLang(userQ || '');
@@ -1913,7 +1957,7 @@ async function aiAnalyze(t, userQ) {
 
     // PRIORITY 1: always use Gemini for free-text questions when API key is set
     if (GEMINI_API_KEY) {
-      const prompt = [
+      const prompt = '[APP GUIDE]\n' + appGuide + '\n\n' + [
         'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
         'LANGUAGE: Reply in the SAME language as the user. Never force Vietnamese if they use another language.',
         'PRIORITY: Every free-text question needs a real technician evaluation — simple words, practical value for a normal node operator.',
@@ -1982,9 +2026,6 @@ function mainKeyboard() {
       [
         { text: '💻 Windows PRO', callback_data: 'cmd_winpro' },
         { text: '💛 DONATE', callback_data: 'cmd_donate' }
-      ],
-      [
-        { text: '🐳 Docker optional', callback_data: 'cmd_docker' }
       ]
     ]
   };
@@ -2082,54 +2123,20 @@ async function runCmd(cmd, userText) {
     return true;
   }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
-    if (cmd === 'docker' || cmd === 'dockersock' || cmd === 'docker_confirm' || cmd === 'docker_cancel' || cmd === 'docker_off' || cmd === 'docker_rules' || cmd === 'docker_local' || (typeof cmd === 'string' && cmd.indexOf('docker ') === 0)) {
-    const tel = await getTelemetry();
-    const raw = String(userText || cmd || '').trim();
-    const arg = raw.split(/\s+/)[1] || '';
-    try { actionLog('info', 'user /' + cmd + (arg ? ' ' + arg : '')); } catch (e) {}
-    if (cmd === 'docker_rules') {
-      return tgSend(await formatDockerRules(), { reply_markup: {
-        inline_keyboard: [
-          [{ text: 'I agree — enable & write compose', callback_data: 'cmd_docker_confirm' }],
-          [{ text: 'Cancel', callback_data: 'cmd_docker_cancel' }]
-        ]
-      }});
-    }
-    if (cmd === 'docker_local') {
-      return tgSend('On the PC SoloHost window:\nhttp://127.0.0.1:18780/\n\nChat tip: Enable… (or Telegram Agree below).\nThen SoloHost: Stop → Start.', { reply_markup: dockerConsentKeyboard() });
-    }
-    if (cmd === 'docker_cancel') {
-      return tgSend('Cancelled. Docker preference unchanged.\nSoloHost default: no docker.sock.', { reply_markup: mainKeyboard() });
-    }
-    if (cmd === 'docker_off' || arg === 'off' || arg === 'disable' || arg === '0') {
-      writeDockerPref({ enabled: false, at: new Date().toISOString(), by: 'telegram', consent: false });
-      return tgSend('Docker preference: OFF\nSandbox mode (SoloHost default).', { reply_markup: mainKeyboard() });
-    }
-    if (cmd === 'docker_confirm' || arg === 'on' || arg === 'enable' || arg === '1') {
-      writeDockerPref({
-        enabled: true,
-        at: new Date().toISOString(),
-        by: 'telegram',
-        consent: true,
-        consent_version: 'docker-optional-v1',
-        consent_text: 'Operator accepted Optional Docker Access Terms; compose may include docker.sock; Stop then Start required'
-      });
-      const applied = applyDockerConsentFiles();
-      let note = '';
-      if (tel && tel.docker_sock) {
-        note = 'Socket already present — probe can run on next /status.';
-      } else if (applied && applied.wrote_host) {
-        note = 'Compose with docker.sock was written to the app folder.\nSoloHost: press Stop, then start the app again.';
-      } else if (applied && applied.wrote_data) {
-        note = 'Ready files created in app data:\ndata/docker-enable/docker-compose.yml\nCopy over app docker-compose.yml then Stop → Start.\nOr on the PC open: http://127.0.0.1:18780/docker';
-      } else {
-        note = 'Preference ON. Open on this PC: http://127.0.0.1:18780/docker';
-      }
-      return tgSend('Consent OK — preference ON\n\n' + note + '\n\n' + await formatDockerHelp(tel), { reply_markup: dockerManageKeyboard() });
-    }
-    return tgSend((await formatDockerHelp(tel)) + '\n\nPlease open Terms before Agree.', { reply_markup: dockerConsentKeyboard() });
+  if (cmd === 'docker' || cmd === 'dockersock' || cmd === 'docker_confirm' || cmd === 'docker_cancel' || cmd === 'docker_off' || cmd === 'docker_rules' || cmd === 'docker_local' || (typeof cmd === 'string' && cmd.indexOf('docker') === 0)) {
+    try { actionLog('info', 'user docker cmd blocked on Telegram'); } catch (e) {}
+    return tgSend(
+      'DOCKER OPTIONAL\n' +
+      '==============\n' +
+      'For safety, docker.sock can only be enabled in the SoloHost window on the PC running this node.\n\n' +
+      '1) Open http://127.0.0.1:18780/\n' +
+      '2) Optional Docker… → scroll terms to the end → check boxes → Confirm\n' +
+      '3) SoloHost: Stop → Start\n\n' +
+      'Telegram will not raise Docker privileges.',
+      { reply_markup: mainKeyboard() }
+    );
   }
-if (cmd === 'start' || cmd === 'help') {
+  if (cmd === 'start' || cmd === 'help') {
     return tgSend(
       'PI NODE CONTROLLER · SoloHost\n' +
       '━━━━━━━━━━━━━━━━━━\n' +
@@ -2469,13 +2476,23 @@ const srv = http.createServer(async (req, res) => {
           try {
             const j = JSON.parse(body || '{}');
             const on = !!j.enabled;
+            if (on && !j.consent) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: 'consent_required' }));
+              return;
+            }
+            if (on && j.read_full !== true && j.terms_version !== 'docker-optional-v1') {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: 'terms_must_be_accepted_in_solohost_ui' }));
+              return;
+            }
             writeDockerPref({
               enabled: on,
               consent: on ? true : false,
               consent_version: on ? 'docker-optional-v1' : null,
-              consent_text: on ? 'Operator accepted Optional Docker Access Terms via SoloHost UI' : null,
+              consent_text: on ? 'Operator accepted Optional Docker Access Terms via SoloHost UI only' : null,
               at: new Date().toISOString(),
-              by: 'local_ui_home'
+              by: 'solohost_ui'
             });
             let applied = { wrote_host: false, wrote_data: false };
             if (on) applied = applyDockerConsentFiles() || applied;
