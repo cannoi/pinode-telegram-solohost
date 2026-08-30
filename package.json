@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.19","description":"Auto-overwrite compose for docker.sock after SoloHost install","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.20","description":"Auto compose overwrite + best-effort container recreate for docker.sock","main":"loader.js","private":true}

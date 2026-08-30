@@ -1,11 +1,8 @@
-# SoloHost v2.6.19 — Auto docker.sock compose
+# SoloHost v2.6.20
 
-## How it works
-1. **Install** package: compose has NO `/var/run/docker.sock` (SoloHost validation OK).
-2. Mounts `./:/solohost-config:rw` (path inside install dir — allowed).
-3. On **first container start**, `loader.js` → `auto-compose.js` overwrites host `docker-compose.yml` to add docker.sock.
-4. **Restart app once** → SoloHost applies sock; `docker-probe` + exec work.
+1. Install (no sock in package — validation OK)
+2. First start: overwrites `docker-compose.yml` with docker.sock
+3. Best-effort **auto recreate** (`docker compose up --force-recreate` / `docker restart`) when engine reachable
+4. If sock still missing: Telegram hint + `APPLY_DOCKER_SOCK.bat` in app folder
 
-Disable: `AUTO_DOCKER_SOCK=0`
-
-Image: `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.19`
+`AUTO_DOCKER_SOCK=0` to disable

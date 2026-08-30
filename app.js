@@ -15,7 +15,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '2.6.19-solohost';
+const VERSION = '2.6.20-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -2197,6 +2197,23 @@ const srv = http.createServer(async (req, res) => {
 
 srv.listen(PORT, '0.0.0.0', () => {
   log('SoloHost Controller v' + VERSION + ' :' + PORT);
+  try {
+    const pf = path.join(DATA, 'state', 'pending-sock-restart.json');
+    if (fs.existsSync(pf)) {
+      const pend = JSON.parse(fs.readFileSync(pf, 'utf8'));
+      if (pend && pend.need_ui_restart && BOT_TOKEN && CHAT_ID) {
+        setTimeout(async function () {
+          try {
+            await tgSend('🔄 SoloHost · Docker sock\nCompose đã cập nhật.\nNếu /status vẫn báo sock: no — bấm Restart app 1 lần (hoặc chạy APPLY_DOCKER_SOCK.bat trong thư mục app).');
+            pend.need_ui_restart = false;
+            pend.notified = true;
+            fs.writeFileSync(pf, JSON.stringify(pend));
+          } catch (e) {}
+        }, 4000);
+      }
+    }
+  } catch (e) {}
+
   log('telemetry=' + TELEMETRY_SEC + 's · Horizon-first (no DataLive)');
   log('Telegram long-poll independent of telemetry');
 });
