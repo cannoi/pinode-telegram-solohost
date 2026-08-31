@@ -48,16 +48,21 @@ SECURITY / PRIVACY:
 - Logs redact tokens
 - docker.sock is Operator opt-in only
 
+COMMANDS:
+/status current health · /sync ledger+sync · /peers IN/OUT · /report history
+/diagnostic sources · /analyze AI review · /logs app log · /donate · /winpro · /ping · /help
+
 HELP USER WITH:
-- How to install/configure bot token
-- What each command means
-- Why sync may differ Horizon vs Desktop
-- How to enable optional Docker (UI only)
+- How to set BOT_TOKEN, CHAT_ID, optional GEMINI_API_KEY in SoloHost config
+- What each command means (see COMMANDS)
+- Why Horizon sync can differ from Pi Desktop (Horizon ingest vs Core state)
+- Optional Docker only via SoloHost UI on the node PC (read terms, Confirm, Stop then Start)
+- Reports use the same fields from Horizon and, when enabled, docker.sock/exec
 - Donate / Windows PRO link if asked
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.28-solohost';
+const VERSION = '2.6.29-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -475,7 +480,7 @@ async function collectTelemetry() {
       t.sources.cgroup = true;
     }
   } catch (e) {}
-  // Persist last telemetry into state for state-file fallback
+  // Persist last telemetry (Horizon + optional Docker) for history / report / AI
   try {
     state.lastTelemetry = {
       ts: t.ts || new Date().toISOString(),
@@ -483,14 +488,34 @@ async function collectTelemetry() {
       ledger: t.ledger,
       ledger_age: t.ledger_age,
       core_verified: t.core_verified,
+      core_state: t.core_state,
       peer_in: t.peer_in,
       peer_out: t.peer_out,
       ports: t.ports,
+      ports_open: t.ports_open,
       level: t.level,
-      source: t.source
+      source: t.source,
+      docker: t.docker,
+      docker_sock: t.docker_sock === true,
+      container: t.container,
+      cpu: t.cpu,
+      ram: t.ram,
+      temp: t.temp,
+      protocol: t.protocol,
+      core_version: t.core_version,
+      horizon_version: t.horizon_version,
+      network_kind: t.network_kind || t.network,
+      ingest_lag: t.ingest_lag
     };
     saveJSON(STATE_F, state);
   } catch (e) {}
+  try {
+    cache = t;
+    cacheAt = Date.now();
+    t._age = 0;
+  } catch (e) {}
+  try { appendHistory(t); } catch (e) {}
+  try { fs.writeFileSync(LATEST_F, JSON.stringify(t)); } catch (e) {}
   return t;
 }
 
@@ -505,7 +530,9 @@ function appendHistory(t) {
   try {
     const f = path.join(DIR_HIST, dayVN() + '.ndjson');
     const row = { ts: nowISO(), level: t.level, source: t.source };
-    ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'container', 'cpu', 'ram', 'temp', 'ports_open'].forEach(k => {
+    ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'docker_sock', 'container',
+      'cpu', 'ram', 'temp', 'ports_open', 'core_state', 'core_verified', 'protocol',
+      'ingest_lag', 'network_kind', 'core_version'].forEach(k => {
       if (t[k] != null) row[k] = t[k];
     });
     fs.appendFileSync(f, JSON.stringify(row) + '\n');
@@ -591,7 +618,7 @@ function lineIf(icon, label, value) {
 const ACTION_LOG = path.join(DIR_LOGS, 'actions.ndjson');
 function actionLog(kind, msg, extra) {
   try {
-    const row = { ts: nowISO(), kind: kind || 'info', msg: String(msg || '').slice(0, 500) };
+    const row = { ts: nowISO(), kind: kind || 'info', msg: (typeof redactSecrets === 'function' ? redactSecrets(String(msg || '')) : String(msg || '')).slice(0, 500) };
     if (extra && typeof extra === 'object') {
       try { row.extra = JSON.stringify(extra).slice(0, 400); } catch (e) {}
     }
@@ -637,8 +664,11 @@ function formatStatus(t, mode) {
     lines.push('🔄 SYNC · ' + ic + ' ' + t.sync);
   }
   if (t.docker) lines.push('🐳 NODE · 🟢 ' + t.docker);
+  else if (t.docker_sock) lines.push('🐳 NODE · 🟢 sock');
   else if (t.ports_all_open) lines.push('🐳 NODE · 🟢 Running');
   else if (t.ports_open === 0) lines.push('🐳 NODE · 🔴 Ports closed');
+  if (t.container) lines.push('📦 CONTAINER · ' + t.container);
+  if (t.docker_sock) lines.push('🔌 SOCK · yes');
   if (netOk) lines.push('🌐 NETWORK · 🟢 Good');
   else if (t.ports_open != null) lines.push('🌐 NETWORK · 🟡 Partial');
 
@@ -745,6 +775,9 @@ function formatDiagnostic(t) {
   if (t.core_version) lines.push('🔧 Core · ' + t.core_version);
   if (t.horizon_version) lines.push('🔧 Horizon · ' + t.horizon_version);
   if (t.protocol != null) lines.push('📜 Protocol · ' + t.protocol);
+  if (t.docker) lines.push('🐳 Docker · ' + t.docker);
+  if (t.docker_sock) lines.push('🔌 Sock · yes');
+  if (t.container) lines.push('📦 Container · ' + t.container);
   if (t.sources) lines.push('📚 Sources · ' + Object.keys(t.sources).filter(function (k) { return t.sources[k]; }).join(', '));
   lines.push('');
   lines.push('💡 Level · ' + (t.level || '?'));
@@ -776,7 +809,14 @@ function formatReport() {
   lines.push('');
   const lastSync = last.sync || '';
   lines.push('🔄 SYNC · ' + (/synced|live|good/i.test(lastSync) ? '🟢' : '🟡') + ' ' + (lastSync || 'n/a'));
-  lines.push('🐳 DOCKER · ' + (last.docker ? '🟢 ' + last.docker : (last.ports_open > 0 ? '🟢 Running' : '🟡 n/a')));
+  const dockRows = rows.filter(function (r) { return r.docker || r.docker_sock || r.container; });
+  const lastDock = dockRows.length ? dockRows[dockRows.length - 1] : last;
+  const dockLabel = lastDock.docker || (lastDock.docker_sock ? 'sock' : (last.ports_open > 0 ? 'Running' : 'n/a'));
+  lines.push('🐳 DOCKER · ' + (/stop|exit|n\/a/i.test(String(dockLabel)) ? '🟡 ' : '🟢 ') + dockLabel);
+  if (lastDock.container) lines.push('📦 CONTAINER · ' + lastDock.container);
+  if (last.peer_in != null || last.peer_out != null) {
+    lines.push('👥 PEERS · IN ' + (last.peer_in != null ? last.peer_in : '?') + ' / OUT ' + (last.peer_out != null ? last.peer_out : '?'));
+  }
   lines.push('🌐 NETWORK · ' + (last.ports_all_open || last.ports_open >= 2 ? '🟢 Stable' : '🟡 Check'));
   if (rams.length) lines.push('🧠 RAM · ' + Math.round(Math.min.apply(null, rams)) + '–' + Math.round(Math.max.apply(null, rams)) + '%');
   if (cpus.length) {
@@ -1216,7 +1256,12 @@ function buildFacts(t) {
     responseTime: t.responseTime != null ? t.responseTime : null,
     docker: t.docker || null,
     docker_sock: t.docker_sock === true,
-    container: t.container || null
+    docker_probe: t.docker_probe === true,
+    container: t.container || null,
+    cpu: t.cpu != null ? t.cpu : null,
+    ram: t.ram != null ? t.ram : null,
+    temp: t.temp != null ? t.temp : null,
+    ports_all_open: t.ports_all_open === true
   };
 }
 
@@ -1238,7 +1283,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.28-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.29-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -1678,10 +1723,11 @@ async function httpGetGemini(pathSuffix) {
   });
 }
 
-async function discoverGeminiModels() {
+async function discoverGeminiModels(force) {
   if (!GEMINI_API_KEY) return [];
   const now = Date.now();
-  if (state.geminiModels && state.geminiModelsAt && (now - state.geminiModelsAt < 6 * 3600 * 1000)) {
+  // Cache forever until a preferred-model failure forces refresh (no timed scan)
+  if (!force && state.geminiModels && state.geminiModels.length) {
     return state.geminiModels;
   }
   const r = await httpGetGemini('models');
@@ -1784,16 +1830,14 @@ async function callGeminiGenerate(model, body) {
 /** Try preferred model first; only rotate on real failure */
 async function generateWithSmartGemini(promptText) {
   if (!GEMINI_API_KEY) return null;
-  const discovered = await discoverGeminiModels();
-  const models = orderedGeminiModels(discovered);
   const body = JSON.stringify({
     contents: [{ parts: [{ text: promptText }] }],
     generationConfig: { temperature: 0.85, maxOutputTokens: 2000 }
   });
-  // Cap attempts to avoid long delays: preferred + up to 3 alternatives
-  const maxTry = Math.min(models.length, state.geminiPreferred ? 4 : 5);
-  for (let i = 0; i < maxTry; i++) {
-    const model = models[i];
+  const tried = {};
+  async function tryOne(model) {
+    if (!model || tried[model]) return null;
+    tried[model] = true;
     const res = await callGeminiGenerate(model, body);
     if (res.ok) {
       rememberGeminiSuccess(model);
@@ -1801,6 +1845,20 @@ async function generateWithSmartGemini(promptText) {
     }
     try { actionLog('warn', 'Gemini ' + model + ': ' + (res.error || 'fail')); } catch (e) {}
     rememberGeminiFailure(model);
+    return null;
+  }
+  // 1) Sticky preferred only — no catalog scan on the happy path
+  if (state.geminiPreferred) {
+    const hit = await tryOne(state.geminiPreferred);
+    if (hit) return hit;
+  }
+  // 2) Preferred failed or missing → discover models and prefer higher versions
+  const discovered = await discoverGeminiModels(true);
+  const models = orderedGeminiModels(discovered);
+  const maxTry = Math.min(models.length, 4);
+  for (let i = 0; i < maxTry; i++) {
+    const hit = await tryOne(models[i]);
+    if (hit) return hit;
   }
   return null;
 }
@@ -2189,19 +2247,42 @@ async function processUpdate(u) {
   }
 }
 
+async function installTelegramMenu() {
+  if (!BOT_TOKEN) return;
+  try {
+    const r = await tgApi('setMyCommands', {
+      commands: [
+        { command: 'status', description: 'Current node health snapshot' },
+        { command: 'sync', description: 'Sync status and latest ledger' },
+        { command: 'peers', description: 'Inbound and outbound peers' },
+        { command: 'report', description: 'Recent history summary' },
+        { command: 'diagnostic', description: 'Technical source details' },
+        { command: 'analyze', description: 'AI technician review' },
+        { command: 'logs', description: 'App activity and errors' },
+        { command: 'donate', description: 'Support the project' },
+        { command: 'winpro', description: 'Windows PRO edition link' },
+        { command: 'ping', description: 'Controller heartbeat' },
+        { command: 'help', description: 'List available commands' }
+      ]
+    });
+    if (r && r.ok) log('Telegram command menu installed');
+    else log('setMyCommands skip: ' + ((r && r.description) || 'no reply'), 'warn');
+  } catch (e) {
+    log('setMyCommands ' + (e && e.message), 'warn');
+  }
+}
+
 async function telegramLoop() {
   let conflictBackoff = 15000;
   let lastConflictLog = 0;
-  let polling = false;
   if (BOT_TOKEN) {
     const dw = await tgApi('deleteWebhook', { drop_pending_updates: true });
     log('deleteWebhook ' + (dw && dw.ok ? 'ok' : 'skip') + ' (drop_pending=true)');
     try { actionLog('info', 'telegram loop start · deleteWebhook'); } catch (e) {}
+    await installTelegramMenu();
   }
   while (true) {
     if (!BOT_TOKEN) { await wait(5000); continue; }
-    if (polling) { await wait(500); continue; }
-    polling = true;
     try {
       const r = await tgApi('getUpdates', {
         offset: offset,
@@ -2209,7 +2290,7 @@ async function telegramLoop() {
         allowed_updates: ['message', 'callback_query']
       });
       if (!r) {
-        await wait(2000);
+        await wait(400);
         continue;
       }
       if (r.ok === false) {
@@ -2228,7 +2309,7 @@ async function telegramLoop() {
           continue;
         }
         log('getUpdates fail: ' + desc, 'error');
-        await wait(8000);
+        await wait(2500);
         continue;
       }
       conflictBackoff = 15000;
@@ -2243,9 +2324,7 @@ async function telegramLoop() {
       }
     } catch (e) {
       log('tg loop ' + (e && e.message), 'error');
-      await wait(4000);
-    } finally {
-      polling = false;
+      await wait(1200);
     }
   }
 }

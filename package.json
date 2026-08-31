@@ -1,1 +1,1 @@
-{"name":"pinode-telegram-solohost","version":"2.6.28","description":"Docker enable SoloHost UI only; security harden; APP_KNOWLEDGE for AI","main":"loader.js","private":true}
+{"name":"pinode-telegram-solohost","version":"2.6.29","description":"SoloHost Pi Node Telegram Controller PRO","main":"loader.js","private":true}

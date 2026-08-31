@@ -280,6 +280,18 @@ class PiNodeStatusMonitor {
         if (dock.peers_from_exec.peer_in != null) primary.peer_in = dock.peers_from_exec.peer_in;
         if (dock.peers_from_exec.peer_out != null) primary.peer_out = dock.peers_from_exec.peer_out;
       }
+      if (dock.horizon_from_exec) {
+        const hzE = dock.horizon_from_exec;
+        if (primary.ledger == null && hzE.ledger != null) primary.ledger = hzE.ledger;
+        if (hzE.core_version && !primary.core_version) primary.core_version = hzE.core_version;
+        if (hzE.horizon_version && !primary.horizon_version) primary.horizon_version = hzE.horizon_version;
+        if (hzE.protocol != null && primary.protocol == null) primary.protocol = hzE.protocol;
+        if (hzE.network && !primary.network) primary.network = hzE.network;
+        primary.sources.docker_horizon = true;
+      }
+      if (Array.isArray(dock.containers) && dock.containers.length) {
+        primary.docker_containers = dock.containers.length;
+      }
     } else {
       primary.docker_probe = false;
       primary.docker_sock = false;
