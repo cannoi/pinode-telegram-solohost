@@ -62,7 +62,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.29-solohost';
+const VERSION = '2.6.30-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -836,6 +836,11 @@ function formatReport() {
     const a = rows[i - 1], b = rows[i];
     if (a.level === 'ok' && b.level === 'critical') events++;
   }
+  const windows = extractIssueWindows(rows);
+  lines.push('');
+  lines.push('📌 ISSUE WINDOWS');
+  if (!windows.length && crit === 0) lines.push('🟢 None');
+  else lines.push(formatIssueWindows(windows));
   if (events) {
     lines.push('');
     lines.push('📌 EVENTS');
@@ -851,6 +856,89 @@ function formatReport() {
   lines.push('');
   lines.push('💛 PI NODE CONTROLLER');
   lines.push('☕ DEV COFFEE · MB 0905428801 · "/donate"');
+  return lines.join('\n');
+}
+
+
+function formatHelp() {
+  return [
+    'PI NODE CONTROLLER · HELP',
+    '━━━━━━━━━━━━━━━━━━',
+    '',
+    '/status — Current node health snapshot',
+    '/sync — Sync status and latest ledger',
+    '/peers — Inbound and outbound peers',
+    '/report — Recent history and issue windows',
+    '/diagnostic — Technical source details',
+    '/analyze — AI technician review',
+    '/logs — App activity and errors',
+    '/donate — Support the project',
+    '/winpro — Windows PRO edition link',
+    '/ping — Controller heartbeat',
+    '/help — This list',
+    '',
+    'Ask in any language. AI uses live + history data.',
+    'Optional Docker: SoloHost UI on this PC only.',
+    '',
+    '💛 /donate'
+  ].join('\n');
+}
+
+function extractIssueWindows(rows) {
+  const out = [];
+  if (!rows || !rows.length) return out;
+  function bad(r) {
+    if (!r) return false;
+    if (r.level === 'critical' || r.level === 'warning') return true;
+    const s = String(r.sync || '');
+    if (/catch|behind|lost|offline|unknown|n\/a/i.test(s) && !/synced|live|good|horizon ok/i.test(s)) return true;
+    if (r.ports_open === 0) return true;
+    if (r.ledger_age != null && Number(r.ledger_age) > 180) return true;
+    return false;
+  }
+  let cur = null;
+  rows.forEach(function (r) {
+    const ts = r.ts || '';
+    if (bad(r)) {
+      if (!cur) cur = { from: ts, to: ts, kind: r.level || 'watch', sync: r.sync || '', n: 1 };
+      else { cur.to = ts; cur.n++; if (r.sync) cur.sync = r.sync; }
+    } else if (cur) {
+      out.push(cur);
+      cur = null;
+    }
+  });
+  if (cur) out.push(cur);
+  return out.slice(-8);
+}
+
+function formatIssueWindows(windows) {
+  if (!windows || !windows.length) return '🟢 No issue windows in this sample set';
+  return windows.map(function (w) {
+    const a = String(w.from || '').replace('T', ' ').slice(0, 16);
+    const b = String(w.to || '').replace('T', ' ').slice(0, 16);
+    return '🔴 ' + (w.kind || 'issue') + ' · ' + a + ' → ' + b + ' · ' + (w.n || 1) + ' samples' + (w.sync ? (' · ' + w.sync) : '');
+  }).join('\n');
+}
+
+function preEvalBrief(t) {
+  t = t || {};
+  const h = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
+  const rows = (typeof readHistory === 'function') ? readHistory(2) : [];
+  const windows = extractIssueWindows(rows);
+  const lines = [];
+  lines.push('PRE-EVAL (do not invent beyond this)');
+  lines.push('Now source=' + (t.source || '?') + ' sync=' + (t.sync || '?') + ' level=' + (t.level || '?'));
+  if (t.ledger != null) lines.push('Ledger=' + t.ledger + (t.ledger_age != null ? (' age=' + t.ledger_age + 's') : ''));
+  if (t.peer_in != null || t.peer_out != null) lines.push('Peers IN/OUT=' + (t.peer_in != null ? t.peer_in : '?') + '/' + (t.peer_out != null ? t.peer_out : '?'));
+  lines.push('Docker=' + (t.docker || 'n/a') + ' sock=' + (t.docker_sock ? 'yes' : 'no') + ' container=' + (t.container || 'n/a'));
+  if (t.ports_open != null) lines.push('Ports open=' + t.ports_open);
+  if (h && h.samples) {
+    lines.push('24h samples=' + h.samples + ' ok/warn/crit=' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
+    if (h.first_ts) lines.push('24h window=' + String(h.first_ts).slice(0, 16) + ' → ' + String(h.last_ts).slice(0, 16));
+    lines.push('Sync flips=' + h.sync_flips);
+  }
+  lines.push('Issue windows:');
+  lines.push(formatIssueWindows(windows));
   return lines.join('\n');
 }
 
@@ -1283,7 +1371,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.29-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.30-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2068,6 +2156,24 @@ async function aiAnalyze(t, userQ) {
   }
 }
 
+
+async function localCommandText(cmd, msg) {
+  const t = cache || await getTelemetry();
+  cmd = String(cmd || '').replace(/^\//, '').toLowerCase();
+  if (cmd === 'help' || cmd === 'start') return formatHelp();
+  if (cmd === 'status' || cmd === 's') return formatStatus(t);
+  if (cmd === 'sync') return formatStatus(t);
+  if (cmd === 'peers') return formatPeers(t);
+  if (cmd === 'report' || cmd === 'trends') return formatReport();
+  if (cmd === 'diagnostic' || cmd === 'diag') return formatDiagnostic(t);
+  if (cmd === 'logs') return formatActionLog();
+  if (cmd === 'ping') return 'pong · v' + VERSION;
+  if (cmd === 'donate') return 'Donate: MB Bank 0905428801 TRAN HUU NGHI · Pay with Pi via /donate on Telegram';
+  if (cmd === 'winpro') return 'Windows PRO: ' + GITHUB_PRO;
+  if (cmd === 'analyze') return aiAnalyze(t, msg || 'Review my node');
+  return null;
+}
+
 function mainKeyboard() {
   return {
     inline_keyboard: [
@@ -2082,6 +2188,7 @@ function mainKeyboard() {
         { text: '💬 ANALYZE', callback_data: 'cmd_analyze' }
       ],
       [
+        { text: '❓ HELP', callback_data: 'cmd_help' },
         { text: '💻 Windows PRO', callback_data: 'cmd_winpro' },
         { text: '💛 DONATE', callback_data: 'cmd_donate' }
       ]
@@ -2195,8 +2302,7 @@ async function runCmd(cmd, userText) {
     );
   }
   if (cmd === 'start' || cmd === 'help') {
-    return tgSend(
-      'PI NODE CONTROLLER · SoloHost\n' +
+    return tgSend(formatHelp() + '\n\n' +
       '━━━━━━━━━━━━━━━━━━\n' +
       '/status /sync /peers\n/report /diagnostic /analyze\n/scripts /donate\n' +
       '━━━━━━━━━━━━━━━━━━\n' +
@@ -2474,7 +2580,13 @@ const srv = http.createServer(async (req, res) => {
         }
         if (!tel) tel = { source: 'none', level: 'unknown', sources: {} };
         pushChatPersistent('user', msg);
-        const ans = await aiAnalyze(tel, msg);
+        let ans = null;
+        const low = msg.toLowerCase().trim();
+        const c0 = low.split(/\s+/)[0].replace(/^\//, '');
+        if (/^(help|status|s|sync|peers|report|trends|diagnostic|diag|logs|ping|donate|winpro)$/.test(c0) || low.charAt(0) === '/') {
+          try { ans = await localCommandText(c0, msg); } catch (e) { ans = null; }
+        }
+        if (!ans) ans = await aiAnalyze(tel, msg);
         pushChatPersistent('assistant', ans);
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(JSON.stringify({ ok: true, reply: ans, version: VERSION, source: tel && tel.source }));
