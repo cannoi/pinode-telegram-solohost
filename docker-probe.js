@@ -1,4 +1,5 @@
 'use strict';
+const dataFrame = require('./data-frame');
 
 /**
  * Optional Docker sources for Pi Node status
@@ -258,10 +259,10 @@ async function probeDocker() {
         if (pj.authenticated_peers) {
           const inn = pj.authenticated_peers.inbound;
           const out = pj.authenticated_peers.outbound;
-          result.peers_from_exec = {
+          result.peers_from_exec = dataFrame.applyPeerRule({
             peer_in: Array.isArray(inn) ? inn.length : (inn ? Object.keys(inn).length : 0),
             peer_out: Array.isArray(out) ? out.length : (out ? Object.keys(out).length : 0)
-          };
+          });
         }
       } catch (e) {}
     }

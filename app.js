@@ -10,6 +10,7 @@
 const http = require('http');
 const https = require('https');
 const PiNodeStatusMonitor = require('./status-monitor');
+const dataFrame = require('./data-frame');
 
 const net = require('net');
 const fs = require('fs');
@@ -62,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.30-solohost';
+const VERSION = '2.6.31-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -471,6 +472,7 @@ async function collectTelemetry() {
   t.sources.ports = t.ports_open != null;
   if (!t.container && NODE_LABEL) t.container = NODE_LABEL;
   if (!t.container) t.container = NODE_LABEL || null;
+  try { t = Object.assign(t, dataFrame.toFrame(t)); dataFrame.applyPeerRule(t); } catch (e) {}
   // cgroup optional enrich
   try {
     const cg = readCgroupResources();
@@ -515,7 +517,11 @@ async function collectTelemetry() {
     t._age = 0;
   } catch (e) {}
   try { appendHistory(t); } catch (e) {}
-  try { fs.writeFileSync(LATEST_F, JSON.stringify(t)); } catch (e) {}
+  try {
+    const tmp = LATEST_F + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(t));
+    fs.renameSync(tmp, LATEST_F);
+  } catch (e) { try { fs.writeFileSync(LATEST_F, JSON.stringify(t)); } catch (e2) {} }
   return t;
 }
 
@@ -531,7 +537,7 @@ function appendHistory(t) {
     const f = path.join(DIR_HIST, dayVN() + '.ndjson');
     const row = { ts: nowISO(), level: t.level, source: t.source };
     ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'docker_sock', 'container',
-      'cpu', 'ram', 'temp', 'ports_open', 'core_state', 'core_verified', 'protocol',
+      'cpu', 'ram', 'temp', 'ports_open', 'peer_total', 'peer_rule', 'core_state', 'core_verified', 'protocol',
       'ingest_lag', 'network_kind', 'core_version'].forEach(k => {
       if (t[k] != null) row[k] = t[k];
     });
@@ -709,9 +715,10 @@ function formatStatus(t, mode) {
 
 function formatPeers(t) {
   t = t || {};
+  try { if (typeof dataFrame !== 'undefined') dataFrame.applyPeerRule(t); } catch (e) {}
   const inn = t.peer_in;
   const out = t.peer_out;
-  const total = (inn != null && out != null) ? (inn + out) : (inn != null ? inn : out);
+  const total = t.peer_total != null ? t.peer_total : ((inn != null && out != null) ? (inn + out) : (inn != null ? inn : out));
   const lines = ['🔗 PEERS · STELLAR CORE', '━━━━━━━━━━━━━━━━━━', ''];
   if (inn == null && out == null) {
     lines.push('⚠️ Peer data unavailable');
@@ -955,16 +962,16 @@ function formatScripts() {
 
 function randomDonateThanks() {
   const pool = [
-    'Cảm ơn bạn rất nhiều — ly cà phê này giúp mình tiếp tục nâng cấp app nhé!',
-    'Bạn quá tuyệt! Cảm ơn sự ủng hộ, mình sẽ cố gắng thêm cho cộng đồng Pi Node.',
-    'Nhận được ủng hộ là động lực lớn. Cảm ơn bạn, chúc node chạy ổn định!',
-    'Thanks a lot! Your coffee keeps the SoloHost updates coming.',
-    'Ly cà phê này ý nghĩa lắm — cảm ơn bạn đã đồng hành cùng dự án.',
-    'Ủng hộ của bạn ý nghĩa hơn cả con số. Cảm ơn và chúc bạn may mắn!',
-    'Wow, cảm ơn bạn! Mình sẽ dùng để cải thiện bot và báo cáo tốt hơn.',
-    'Cảm ơn nhé — mỗi đóng góp đều giúp app ổn định hơn cho mọi người.',
-    'Pi hay MB đều trân trọng như nhau. Cảm ơn bạn đã ủng hộ!',
-    'Thank you for supporting open Pi Node tools for the community.'
+    '💜 Cảm ơn bạn — ly cà phê này giúp app tiếp tục được nâng cấp!',
+    '💜 Bạn quá tuyệt! Cảm ơn sự ủng hộ cho cộng đồng Pi Node.',
+    '💜 Nhận được ủng hộ là động lực lớn. Chúc node chạy ổn định!',
+    '💜 Thanks a lot! Your coffee keeps SoloHost updates coming.',
+    '💜 Ly cà phê này ý nghĩa lắm — cảm ơn bạn đã đồng hành.',
+    '💜 Ủng hộ của bạn ý nghĩa hơn cả con số. Cảm ơn bạn!',
+    '💜 Wow, cảm ơn! Mình sẽ cải thiện bot và báo cáo tốt hơn.',
+    '💜 Cảm ơn nhé — mỗi đóng góp giúp app ổn định hơn.',
+    '💜 Pi hay MB đều trân trọng như nhau. Cảm ơn bạn!',
+    '💜 Thank you for supporting open Pi Node tools.'
   ];
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -983,7 +990,7 @@ function formatDonate() {
     '   STK: 0905428801',
     '   Ten: TRAN HUU NGHI',
     '',
-    '📱 QR sẽ gửi kèm theo từng lựa chọn.',
+    '📱 QR: Pay with Pi + MB Bank',
     '',
     '🙏 ' + randomDonateThanks()
   ].join('\n');
@@ -1371,7 +1378,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.30-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.31-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2168,7 +2175,7 @@ async function localCommandText(cmd, msg) {
   if (cmd === 'diagnostic' || cmd === 'diag') return formatDiagnostic(t);
   if (cmd === 'logs') return formatActionLog();
   if (cmd === 'ping') return 'pong · v' + VERSION;
-  if (cmd === 'donate') return 'Donate: MB Bank 0905428801 TRAN HUU NGHI · Pay with Pi via /donate on Telegram';
+  if (cmd === 'donate') return formatDonate();
   if (cmd === 'winpro') return 'Windows PRO: ' + GITHUB_PRO;
   if (cmd === 'analyze') return aiAnalyze(t, msg || 'Review my node');
   return null;
@@ -2588,8 +2595,17 @@ const srv = http.createServer(async (req, res) => {
         }
         if (!ans) ans = await aiAnalyze(tel, msg);
         pushChatPersistent('assistant', ans);
+        const payload = { ok: true, reply: ans, version: VERSION, source: tel && tel.source };
+        if (c0 === 'donate') {
+          payload.images = [];
+          try {
+            if (fs.existsSync(path.join(PUBLIC, 'donate-qr-pi.jpg'))) payload.images.push('/donate-qr-pi.jpg');
+            if (fs.existsSync(path.join(PUBLIC, 'donate-qr-mb.jpg'))) payload.images.push('/donate-qr-mb.jpg');
+            if (!payload.images.length && fs.existsSync(path.join(PUBLIC, 'donate-qr.jpg'))) payload.images.push('/donate-qr.jpg');
+          } catch (e) {}
+        }
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.end(JSON.stringify({ ok: true, reply: ans, version: VERSION, source: tel && tel.source }));
+        res.end(JSON.stringify(payload));
       } catch (e) {
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json');

@@ -1,4 +1,5 @@
 'use strict';
+const dataFrame = require('./data-frame');
 
 /**
  * SoloHost-allowed multi-source Pi Node status
@@ -257,6 +258,7 @@ class PiNodeStatusMonitor {
     primary.ports = netw.app_ports || netw.ports || {};
     primary.ports_open = netw.app_open != null ? netw.app_open : netw.openCount;
     primary.ports_all_open = primary.ports_open >= 3;
+    try { dataFrame.applyPeerRule(primary); } catch (e) {}
     primary.network_probe = netw.ports;
 
     // Optional docker enrichment
