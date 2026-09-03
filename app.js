@@ -63,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.32-solohost';
+const VERSION = '2.6.33-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -574,6 +574,56 @@ function readHistory(days) {
 }
 
 // ---------- FSM alerts ----------
+
+function hourNowVN() {
+  try { return parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', hour12: false }), 10); }
+  catch (e) { return new Date().getHours(); }
+}
+function alertsMuted() {
+  const now = Date.now();
+  if (state.muteUntil && now < state.muteUntil) return { muted: true, why: 'until ' + new Date(state.muteUntil).toISOString() };
+  const mode = String(state.alertMode || 'on').toLowerCase();
+  if (mode === 'off') return { muted: true, why: 'alerts off' };
+  if (mode === 'night') {
+    const h = hourNowVN();
+    if (h >= 22 || h < 7) return { muted: true, why: 'night quiet 22:00-07:00' };
+  }
+  return { muted: false, why: '' };
+}
+function alertKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🔇 1h', callback_data: 'cmd_mute_1h' },
+        { text: '🌙 Night', callback_data: 'cmd_mute_night' },
+        { text: '📅 24h', callback_data: 'cmd_mute_24h' }
+      ],
+      [
+        { text: '🔕 Off', callback_data: 'cmd_mute_off' },
+        { text: '🔔 On', callback_data: 'cmd_mute_on' },
+        { text: '📊 Status', callback_data: 'cmd_status' }
+      ]
+    ]
+  };
+}
+function setMuteHours(h) {
+  state.muteUntil = Date.now() + h * 3600 * 1000;
+  state.alertMode = 'on';
+  try { saveJSON(STATE_F, state); } catch (e) {}
+}
+function formatMuteAck() {
+  const m = alertsMuted();
+  const until = state.muteUntil ? new Date(state.muteUntil).toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh' }) : '-';
+  return [
+    '🔔 ALERT PREFS',
+    'Mode: ' + (state.alertMode || 'on'),
+    'Mute until: ' + until,
+    'Now: ' + (m.muted ? ('QUIET · ' + m.why) : 'ACTIVE'),
+    '',
+    'Windows-style: confirm 3 samples, dedupe ~30 min, AI may suppress short catch-up.'
+  ].join('\n');
+}
+
 function mapLevelToFsm(level) {
   if (level === 'critical') return 'CRITICAL';
   if (level === 'warning') return 'WARNING';
@@ -655,6 +705,29 @@ async function aiClassifyIncident(t, kind, durationMin) {
   return null;
 }
 
+
+function alertFingerprint(t, kind) {
+  const s = String((kind || '') + ' ' + (t && t.sync || '') + ' ' + (t && t.level || '')).replace(/\d+/g, 'N').toLowerCase();
+  return s.replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+async function sendAlertTelegram(text, t) {
+  const gate = alertsMuted();
+  if (gate.muted) {
+    try { actionLog('info', 'alert muted · ' + gate.why); } catch (e) {}
+    return false;
+  }
+  const fp = alertFingerprint(t || {}, classifyIssueKind(t || {}));
+  const now = Date.now();
+  if (state.alertDedupe && state.alertDedupe.fp === fp && now - (state.alertDedupe.at || 0) < 30 * 60 * 1000) {
+    try { actionLog('info', 'alert deduped 30m · ' + fp); } catch (e) {}
+    return false;
+  }
+  state.alertDedupe = { fp: fp, at: now };
+  try { saveJSON(STATE_F, state); } catch (e) {}
+  await tgSend(text, { reply_markup: alertKeyboard() });
+  return true;
+}
+
 async function runAlertMachine(t) {
   const next = mapLevelToFsm(t.level);
   const prev = state.fsm || 'HEALTHY';
@@ -693,18 +766,19 @@ async function runAlertMachine(t) {
       if (ai) extra = '\n\n🤖 AI CHECK\n' + ai;
       else extra = '\n\n💡 May be brief catch-up, upgrade, or local network. Watch 10–15 min before heavy fixes.';
     }
-    await tgSend(formatStatus(t, 'ALERT') + extra);
+    await sendAlertTelegram(formatStatus(t, 'ALERT') + extra, t);
     state.lastAlertAt = now;
     state.fsm = next;
     state.lastAlertKind = kind;
   } else if (longProblem) {
     const ai = await aiClassifyIncident(t, kind, durationMin);
-    await tgSend(
+    await sendAlertTelegram(
       '🟠 STILL OPEN · ' + durationMin + ' min\n' +
       'Kind: ' + kind + '\n\n' +
       formatStatus(t, 'ALERT') +
       (ai ? ('\n\n🤖 AI\n' + ai) : '') +
-      '\n\nIssue is lasting — check power, internet, Pi Node app, ports 31401–31403.'
+      '\n\nIssue is lasting — check power, internet, Pi Node app, ports 31401–31403.',
+      t
     );
     state.lastAlertAt = now;
     state.fsm = next;
@@ -983,6 +1057,7 @@ function formatHelp() {
     '/winpro — Windows PRO edition link',
     '/ping — Controller heartbeat',
     '/help — This list',
+    '/mute — Quiet alerts: 1h, 24h, night, off',
     '',
     'Ask in any language. AI uses live + history data.',
     'Optional Docker: SoloHost UI on this PC only.',
@@ -1478,7 +1553,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.32-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.33-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2397,6 +2472,12 @@ async function runCmd(cmd, userText) {
     await sendDonateQr('mb');
     return true;
   }
+  if (cmd === 'mute_1h') { setMuteHours(1); return tgSend('🔇 Alerts muted 1 hour.\n' + formatMuteAck(), { reply_markup: alertKeyboard() }); }
+  if (cmd === 'mute_24h') { setMuteHours(24); return tgSend('📅 Alerts muted 24 hours.\n' + formatMuteAck(), { reply_markup: alertKeyboard() }); }
+  if (cmd === 'mute_night') { state.alertMode = 'night'; state.muteUntil = 0; saveJSON(STATE_F, state); return tgSend('🌙 Night quiet 22:00–07:00.\n' + formatMuteAck(), { reply_markup: alertKeyboard() }); }
+  if (cmd === 'mute_off') { state.alertMode = 'off'; state.muteUntil = 0; saveJSON(STATE_F, state); return tgSend('🔕 Alerts off until you press On.\n' + formatMuteAck(), { reply_markup: alertKeyboard() }); }
+  if (cmd === 'mute_on' || cmd === 'alerts_on') { state.alertMode = 'on'; state.muteUntil = 0; saveJSON(STATE_F, state); return tgSend('🔔 Alerts on.\n' + formatMuteAck(), { reply_markup: alertKeyboard() }); }
+  if (cmd === 'mute' || cmd === 'alerts') return tgSend(formatMuteAck(), { reply_markup: alertKeyboard() });
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
   if (cmd === 'docker' || cmd === 'dockersock' || cmd === 'docker_confirm' || cmd === 'docker_cancel' || cmd === 'docker_off' || cmd === 'docker_rules' || cmd === 'docker_local' || (typeof cmd === 'string' && cmd.indexOf('docker') === 0)) {
     try { actionLog('info', 'user docker cmd blocked on Telegram'); } catch (e) {}
@@ -2478,7 +2559,8 @@ async function installTelegramMenu() {
         { command: 'donate', description: 'Support the project' },
         { command: 'winpro', description: 'Windows PRO edition link' },
         { command: 'ping', description: 'Controller heartbeat' },
-        { command: 'help', description: 'List available commands' }
+        { command: 'help', description: 'List available commands' },
+        { command: 'mute', description: 'Alert mute 1h / 24h / night / off' }
       ]
     });
     if (r && r.ok) log('Telegram command menu installed');
