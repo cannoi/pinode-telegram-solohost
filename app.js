@@ -63,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.31-solohost';
+const VERSION = '2.6.32-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -581,33 +581,133 @@ function mapLevelToFsm(level) {
   return 'HEALTHY';
 }
 
+function classifyIssueKind(t) {
+  t = t || {};
+  const sync = String(t.sync || '');
+  const age = t.ledger_age != null ? Number(t.ledger_age) : null;
+  const portsClosed = t.ports_open === 0;
+  const catching = /catch|behind|syncing|joining/i.test(sync);
+  const live = /synced|live|horizon ok|good/i.test(sync);
+  if (portsClosed && !live) return 'network_or_host';
+  if (catching && t.ledger != null) return 'catchup_or_upgrade';
+  if (age != null && age > 300 && !portsClosed) return 'lagging';
+  if (t.level === 'critical') return 'persistent_risk';
+  if (t.level === 'warning' || t.level === 'soft') return 'watch';
+  return 'ok';
+}
+
+async function fetchPctContext() {
+  const now = Date.now();
+  if (state.pctNews && state.pctNewsAt && now - state.pctNewsAt < 12 * 3600 * 1000) {
+    return state.pctNews;
+  }
+  return new Promise(function (resolve) {
+    const req = https.request({
+      hostname: 'api.github.com',
+      path: '/repos/PiCoreTeam/pi-node-docker/releases?per_page=3',
+      method: 'GET',
+      headers: { 'User-Agent': 'pinode-solohost-controller', 'Accept': 'application/vnd.github+json' }
+    }, function (r) {
+      let b = '';
+      r.on('data', function (d) { b += d; });
+      r.on('end', function () {
+        try {
+          const j = JSON.parse(b);
+          const list = Array.isArray(j) ? j.slice(0, 3).map(function (x) {
+            return { tag: x.tag_name || x.name, at: x.published_at || x.created_at, name: x.name };
+          }) : [];
+          state.pctNews = list;
+          state.pctNewsAt = Date.now();
+          try { saveJSON(STATE_F, state); } catch (e) {}
+          resolve(list);
+        } catch (e) { resolve(state.pctNews || []); }
+      });
+    });
+    req.on('error', function () { resolve(state.pctNews || []); });
+    req.setTimeout(8000, function () { try { req.destroy(); } catch (e) {} resolve(state.pctNews || []); });
+    req.end();
+  });
+}
+
+async function aiClassifyIncident(t, kind, durationMin) {
+  if (!GEMINI_API_KEY) return null;
+  if (state.incidentAiAt && Date.now() - state.incidentAiAt < 25 * 60 * 1000) return state.incidentAiText || null;
+  try {
+    const pct = await fetchPctContext();
+    const brief = (typeof preEvalBrief === 'function') ? preEvalBrief(t) : '';
+    const q = [
+      'Classify this Pi Node incident for the operator. Reply short, same language as typical VN operators if mixed, else English.',
+      'Kind guess: ' + kind + '. Duration minutes: ' + durationMin + '.',
+      'Decide: TRANSIENT (upgrade/catch-up, brief network blip, regional cable) vs ACTION (node really needs operator fix).',
+      'Mention if it looks like official Pi Node software catch-up after update.',
+      'PCT recent releases: ' + JSON.stringify(pct).slice(0, 400),
+      brief.slice(0, 1200),
+      'Format: 1 line verdict + 2 lines why + 1 line what to do. No markdown.'
+    ].join('\n');
+    const text = await generateWithSmartGemini(q);
+    if (text) {
+      state.incidentAiAt = Date.now();
+      state.incidentAiText = String(text).slice(0, 1200);
+      try { saveJSON(STATE_F, state); } catch (e) {}
+      return state.incidentAiText;
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function runAlertMachine(t) {
   const next = mapLevelToFsm(t.level);
   const prev = state.fsm || 'HEALTHY';
   const now = Date.now();
+  const kind = classifyIssueKind(t);
+  const TELE = (typeof TELEMETRY_SEC === 'number' ? TELEMETRY_SEC : 60);
 
   if (next === 'CRITICAL' || next === 'WARNING') {
     state.failCount = (state.failCount || 0) + 1;
+    if (!state.incidentSince) state.incidentSince = now;
   } else if (next === 'HEALTHY') {
-    if (prev === 'CRITICAL' || prev === 'WARNING' || prev === 'DEGRADED') {
-      // recovery
-      if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
-        await tgSend(formatStatus(t, 'RECOVERED'));
+    const lastedMin = state.incidentSince ? Math.round((now - state.incidentSince) / 60000) : 0;
+    if ((prev === 'CRITICAL' || prev === 'WARNING' || prev === 'DEGRADED') && lastedMin >= 2) {
+      if (now - (state.lastAlertAt || 0) >= Math.min(ALERT_COOLDOWN, 120) * 1000) {
+        await tgSend('🟢 RECOVERED after ~' + lastedMin + ' min\n\n' + formatStatus(t, 'RECOVERED'));
         state.lastAlertAt = now;
       }
     }
     state.failCount = 0;
+    state.incidentSince = null;
+    state.incidentAiText = null;
     state.fsm = 'HEALTHY';
     saveJSON(STATE_F, state);
     return;
   }
 
-  if (state.failCount >= FAIL_THRESHOLD && next !== prev) {
-    if (now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
-      await tgSend(formatStatus(t, 'ALERT'));
-      state.lastAlertAt = now;
-      state.fsm = next;
+  const durationMin = state.incidentSince ? Math.max(1, Math.round((now - state.incidentSince) / 60000)) : Math.round((state.failCount || 1) * TELE / 60);
+  const firstShot = state.failCount >= FAIL_THRESHOLD && next !== prev;
+  const stillDown = state.failCount >= FAIL_THRESHOLD && (now - (state.lastAlertAt || 0) >= 30 * 60 * 1000);
+  const longProblem = durationMin >= 15 && stillDown;
+
+  if (firstShot && now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
+    let extra = '';
+    if (kind === 'catchup_or_upgrade' || kind === 'network_or_host') {
+      const ai = await aiClassifyIncident(t, kind, durationMin);
+      if (ai) extra = '\n\n🤖 AI CHECK\n' + ai;
+      else extra = '\n\n💡 May be brief catch-up, upgrade, or local network. Watch 10–15 min before heavy fixes.';
     }
+    await tgSend(formatStatus(t, 'ALERT') + extra);
+    state.lastAlertAt = now;
+    state.fsm = next;
+    state.lastAlertKind = kind;
+  } else if (longProblem) {
+    const ai = await aiClassifyIncident(t, kind, durationMin);
+    await tgSend(
+      '🟠 STILL OPEN · ' + durationMin + ' min\n' +
+      'Kind: ' + kind + '\n\n' +
+      formatStatus(t, 'ALERT') +
+      (ai ? ('\n\n🤖 AI\n' + ai) : '') +
+      '\n\nIssue is lasting — check power, internet, Pi Node app, ports 31401–31403.'
+    );
+    state.lastAlertAt = now;
+    state.fsm = next;
   } else if (state.failCount >= FAIL_THRESHOLD) {
     state.fsm = next;
   }
@@ -1378,7 +1478,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.31-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.32-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2065,6 +2165,7 @@ function technicianEvaluate(t, userQ, intent, lang) {
 
 async function aiAnalyze(t, userQ) {
   const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 3500);
+    try { await fetchPctContext(); } catch (e) {}
 
   try {
     const intent = detectIntent(userQ || '');
@@ -2127,6 +2228,8 @@ async function aiAnalyze(t, userQ) {
         'User question: ' + q.slice(0, 900),
         'Issues: ' + JSON.stringify(issues),
         'CURRENT_FACTS: ' + JSON.stringify(facts),
+        'CONTEXT_HINTS: Official Pi Node upgrades (PCT / pi-node-docker) often cause temporary Catching up. Regional submarine-cable or ISP cuts can drop peers without the machine being broken. Restart after update is normal catch-up, not always a hardware fault.',
+        'PCT_RELEASES: ' + JSON.stringify(state.pctNews || []),
         'HISTORY_24H: ' + JSON.stringify(hist24),
         'STATS_7D: ' + JSON.stringify(stats7),
         metricBlock ? ('RELATED_METRIC_BLOCK:\n' + metricBlock) : '',

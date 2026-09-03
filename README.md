@@ -4,7 +4,7 @@ A Telegram + local assistant that watches your **Pi Node** 24/7 from **Pi Deskto
 
 You get a clear picture of node health without sitting at the machine all day. The default install stays inside SoloHost sandbox rules: **no Docker socket**, read-only style monitoring over HTTP and ports.
 
-**Image:** `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.31`
+**Image:** `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.32`
 
 ---
 
@@ -45,7 +45,7 @@ When Docker is enabled, those fields feed the **same** places as Horizon: `/stat
 
 ## Install (SoloHost)
 
-1. Publish / pull image `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.31`.
+1. Publish / pull image `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.32`.
 2. Install the two SoloHost files (`docker-compose.yml` + `config_options.yml`).
 3. Set **BOT_TOKEN** and **CHAT_ID**. Optional: **GEMINI_API_KEY**.
 4. Start the app. Telegram should show the command menu.
@@ -124,3 +124,6 @@ Reports list **issue windows** (start → end) when sync, ports, or level were b
 
 ## Data frame
 All sources (Horizon, Core, Docker) are written to one schema (`data-frame.js`): sync, ledger, peers, ports, docker, resources. If total peers < 8, Incoming = 0 and Outgoing = total. History and `latest.json` use atomic writes.
+
+## Alerts (v2.6.32)
+First alert after repeated bad samples. Lasting issues get a reminder about every 30 minutes with duration. Short catch-up / upgrade / network blips are classified with optional AI so Telegram is not spammed.
