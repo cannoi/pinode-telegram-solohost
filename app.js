@@ -63,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.33-solohost';
+const VERSION = '2.6.34-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -590,6 +590,26 @@ function alertsMuted() {
   }
   return { muted: false, why: '' };
 }
+function reportKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🕖 07:00', callback_data: 'cmd_report_h7' },
+        { text: '🕕 18:00', callback_data: 'cmd_report_h18' },
+        { text: '🕖🕕 Both', callback_data: 'cmd_report_both' }
+      ],
+      [
+        { text: '⏰ Reports off', callback_data: 'cmd_report_off' },
+        { text: '🔔 Alerts on', callback_data: 'cmd_mute_on' }
+      ]
+    ]
+  };
+}
+function effectiveReportHours() {
+  if (state.reportHours === 'off' || (Array.isArray(state.reportHours) && !state.reportHours.length)) return [];
+  if (Array.isArray(state.reportHours) && state.reportHours.length) return state.reportHours;
+  return REPORT_HOURS;
+}
 function alertKeyboard() {
   return {
     inline_keyboard: [
@@ -766,7 +786,7 @@ async function runAlertMachine(t) {
       if (ai) extra = '\n\n🤖 AI CHECK\n' + ai;
       else extra = '\n\n💡 May be brief catch-up, upgrade, or local network. Watch 10–15 min before heavy fixes.';
     }
-    await sendAlertTelegram(formatStatus(t, 'ALERT') + extra, t);
+    await sendAlertTelegram(formatStatus(t, 'ALERT') + extra + '\n\n' + formatActionAdvice(t), t);
     state.lastAlertAt = now;
     state.fsm = next;
     state.lastAlertKind = kind;
@@ -963,6 +983,71 @@ function formatDiagnostic(t) {
   lines.push('');
   lines.push('💡 Level · ' + (t.level || '?'));
   lines.push('💛 /donate · MB 0905428801');
+  return lines.join('\n');
+}
+
+
+const ACTION_CATALOG = [
+  { id: 'CleanRAM_PiNode', file: 'CleanRAM_PiNode.bat', when: 'Host RAM high or PC sluggish while node is still synced.', does: 'Closes heavy user apps and temp files. Does not stop Pi Node or Docker.', how: 'Double-click the BAT; accept Admin if asked.' },
+  { id: 'DnsRefresh', file: 'DnsRefresh.bat', when: 'Peers dropped but ports still open and ledger is moving.', does: 'Flushes DNS cache only.', how: 'Double-click DnsRefresh.bat.' },
+  { id: 'FirewallCheck', file: 'FirewallCheck.bat', when: 'Local ports 31401-31403 stay closed while the PC is online.', does: 'Opens Windows Firewall TCP 31401-31410 and tests local ports.', how: 'Run as Admin once, then recheck /status.' },
+  { id: 'NetworkRepair', file: 'NetworkRepair.bat', when: 'Ports closed for many samples AND Horizon/Core fail. Not for a 1-minute catch-up.', does: 'Refresh DHCP/DNS/Winsock. Does not force a static IP.', how: 'Run NetworkRepair.bat as Admin. Reboot router only if still dead.' },
+  { id: 'Weekly_Maintenance', file: 'Weekly_Maintenance.bat', when: 'Node is healthy; Sunday quiet hours.', does: 'Time sync, temp cleanup, optional weekly Task Scheduler.', how: 'Run Weekly_Maintenance.bat; answer Y to install Sunday 03:00 task.' },
+  { id: 'Reset_Node_Network', file: 'Reset_Node_Network.bat', when: 'Last resort after FirewallCheck + NetworkRepair failed for a long outage.', does: 'Deeper network reset (advanced). Review the on-screen warning first.', how: 'Prefer NetworkRepair.bat first.' }
+];
+
+function recommendActions(t) {
+  t = t || {};
+  const rows = (typeof readHistory === 'function') ? readHistory(1) : [];
+  const windows = (typeof extractIssueWindows === 'function') ? extractIssueWindows(rows) : [];
+  const lastWin = windows.length ? windows[windows.length - 1] : null;
+  const longBad = lastWin && (lastWin.n || 0) >= 8;
+  const catching = /catch|behind|syncing/i.test(String(t.sync || ''));
+  const live = /synced|live|horizon ok|good/i.test(String(t.sync || ''));
+  const portsClosed = t.ports_open === 0;
+  const ramHigh = t.ram != null && Number(t.ram) >= 85;
+  const picks = [];
+  const why = [];
+  if (catching && !portsClosed && (t.ledger != null)) {
+    why.push('Sync catching up while ports are open and ledger exists — wait; do not restart the node yet.');
+  } else if (portsClosed && !longBad) {
+    why.push('Ports just closed. Confirm for several minutes before any network reset.');
+    picks.push('FirewallCheck');
+  } else if (portsClosed && longBad && !live) {
+    why.push('Ports closed across many samples and node not live — firewall then network repair.');
+    picks.push('FirewallCheck');
+    picks.push('NetworkRepair');
+  } else if (t.peer_total != null && t.peer_total === 0 && live) {
+    why.push('Zero peers while sync still looks live — refresh DNS first.');
+    picks.push('DnsRefresh');
+  } else if (ramHigh && live) {
+    why.push('RAM high while node is synced — clean host RAM, do not restart the node.');
+    picks.push('CleanRAM_PiNode');
+  } else if (live) {
+    why.push('Node looks healthy. Only optional weekly maintenance if you want cleanup.');
+    picks.push('Weekly_Maintenance');
+  } else {
+    why.push('Unclear fault. Run /diagnostic and collect more samples before reset.');
+    picks.push('FirewallCheck');
+  }
+  const items = ACTION_CATALOG.filter(function (a) { return picks.indexOf(a.id) >= 0; });
+  return { why: why, items: items, picks: picks };
+}
+
+function formatActionAdvice(t) {
+  const r = recommendActions(t);
+  const lines = ['🛠️ ACTIONS', '────────'];
+  r.why.forEach(function (w) { lines.push('• ' + w); });
+  if (!r.items.length) lines.push('• No BAT required right now.');
+  r.items.forEach(function (a) {
+    lines.push('');
+    lines.push('📂 ' + a.file);
+    lines.push('When: ' + a.when);
+    lines.push('Does: ' + a.does);
+    lines.push('How: ' + a.how);
+  });
+  lines.push('');
+  lines.push('Download on SoloHost UI: http://127.0.0.1:18780/');
   return lines.join('\n');
 }
 
@@ -1553,7 +1638,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.33-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.34-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2303,6 +2388,7 @@ async function aiAnalyze(t, userQ) {
         'User question: ' + q.slice(0, 900),
         'Issues: ' + JSON.stringify(issues),
         'CURRENT_FACTS: ' + JSON.stringify(facts),
+        'ACTION_POLICY: Never recommend node restart only because sync dipped once. Catch-up with open ports = wait. Ports closed many samples = FirewallCheck then NetworkRepair. RAM high + synced = CleanRAM_PiNode. Zero peers + live = DnsRefresh. Explain why. HostReboot is last resort and not auto-suggested.',
         'CONTEXT_HINTS: Official Pi Node upgrades (PCT / pi-node-docker) often cause temporary Catching up. Regional submarine-cable or ISP cuts can drop peers without the machine being broken. Restart after update is normal catch-up, not always a hardware fault.',
         'PCT_RELEASES: ' + JSON.stringify(state.pctNews || []),
         'HISTORY_24H: ' + JSON.stringify(hist24),
@@ -2435,7 +2521,7 @@ async function runCmd(cmd, userText) {
     });
     return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'report') return tgSend(formatReport(), { reply_markup: mainKeyboard() });
+  if (cmd === 'report') { const tt = cache || {}; return tgSend(formatReport() + '\n\n' + formatActionAdvice(tt), { reply_markup: reportKeyboard() }); }
   if (cmd === 'diagnostic' || cmd === 'diag') return tgSend(formatDiagnostic(t), { reply_markup: mainKeyboard() });
   if (cmd === 'analyze' || cmd === 'ai' || cmd === 'health' || cmd === 'ask') {
     pushChatPersistent('user', userText || '');
@@ -2444,7 +2530,7 @@ async function runCmd(cmd, userText) {
     pushChatPersistent('assistant', ans);
     return tgSend(ans, { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'trends') return tgSend(formatReport(), { reply_markup: mainKeyboard() });
+  if (cmd === 'trends') return tgSend(formatReport(), { reply_markup: reportKeyboard() });
   if (cmd === 'scripts' || cmd === 'script') return tgSend(formatScripts(), { reply_markup: mainKeyboard() });
   if (cmd === 'logs' || cmd === 'log') {
     try { actionLog('info', 'user /logs'); } catch (e) {}
@@ -2478,6 +2564,11 @@ async function runCmd(cmd, userText) {
   if (cmd === 'mute_off') { state.alertMode = 'off'; state.muteUntil = 0; saveJSON(STATE_F, state); return tgSend('🔕 Alerts off until you press On.\n' + formatMuteAck(), { reply_markup: alertKeyboard() }); }
   if (cmd === 'mute_on' || cmd === 'alerts_on') { state.alertMode = 'on'; state.muteUntil = 0; saveJSON(STATE_F, state); return tgSend('🔔 Alerts on.\n' + formatMuteAck(), { reply_markup: alertKeyboard() }); }
   if (cmd === 'mute' || cmd === 'alerts') return tgSend(formatMuteAck(), { reply_markup: alertKeyboard() });
+  if (cmd === 'report_h7') { state.reportHours = [7]; saveJSON(STATE_F, state); return tgSend('🕖 Daily report at 07:00', { reply_markup: reportKeyboard() }); }
+  if (cmd === 'report_h18') { state.reportHours = [18]; saveJSON(STATE_F, state); return tgSend('🕕 Daily report at 18:00', { reply_markup: reportKeyboard() }); }
+  if (cmd === 'report_both') { state.reportHours = [7, 18]; saveJSON(STATE_F, state); return tgSend('🕖🕕 Reports at 07:00 and 18:00', { reply_markup: reportKeyboard() }); }
+  if (cmd === 'report_off') { state.reportHours = 'off'; saveJSON(STATE_F, state); return tgSend('⏰ Scheduled reports off', { reply_markup: reportKeyboard() }); }
+
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
   if (cmd === 'docker' || cmd === 'dockersock' || cmd === 'docker_confirm' || cmd === 'docker_cancel' || cmd === 'docker_off' || cmd === 'docker_rules' || cmd === 'docker_local' || (typeof cmd === 'string' && cmd.indexOf('docker') === 0)) {
     try { actionLog('info', 'user docker cmd blocked on Telegram'); } catch (e) {}
@@ -2635,10 +2726,10 @@ async function telemetryLoop() {
       await runAlertMachine(t);
       const h = hourVN();
       const key = dayVN() + '-' + h;
-      if (REPORT_HOURS.indexOf(h) >= 0 && state.lastReportKey !== key) {
+      if (effectiveReportHours().indexOf(h) >= 0 && state.lastReportKey !== key) {
         state.lastReportKey = key;
         saveJSON(STATE_F, state);
-        await tgSend(formatReport() + '\n\n' + formatStatus(t), { reply_markup: mainKeyboard() });
+        await tgSend(formatReport() + '\n\n' + formatStatus(t), { reply_markup: reportKeyboard() });
       }
     } catch (e) { log('telemetry ' + e.message, 'error'); }
     await wait(TELEMETRY_SEC * 1000);
@@ -2648,7 +2739,7 @@ async function telemetryLoop() {
 // ---------- HTTP UI ----------
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
-  '.jpg': 'image/jpeg', '.png': 'image/png', '.ps1': 'text/plain; charset=utf-8'
+  '.jpg': 'image/jpeg', '.png': 'image/png', '.ps1': 'text/plain; charset=utf-8', '.bat': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8'
 };
 let INDEX = '<h1>Pi Node SoloHost ' + VERSION + '</h1><p>/api/status</p>';
 try { INDEX = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'); } catch (e) {}

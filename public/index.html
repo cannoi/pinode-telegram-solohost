@@ -49,12 +49,20 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.33</p>
+    <p class="sub">SoloHost · v2.6.34</p>
   </div>
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
     <h2>Chat</h2>
     <div id="chatbox"></div>
+    <div class="qbar" id="abar">
+      <button type="button" data-dl="/actions/CleanRAM_PiNode.bat">🧹 CleanRAM</button>
+      <button type="button" data-dl="/actions/DnsRefresh.bat">🌐 DNS</button>
+      <button type="button" data-dl="/actions/FirewallCheck.bat">🧱 Firewall</button>
+      <button type="button" data-dl="/actions/NetworkRepair.bat">🔧 Network</button>
+      <button type="button" data-dl="/actions/Weekly_Maintenance.bat">🗓️ Weekly</button>
+      <button type="button" data-dl="/actions/Reset_Node_Network.bat">⚠️ ResetNet</button>
+    </div>
     <div class="qbar" id="qbar">
       <button type="button" data-cmd="/help">❓ HELP</button>
       <button type="button" data-cmd="/status">📊 STATUS</button>
@@ -209,6 +217,20 @@ document.getElementById('dkAgree').onchange=function(){
   document.getElementById('dkConfirm').disabled=!(document.getElementById('dkRead').checked&&document.getElementById('dkAgree').checked);
 };
 
+const ACT={
+ '/actions/CleanRAM_PiNode.bat':'When: RAM high / PC slow, node still synced.\nDoes: Close heavy apps + temp. Does not stop Pi Node/Docker.\nHow: Double-click BAT, allow Admin.',
+ '/actions/DnsRefresh.bat':'When: Peers dropped, ports open, ledger moving.\nDoes: Flush DNS only.\nHow: Double-click DnsRefresh.bat.',
+ '/actions/FirewallCheck.bat':'When: Ports 31401-31403 closed while PC is online.\nDoes: Allow TCP 31401-31410 and test local ports.\nHow: Run as Admin, then /status.',
+ '/actions/NetworkRepair.bat':'When: Ports closed for many samples AND Horizon fails. Not for 1-minute catch-up.\nDoes: Refresh DHCP/DNS. No static IP.\nHow: Run as Admin.',
+ '/actions/Weekly_Maintenance.bat':'When: Node healthy; Sunday quiet hours.\nDoes: Cleanup + optional Sunday 03:00 task.\nHow: Run BAT, press Y to schedule.',
+ '/actions/Reset_Node_Network.bat':'When: Last resort after Firewall + NetworkRepair failed.\nDoes: Deeper network reset. Review warnings.\nHow: Prefer NetworkRepair.bat first.'
+};
+document.getElementById('abar').addEventListener('click',function(e){
+  const b=e.target.closest('button[data-dl]'); if(!b)return;
+  const href=b.getAttribute('data-dl');
+  add('bot', (ACT[href]||'Download repair BAT')+'\n\nSaving: '+href);
+  const a=document.createElement('a'); a.href=href; a.download=''; document.body.appendChild(a); a.click(); a.remove();
+});
 document.getElementById('qbar').addEventListener('click',function(e){
   const b=e.target.closest('button[data-cmd]');
   if(!b)return;
