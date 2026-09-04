@@ -63,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.36-solohost';
+const VERSION = '2.6.39-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -988,13 +988,37 @@ function formatDiagnostic(t) {
 
 
 const ACTION_CATALOG = [
-  { id: 'CleanRAM_PiNode', file: 'CleanRAM_PiNode.bat', when: 'Host RAM high or PC sluggish while node is still synced.', does: 'Closes heavy user apps and temp files. Does not stop Pi Node or Docker.', how: 'Double-click the BAT; accept Admin if asked.' },
-  { id: 'DnsRefresh', file: 'DnsRefresh.bat', when: 'Peers dropped but ports still open and ledger is moving.', does: 'Flushes DNS cache only.', how: 'Double-click DnsRefresh.bat.' },
-  { id: 'FirewallCheck', file: 'FirewallCheck.bat', when: 'Local ports 31401-31403 stay closed while the PC is online.', does: 'Opens Windows Firewall TCP 31401-31410 and tests local ports.', how: 'Run as Admin once, then recheck /status.' },
-  { id: 'NetworkRepair', file: 'NetworkRepair.bat', when: 'Ports closed for a long window AND Horizon also fails. Never after a 1-minute catch-up.', does: 'Phase1 DNS/ARP/firewall. Phase2 restart adapter keep IP. Phase3 winsock. Never release/renew or int ip reset.', how: 'Run NetworkRepair.bat as Admin. Reboot router only if still dead.' },
-  { id: 'Weekly_Maintenance', file: 'Weekly_Maintenance.bat', when: 'Node is healthy; Sunday quiet hours.', does: 'Time sync, temp cleanup, optional weekly Task Scheduler.', how: 'Run Weekly_Maintenance.bat; answer Y to install Sunday 03:00 task.' },
-  { id: 'Reset_Node_Network', file: 'Reset_Node_Network.bat', when: 'Do not use. Old reset changed LAN IP and broke modem forwards.', does: 'Redirects to NetworkRepair.bat (keep IP).', how: 'Run NetworkRepair.bat only.' }
+  { id: 'CleanRam', file: 'CleanRam.bat', when: 'RAM high or PC sluggish while node is still synced.', does: 'Close extra apps/services, clear TEMP, TRIM, flush DNS. Does not stop Pi Node or Docker.', how: 'Double-click CleanRam.bat. Auto-elevates. Press Y.' },
+  { id: 'CleanTemp', file: 'CleanTemp.bat', when: 'Gentle cleanup while node is healthy.', does: 'Delete temp older than 6 hours + Recycle Bin.', how: 'Double-click CleanTemp.bat. Auto-elevates. Press Y.' },
+  { id: 'DnsFlush', file: 'DnsFlush.bat', when: 'Peers dropped but ports stay open and ledger still moves.', does: 'ipconfig /flushdns and /registerdns only. Keeps LAN IP.', how: 'Double-click DnsFlush.bat. Auto-elevates. Press Y.' },
+  { id: 'Firewall', file: 'Firewall.bat', when: 'Local ports 31401-31403 stay closed while the PC is online.', does: 'Recreate Windows Firewall TCP 31401-31410 inbound + outbound remote ports, then test local listen.', how: 'Double-click Firewall.bat. Auto-elevates. Press Y. Then /status.' },
+  { id: 'NetRepair', file: 'NetRepair.bat', when: 'Internet/Horizon down for a LONG window. Never after a 1-minute catch-up.', does: 'Keep-IP ladder: DNS/ARP/firewall -> restart adapter (same IP) -> winsock. Never release/renew or int ip reset.', how: 'Double-click NetRepair.bat. Confirm each phase.' },
+  { id: 'LanSetup', file: 'LanSetup.bat', when: 'First setup on a new PC, or modem already forwards to this PC IP.', does: 'Detect current IPv4. Optional lock THAT SAME IP as static + Google DNS + firewall. Never forces .222.', how: 'Double-click LanSetup.bat. Press Y only to lock the current IP.' },
+  { id: 'NodeReset', file: 'NodeReset.bat', when: 'Pi container stuck/exited for a long time. Docker Engine is healthy.', does: 'Restart testnet2/mainnet/testnet only. Then DNS + firewall + anti-sleep. No WSL shutdown. No IP change.', how: 'Double-click NodeReset.bat. Auto-elevates. Press Y.' },
+  { id: 'DockerRecover', file: 'DockerRecover.bat', when: 'Docker Engine itself is down. Not for a short Core catch-up.', does: 'Soft restart Docker Desktop. Ordered WSL only AFTER Docker process is confirmed stopped.', how: 'Double-click DockerRecover.bat. Choose Soft first.' },
+  { id: 'Maintain', file: 'Maintain.bat', when: 'Node is healthy. Sunday quiet hours.', does: 'Weekly v13.2 cleanup, unused docker prune, optional Sunday 03:00 task. No token inside the file.', how: 'Double-click Maintain.bat. Press Y. Optional schedule.' },
+  { id: 'Reboot', file: 'Reboot.bat', when: 'Last resort after NetRepair + DockerRecover failed and the host is wedged.', does: 'Controlled shutdown /r with delay. Cancel: shutdown /a', how: 'Double-click Reboot.bat. Type delay. Press Y. Never auto-suggested for a short sync dip.' }
 ];
+
+const SCRIPT_MAP = `
+APP FLOW
+Telegram or SoloHost UI -> /status /report /analyze use history frames.
+Recommend a BAT only after a repeated or long incident (many samples or >=15 min).
+Catch-up + ports open + ledger exists = WAIT. Do not reset the node.
+Never change LAN IP. Modem forward stays on the current address.
+
+SCRIPT CHOICE
+CleanRam     RAM high + node still synced.
+CleanTemp    Healthy node, light cleanup only.
+DnsFlush     Peers=0 a long time, ports open, ledger moving.
+Firewall     Ports 31401-31403 closed locally, PC still online.
+NetRepair    Horizon/internet down a long window. Keep current LAN IP.
+LanSetup     New PC setup. Lock CURRENT IP only. Never .222.
+NodeReset    Container stopped a long time. Docker Engine OK.
+DockerRecover Docker Engine down. Soft first. No WSL while Docker lives.
+Maintain     Healthy node, weekly. Optional Sunday 03:00.
+Reboot       Last resort only. Never for a 1-minute catch-up.
+`;
 
 function recommendActions(t) {
   t = t || {};
@@ -1020,14 +1044,14 @@ function recommendActions(t) {
   }
   if (portsClosed && persistent && !live) {
     why.push('Ports closed across a long window. Firewall first, then keep-IP network repair. Never change LAN IP.');
-    picks.push('FirewallCheck');
-    picks.push('NetworkRepair');
+    picks.push('Firewall');
+    picks.push('NetRepair');
   } else if (t.peer_total != null && t.peer_total === 0 && persistent) {
     why.push('Zero peers for a long stretch. Flush DNS only. Keep current LAN IP.');
-    picks.push('DnsRefresh');
+    picks.push('DnsFlush');
   } else if (ramHigh && persistent) {
     why.push('RAM stayed high. Clean host apps. Do not restart the node.');
-    picks.push('CleanRAM_PiNode');
+    picks.push('CleanRam');
   } else {
     why.push('Incident lasted, but no safe BAT maps cleanly. Collect /diagnostic first.');
   }
@@ -1639,7 +1663,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.36-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.39-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2389,7 +2413,8 @@ async function aiAnalyze(t, userQ) {
         'User question: ' + q.slice(0, 900),
         'Issues: ' + JSON.stringify(issues),
         'CURRENT_FACTS: ' + JSON.stringify(facts),
-        'ACTION_POLICY: Never recommend node restart only because sync dipped once. Catch-up with open ports = wait. Ports closed many samples = FirewallCheck then NetworkRepair. RAM high + synced = CleanRAM_PiNode. Zero peers + live = DnsRefresh. Explain why. HostReboot is last resort and not auto-suggested.',
+        'ACTION_POLICY: Use SCRIPT_MAP. Never recommend NodeReset/Reboot for a one-sample sync dip. Catch-up + open ports + ledger = wait. Long closed ports = Firewall then NetRepair (keep LAN IP). RAM high + synced = CleanRam. Zero peers + live = DnsFlush. Docker engine dead = DockerRecover (soft first). Reboot last resort only. Explain why.',
+        'SCRIPT_MAP:\n' + SCRIPT_MAP,
         'CONTEXT_HINTS: Official Pi Node upgrades (PCT / pi-node-docker) often cause temporary Catching up. Regional submarine-cable or ISP cuts can drop peers without the machine being broken. Restart after update is normal catch-up, not always a hardware fault.',
         'PCT_RELEASES: ' + JSON.stringify(state.pctNews || []),
         'HISTORY_24H: ' + JSON.stringify(hist24),

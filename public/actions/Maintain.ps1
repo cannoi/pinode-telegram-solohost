@@ -1,15 +1,15 @@
-﻿# Pi Node Weekly Maintenance v13.2 - PowerShell full
+# Pi Node Weekly Maintenance - PowerShell
 param()
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
 $fromController = ($env:PINODE_CONTROLLER -eq '1')
 $logFile = Join-Path $ScriptDir 'pinode_safe_maintenance.log'
 $sendTele = Join-Path $ScriptDir 'send_tele.ps1'
-$monthlyStatus = 'Chua den lich'
+$monthlyStatus = 'Not due'
 
 function WL([string]$t) {
   $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | $t"
@@ -27,16 +27,16 @@ try {
 Set-Content -Path $logFile -Value "==== $(Get-Date) admin=$isAdmin controller=$fromController ====" -Encoding UTF8
 WL "Weekly Maintenance start"
 
-WL "[1/10] Dong bo thoi gian"
+WL "[1/10] Sync time"
 cmd /c "w32tm /resync" >$null 2>&1
 
-WL "[2/10] Tat app rac"
+WL "[2/10] Close extra apps"
 foreach ($n in @('chrome','msedge','OneDrive','Copilot','SearchApp','SearchIndexer','TabTip','TextInputHost','RuntimeBroker','ApplicationFrameHost')) {
   Get-Process -Name $n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 if ($isAdmin) { try { Stop-Service Spooler -Force -ErrorAction SilentlyContinue } catch {} }
 
-WL "[3/10] Xoa Temp"
+WL "[3/10] Clean Temp"
 Get-ChildItem -Path $env:TEMP -Force -ErrorAction SilentlyContinue | ForEach-Object {
   Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -47,7 +47,7 @@ if ($isAdmin) {
   }
 }
 
-WL "[4/10] Cache + Docker volume"
+WL "[4/10] Cache + Docker volume prune"
 if ($isAdmin) {
   $paths = @(
     "$env:LOCALAPPDATA\Microsoft\Windows\WER\ReportArchive",
@@ -60,13 +60,16 @@ if ($isAdmin) {
 }
 cmd /c "docker volume prune -f" >$null 2>&1
 
-WL "[5/10] Thung rac"
-if ($isAdmin) { try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {} }
+WL "[5/10] Recycle Bin"
+if ($isAdmin) {
+  try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+  cmd /c "rd /s /q $env:SystemDrive\`$Recycle.Bin" >$null 2>&1
+}
 
-WL "[6/10] Docker image prune"
+WL "[6/10] Docker image prune (not -a)"
 cmd /c "docker image prune -f" >$null 2>&1
 
-WL "[7/10] DNS"
+WL "[7/10] Flush DNS"
 cmd /c "ipconfig /flushdns" >$null 2>&1
 if (-not $fromController) {
   Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -74,7 +77,7 @@ if (-not $fromController) {
   Start-Process explorer.exe
 }
 
-WL "[8/10] Anti-sleep"
+WL "[8/10] Anti-sleep on AC"
 if ($isAdmin) {
   foreach ($x in @('monitor-timeout-ac','disk-timeout-ac','standby-timeout-ac','hibernate-timeout-ac')) {
     cmd /c "powercfg /change $x 0" >$null 2>&1
@@ -85,27 +88,28 @@ WL "[9/10] Docker priority + TRIM"
 try {
   Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue | ForEach-Object { $_.PriorityClass = 'AboveNormal' }
 } catch {}
-$cpu = 0
+try { cmd /c "wmic process where name=`"Docker Desktop.exe`" CALL setpriority `"above normal`"" >$null 2>&1 } catch {}
+$cpu = 100
 try { $cpu = [int]((Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average) } catch {}
 if ($isAdmin -and $cpu -lt 75) {
-  try { defrag C: /O /H 2>$null | Out-Null; WL "TRIM OK" } catch {}
-} else { WL "Bo qua TRIM (cpu=$cpu admin=$isAdmin)" }
+  try { & defrag.exe $env:SystemDrive /O /H 2>$null | Out-Null; WL "TRIM OK" } catch {}
+} else { WL "Skip TRIM (cpu=$cpu admin=$isAdmin)" }
 
-WL "[10/10] SFC/DISM dau thang"
+WL "[10/10] Monthly SFC/DISM first Sunday"
 $day = (Get-Date).Day
 $dow = [int](Get-Date).DayOfWeek
 $freeGB = 0
 try { $freeGB = [int][math]::Round((Get-PSDrive C).Free/1GB,0) } catch {}
 if ($isAdmin -and $day -le 7 -and $dow -eq 0 -and $freeGB -ge 15) {
-  $monthlyStatus = 'Da quet SFC/DISM'
+  $monthlyStatus = 'SFC/DISM ran'
   cmd /c "dism /online /cleanup-image /startcomponentcleanup /quiet" >$null 2>&1
   cmd /c "sfc /scannow" >$null 2>&1
   WL "Monthly SFC/DISM done"
 } else { WL "Monthly skip day=$day dow=$dow free=$freeGB" }
 
-$dockerStatus = if (Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue) { '[RUNNING]' } else { '[STOPPED]' }
-$piStatus = if (Get-Process 'Pi Network' -ErrorAction SilentlyContinue) { '[RUNNING]' } else { '[STOPPED]' }
-WL "Done Docker=$dockerStatus Pi=$piStatus"
+$dockerStatus = if (Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue) { 'RUNNING' } else { 'STOPPED' }
+$piStatus = if (Get-Process 'Pi Network' -ErrorAction SilentlyContinue) { 'RUNNING' } else { 'STOPPED' }
+WL "Done Docker=$dockerStatus Pi=$piStatus Monthly=$monthlyStatus"
 
 if (Test-Path $sendTele) {
   try {

@@ -1,8 +1,8 @@
-﻿# Pi Node CleanRAM - full (tu bat CleanRAM_PiNode)
+# Pi Node CleanRam - keep Pi Network / Docker running
 param()
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $fromController = ($env:PINODE_CONTROLLER -eq '1')
 $isAdmin = $false
@@ -12,11 +12,15 @@ try {
   $isAdmin = $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 } catch {}
 
-Write-Output "==== Pi Node CleanRAM ===="
+Write-Output "==== Pi Node CleanRam ===="
 Write-Output "Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') admin=$isAdmin controller=$fromController"
 
-# Tat app rac (KHONG dung Pi Network / Docker / PiCheck)
-$kill = @('chrome','msedge','SearchApp','SearchIndexer','TabTip','TextInputHost','RuntimeBroker','OneDrive','Copilot','ApplicationFrameHost')
+# Do NOT kill Pi Network / Docker / com.docker.* / vpnkit
+$kill = @(
+  'chrome','msedge','SearchApp','SearchIndexer','TabTip','TextInputHost',
+  'RuntimeBroker','OneDrive','Copilot','ApplicationFrameHost',
+  'remoting_host','remote_assistance_host'
+)
 foreach ($n in $kill) {
   Get-Process -Name $n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
@@ -32,7 +36,6 @@ if ($isAdmin) {
   }
 }
 
-# Temp user
 Get-ChildItem -Path $env:TEMP -Force -ErrorAction SilentlyContinue | ForEach-Object {
   Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -41,17 +44,16 @@ if ($isAdmin) {
   Get-ChildItem -Path $wt -Force -ErrorAction SilentlyContinue | ForEach-Object {
     Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
   }
-  try { defrag C: /O /H 2>$null | Out-Null } catch {}
+  try { & defrag.exe $env:SystemDrive /O /H 2>$null | Out-Null } catch {}
 }
 
 cmd /c "ipconfig /flushdns" >$null 2>&1
 
-# Restart Explorer chi khi KHONG goi tu Controller
 if (-not $fromController) {
   Get-Process -Name explorer -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   Start-Sleep -Seconds 2
   Start-Process explorer.exe
 }
 
-Write-Output "[OK] CleanRAM completed. Pi Node/Docker an toan."
+Write-Output "[OK] CleanRam completed. Pi Node/Docker left running."
 exit 0

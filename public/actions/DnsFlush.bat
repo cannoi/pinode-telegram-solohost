@@ -1,19 +1,27 @@
 @echo off
 setlocal EnableExtensions
-title Pi Node - DNS Refresh
-if /I "%~1"=="/scheduled" goto RUN
+title Pi Node - DnsFlush
+cd /d "%~dp0"
+
+if /I "%~1"=="/scheduled" goto GOTADMIN
+if /I "%~1"=="/quiet" goto GOTADMIN
 fltmc >nul 2>&1
-if not "%errorlevel%"=="0" (
+if errorlevel 1 (
   echo Requesting Administrator...
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs"
   exit /b
 )
+:GOTADMIN
+
+if /I "%~1"=="/scheduled" goto RUN
+if /I "%~1"=="/quiet" goto RUN
 echo.
 echo ============================================================
-echo  DNS REFRESH
+echo  DNS FLUSH
 echo ============================================================
 echo  Will do:
-echo   - Flush Windows DNS cache only
+echo   - Flush Windows DNS cache
+echo   - Register DNS
 echo  Will NOT:
 echo   - Change LAN IP
 echo   - Reset Winsock / TCP-IP
@@ -23,8 +31,10 @@ echo ============================================================
 echo.
 choice /C YN /N /M "Run this script? [Y/N] "
 if errorlevel 2 exit /b 0
+
 :RUN
 ipconfig /flushdns
+ipconfig /registerdns >nul 2>&1
 echo [OK] DNS cache flushed. LAN IP unchanged.
-if /I not "%~1"=="/scheduled" pause
+if /I not "%~1"=="/scheduled" if /I not "%~1"=="/quiet" pause
 exit /b 0

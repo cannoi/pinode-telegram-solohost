@@ -49,19 +49,21 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.36</p>
+    <p class="sub">SoloHost · v2.6.39</p>
   </div>
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
     <h2>Chat</h2>
     <div id="chatbox"></div>
     <div class="qbar" id="abar">
-      <button type="button" data-dl="/actions/CleanRAM_PiNode.bat">🧹 CleanRAM</button>
-      <button type="button" data-dl="/actions/DnsRefresh.bat">🌐 DNS</button>
-      <button type="button" data-dl="/actions/FirewallCheck.bat">🧱 Firewall</button>
-      <button type="button" data-dl="/actions/NetworkRepair.bat">🔧 Network</button>
-      <button type="button" data-dl="/actions/Weekly_Maintenance.bat">🗓️ Weekly</button>
-      <button type="button" data-dl="/actions/Reset_Node_Network.bat">⚠️ ResetNet</button>
+      <button type="button" data-dl="/actions/CleanRam.bat">🧹 CleanRam</button>
+      <button type="button" data-dl="/actions/DnsFlush.bat">🌐 DnsFlush</button>
+      <button type="button" data-dl="/actions/Firewall.bat">🧱 Firewall</button>
+      <button type="button" data-dl="/actions/NetRepair.bat">🔧 NetRepair</button>
+      <button type="button" data-dl="/actions/LanSetup.bat">📌 LanSetup</button>
+      <button type="button" data-dl="/actions/NodeReset.bat">♻️ NodeReset</button>
+      <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Docker</button>
+      <button type="button" data-dl="/actions/Maintain.bat">🗓️ Maintain</button>
     </div>
     <div class="qbar" id="qbar">
       <button type="button" data-cmd="/help">❓ HELP</button>
@@ -218,12 +220,14 @@ document.getElementById('dkAgree').onchange=function(){
 };
 
 const ACT={
- '/actions/CleanRAM_PiNode.bat':'When: RAM high / PC slow, node still synced.\nDoes: Close heavy apps + temp. Does not stop Pi Node/Docker.\nHow: Double-click BAT, allow Admin.',
- '/actions/DnsRefresh.bat':'When: Peers dropped, ports open, ledger moving.\nDoes: Flush DNS only.\nHow: Double-click DnsRefresh.bat.',
- '/actions/FirewallCheck.bat':'When: Ports 31401-31403 closed while PC is online.\nDoes: Allow TCP 31401-31410 and test local ports.\nHow: Run as Admin, then /status.',
- '/actions/NetworkRepair.bat':'When: Long outage only. Ports closed + Horizon down.\nDoes: Flush DNS, test gateway. KEEPS current LAN IP.\nNever release/renew/winsock/ip reset.\nHow: Double-click, press Y.',
- '/actions/Weekly_Maintenance.bat':'When: Node healthy; Sunday quiet hours.\nDoes: Cleanup + optional Sunday 03:00 task.\nHow: Run BAT, press Y to schedule.',
- '/actions/Reset_Node_Network.bat':'When: Do not use the old reset.\nDoes: Opens NetworkRepair.bat and keeps LAN IP.\nHow: Use NetworkRepair.bat.'
+ '/actions/CleanRam.bat':'When: RAM high / PC slow, node still synced.\nDoes: Close extra apps + TEMP + TRIM + DNS. Does not stop Pi/Docker.\nHow: Double-click. Allow Admin. Press Y.',
+ '/actions/DnsFlush.bat':'When: Peers dropped, ports open, ledger moving.\nDoes: flushdns + registerdns only. Keeps LAN IP.\nHow: Double-click. Press Y.',
+ '/actions/Firewall.bat':'When: Ports 31401-31403 closed locally, PC online.\nDoes: Firewall TCP 31401-31410 + local test.\nHow: Double-click. Press Y. Then /status.',
+ '/actions/NetRepair.bat':'When: Long outage. Horizon/internet down.\nDoes: Keep-IP ladder. Never release/renew/int ip reset.\nHow: Double-click. Confirm each phase.',
+ '/actions/LanSetup.bat':'When: First setup. Modem already forwards to this PC.\nDoes: Lock CURRENT LAN IP as static. Never forces .222.\nHow: Double-click. Press Y.',
+ '/actions/NodeReset.bat':'When: Pi container stuck a long time. Docker Engine OK.\nDoes: Restart that container only. No WSL. No IP change.\nHow: Double-click. Press Y.',
+ '/actions/DockerRecover.bat':'When: Docker Engine itself is down.\nDoes: Soft restart Docker. WSL only after Docker is stopped.\nHow: Double-click. Choose Soft first.',
+ '/actions/Maintain.bat':'When: Node healthy. Sunday quiet hours.\nDoes: Weekly cleanup + optional Sunday 03:00 task.\nHow: Double-click. Press Y.'
 };
 document.getElementById('abar').addEventListener('click',function(e){
   const b=e.target.closest('button[data-dl]'); if(!b)return;
