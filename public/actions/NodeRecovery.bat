@@ -13,6 +13,13 @@ echo ============================================================
 echo   PI NODE - CONTAINER RECOVERY
 echo   Docker restart only / NO WSL shutdown
 echo ============================================================
+echo  Will restart the Pi container (testnet2/mainnet).
+echo  Will NOT change LAN IP, WSL, or modem.
+echo  Use only if the container is stopped for a long time.
+echo ============================================================
+echo.
+choice /C YN /N /M "Restart the Pi container now? [Y/N] "
+if errorlevel 2 exit /b 0
 echo.
 where docker.exe >nul 2>&1
 if errorlevel 1 (

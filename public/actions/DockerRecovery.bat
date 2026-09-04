@@ -13,6 +13,7 @@ echo ============================================================
 echo   PI NODE - DOCKER RECOVERY
 echo   Ladder: SOFT -> ORDERED WSL
 echo   Never runs WSL shutdown while Docker Desktop is alive
+echo   Does NOT change LAN IP or modem forwards.
 echo ============================================================
 echo.
 choice /C SYN /N /M "Recovery mode: [S]oft Docker  [Y] Ordered WSL  [N] Cancel: "

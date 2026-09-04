@@ -4,7 +4,7 @@ A Telegram + local assistant that watches your **Pi Node** 24/7 from **Pi Deskto
 
 You get a clear picture of node health without sitting at the machine all day. The default install stays inside SoloHost sandbox rules: **no Docker socket**, read-only style monitoring over HTTP and ports.
 
-**Image:** `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.34`
+**Image:** `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.36`
 
 ---
 
@@ -45,7 +45,7 @@ When Docker is enabled, those fields feed the **same** places as Horizon: `/stat
 
 ## Install (SoloHost)
 
-1. Publish / pull image `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.34`.
+1. Publish / pull image `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.36`.
 2. Install the two SoloHost files (`docker-compose.yml` + `config_options.yml`).
 3. Set **BOT_TOKEN** and **CHAT_ID**. Optional: **GEMINI_API_KEY**.
 4. Start the app. Telegram should show the command menu.
@@ -125,7 +125,7 @@ Reports list **issue windows** (start → end) when sync, ports, or level were b
 ## Data frame
 All sources (Horizon, Core, Docker) are written to one schema (`data-frame.js`): sync, ledger, peers, ports, docker, resources. If total peers < 8, Incoming = 0 and Outgoing = total. History and `latest.json` use atomic writes.
 
-## Alerts (v2.6.34)
+## Alerts (v2.6.36)
 First alert after repeated bad samples. Lasting issues get a reminder about every 30 minutes with duration. Short catch-up / upgrade / network blips are classified with optional AI so Telegram is not spammed.
 
 ## Alerts mute
@@ -133,3 +133,9 @@ Every alert includes buttons: 1h, Night (22:00-07:00), 24h, Off, On. Confirmed a
 
 ## Repair BATs
 Download from SoloHost UI action row. Suggest only after confirmed conditions (not after a single sync blip).
+
+## v2.6.36 NetworkRepair
+Keeps current LAN IP. No DHCP release/renew, no winsock/ip reset, no adapter restart.
+
+## v2.6.36 NetworkRepair ladder
+Phase1 safe -> Phase2 adapter restart keep IP -> Phase3 winsock. Never DHCP release/renew or netsh int ip reset.

@@ -63,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.34-solohost';
+const VERSION = '2.6.36-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -991,9 +991,9 @@ const ACTION_CATALOG = [
   { id: 'CleanRAM_PiNode', file: 'CleanRAM_PiNode.bat', when: 'Host RAM high or PC sluggish while node is still synced.', does: 'Closes heavy user apps and temp files. Does not stop Pi Node or Docker.', how: 'Double-click the BAT; accept Admin if asked.' },
   { id: 'DnsRefresh', file: 'DnsRefresh.bat', when: 'Peers dropped but ports still open and ledger is moving.', does: 'Flushes DNS cache only.', how: 'Double-click DnsRefresh.bat.' },
   { id: 'FirewallCheck', file: 'FirewallCheck.bat', when: 'Local ports 31401-31403 stay closed while the PC is online.', does: 'Opens Windows Firewall TCP 31401-31410 and tests local ports.', how: 'Run as Admin once, then recheck /status.' },
-  { id: 'NetworkRepair', file: 'NetworkRepair.bat', when: 'Ports closed for many samples AND Horizon/Core fail. Not for a 1-minute catch-up.', does: 'Refresh DHCP/DNS/Winsock. Does not force a static IP.', how: 'Run NetworkRepair.bat as Admin. Reboot router only if still dead.' },
+  { id: 'NetworkRepair', file: 'NetworkRepair.bat', when: 'Ports closed for a long window AND Horizon also fails. Never after a 1-minute catch-up.', does: 'Phase1 DNS/ARP/firewall. Phase2 restart adapter keep IP. Phase3 winsock. Never release/renew or int ip reset.', how: 'Run NetworkRepair.bat as Admin. Reboot router only if still dead.' },
   { id: 'Weekly_Maintenance', file: 'Weekly_Maintenance.bat', when: 'Node is healthy; Sunday quiet hours.', does: 'Time sync, temp cleanup, optional weekly Task Scheduler.', how: 'Run Weekly_Maintenance.bat; answer Y to install Sunday 03:00 task.' },
-  { id: 'Reset_Node_Network', file: 'Reset_Node_Network.bat', when: 'Last resort after FirewallCheck + NetworkRepair failed for a long outage.', does: 'Deeper network reset (advanced). Review the on-screen warning first.', how: 'Prefer NetworkRepair.bat first.' }
+  { id: 'Reset_Node_Network', file: 'Reset_Node_Network.bat', when: 'Do not use. Old reset changed LAN IP and broke modem forwards.', does: 'Redirects to NetworkRepair.bat (keep IP).', how: 'Run NetworkRepair.bat only.' }
 ];
 
 function recommendActions(t) {
@@ -1001,34 +1001,35 @@ function recommendActions(t) {
   const rows = (typeof readHistory === 'function') ? readHistory(1) : [];
   const windows = (typeof extractIssueWindows === 'function') ? extractIssueWindows(rows) : [];
   const lastWin = windows.length ? windows[windows.length - 1] : null;
-  const longBad = lastWin && (lastWin.n || 0) >= 8;
+  const longBad = lastWin && ((lastWin.n || 0) >= 8 || (lastWin.min || 0) >= 15);
+  const repeated = windows.filter(function (w) { return (w.n || 0) >= 3; }).length >= 2;
+  const persistent = !!(longBad || repeated);
   const catching = /catch|behind|syncing/i.test(String(t.sync || ''));
   const live = /synced|live|horizon ok|good/i.test(String(t.sync || ''));
   const portsClosed = t.ports_open === 0;
   const ramHigh = t.ram != null && Number(t.ram) >= 85;
   const picks = [];
   const why = [];
+  if (!persistent && !ramHigh) {
+    why.push('No repeated / long-lasting incident in history. Wait and watch. Do not run repair BATs yet.');
+    return { why: why, items: [], picks: [] };
+  }
   if (catching && !portsClosed && (t.ledger != null)) {
-    why.push('Sync catching up while ports are open and ledger exists — wait; do not restart the node yet.');
-  } else if (portsClosed && !longBad) {
-    why.push('Ports just closed. Confirm for several minutes before any network reset.');
-    picks.push('FirewallCheck');
-  } else if (portsClosed && longBad && !live) {
-    why.push('Ports closed across many samples and node not live — firewall then network repair.');
+    why.push('Catch-up with open ports and a live ledger. Wait for Core; do not restart or repair network.');
+    return { why: why, items: [], picks: [] };
+  }
+  if (portsClosed && persistent && !live) {
+    why.push('Ports closed across a long window. Firewall first, then keep-IP network repair. Never change LAN IP.');
     picks.push('FirewallCheck');
     picks.push('NetworkRepair');
-  } else if (t.peer_total != null && t.peer_total === 0 && live) {
-    why.push('Zero peers while sync still looks live — refresh DNS first.');
+  } else if (t.peer_total != null && t.peer_total === 0 && persistent) {
+    why.push('Zero peers for a long stretch. Flush DNS only. Keep current LAN IP.');
     picks.push('DnsRefresh');
-  } else if (ramHigh && live) {
-    why.push('RAM high while node is synced — clean host RAM, do not restart the node.');
+  } else if (ramHigh && persistent) {
+    why.push('RAM stayed high. Clean host apps. Do not restart the node.');
     picks.push('CleanRAM_PiNode');
-  } else if (live) {
-    why.push('Node looks healthy. Only optional weekly maintenance if you want cleanup.');
-    picks.push('Weekly_Maintenance');
   } else {
-    why.push('Unclear fault. Run /diagnostic and collect more samples before reset.');
-    picks.push('FirewallCheck');
+    why.push('Incident lasted, but no safe BAT maps cleanly. Collect /diagnostic first.');
   }
   const items = ACTION_CATALOG.filter(function (a) { return picks.indexOf(a.id) >= 0; });
   return { why: why, items: items, picks: picks };
@@ -1638,7 +1639,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.34-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.36-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
