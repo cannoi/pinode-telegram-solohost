@@ -63,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.40-solohost';
+const VERSION = '2.6.41-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -158,7 +158,14 @@ function log(msg, level) {
   const safe = redactSecrets(msg);
   const line = '[' + nowISO() + '] [' + level + '] ' + safe;
   console.log(line);
-  try { fs.appendFileSync(LOG_F, line + '\n'); } catch (e) {}
+  try {
+    fs.appendFileSync(LOG_F, line + '\n');
+    const st = fs.statSync(LOG_F);
+    if (st.size > 250000) {
+      const keep = fs.readFileSync(LOG_F, 'utf8').slice(-120000);
+      fs.writeFileSync(LOG_F, keep);
+    }
+  } catch (e) {}
   try { if (level === 'error' || level === 'warn') actionLog(level, safe); } catch (e) {}
 }
 
@@ -1685,7 +1692,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.40-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.41-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2363,9 +2370,7 @@ function technicianEvaluate(t, userQ, intent, lang) {
 
   if (!GEMINI_API_KEY) {
     lines.push('');
-    lines.push(vi
-      ? '💡 Thêm GEMINI_API_KEY trong cấu hình SoloHost để bật AI phân tích đầy đủ (giọng kỹ thuật viên + ngữ cảnh hội thoại).'
-      : '💡 Set GEMINI_API_KEY in SoloHost config for full AI technician analysis.');
+    lines.push('💡 Set GEMINI_API_KEY in SoloHost config for full AI technician analysis.');
   }
   return lines.join('\n');
 }
@@ -3100,7 +3105,11 @@ const srv = http.createServer(async (req, res) => {
     if (!f.startsWith(PUBLIC)) { res.statusCode = 400; res.end('bad path'); return; }
     fs.readFile(f, (err, data) => {
       if (err) { res.statusCode = 404; return res.end('not found'); }
-      res.setHeader('Content-Type', MIME[path.extname(f)] || 'application/octet-stream');
+      const ext = path.extname(f).toLowerCase();
+      res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
+      if (ext === '.bat' || ext === '.ps1') {
+        res.setHeader('Content-Disposition', 'attachment; filename="' + path.basename(f) + '"');
+      }
       res.end(data);
     });
   } catch (e) {

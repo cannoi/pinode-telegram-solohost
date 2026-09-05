@@ -3,14 +3,35 @@ setlocal EnableExtensions
 title Pi Node - Firewall
 cd /d "%~dp0"
 
+REM ============================================================
+REM SELF-ELEVATION
+REM ============================================================
 if /I "%~1"=="/scheduled" goto GOTADMIN
 if /I "%~1"=="/quiet" goto GOTADMIN
-net session >nul 2>&1
-if %errorLevel%==0 goto GOTADMIN
-echo Requesting Administrator...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -LiteralPath '%~f0' -WorkingDirectory '%~dp0' -Verb RunAs"
+if /I "%~1"=="/elevated" goto GOTADMIN
+
+fltmc >nul 2>&1
+if not errorlevel 1 goto GOTADMIN
+
+echo.
+echo Requesting Administrator permission...
+echo.
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+ "$p='%~f0'; $w='%~dp0'; Start-Process -FilePath $p -WorkingDirectory $w -Verb RunAs -ArgumentList '/elevated'"
+
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to request Administrator permission.
+    echo Please right-click this file and select:
+    echo RUN AS ADMINISTRATOR
+    pause
+)
+
 exit /b
+
 :GOTADMIN
+
 if /I "%~1"=="/scheduled" goto RUN
 if /I "%~1"=="/quiet" goto RUN
 echo.
