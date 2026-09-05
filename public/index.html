@@ -4,44 +4,53 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pi Node Controller PRO</title>
 <style>
-:root{--p:rgba(12,18,32,.92);--bd:rgba(212,168,75,.35);--t:#f5f0e8;--m:#b8a990;--gold:#d4a84b;--ok:#2d9b6f}
+:root{--p:rgba(255,255,255,.16);--bd:rgba(255,255,255,.42);--t:#f3f6fb;--m:#d7deea;--gold:#4cc2ff;--ok:#16c60c;--win:#0078d7}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;color:var(--t);min-height:100vh;
-background:linear-gradient(165deg,rgba(8,10,18,.78),rgba(20,14,8,.82)),url('/avatar.jpg') center top/cover no-repeat fixed;
+body{font-family:"Segoe UI",system-ui,sans-serif;color:var(--t);min-height:100vh;
+background-color:#1b140c;
+background-image:linear-gradient(180deg,rgba(10,18,30,.32),rgba(8,12,18,.46)),var(--bg-image,url("/bg-cave.jpg"));
+background-position:center top;background-size:cover;background-repeat:no-repeat;background-attachment:fixed;
 padding:14px;display:flex;justify-content:center}
 .w{width:100%;max-width:480px}
 .hero{text-align:center;margin-bottom:10px}
-.ring{width:72px;height:72px;margin:0 auto 8px;border-radius:50%;padding:2px;background:linear-gradient(135deg,var(--gold),#8b6914)}
+.ring{width:72px;height:72px;margin:0 auto 8px;border-radius:50%;padding:2px;background:linear-gradient(135deg,#4cc2ff,#0078d7)}
 .ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
-h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var(--gold));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+h1{font-size:1.12rem;font-weight:700;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.45)}
 .sub{font-size:.75rem;color:var(--m)}
-.card{background:var(--p);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px;backdrop-filter:blur(10px)}
+.card{background:var(--p);border:1px solid var(--bd);border-radius:6px;padding:12px;margin-bottom:10px;
+backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
+box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
-.row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(212,168,75,.12);font-size:.85rem}
+.row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.16);font-size:.85rem}
 .k{color:var(--m)}.val{font-weight:700}
-#chatbox{height:200px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.8rem}
-.msg{margin:6px 0;padding:6px 8px;border-radius:8px;max-width:96%;white-space:pre-wrap}
-.msg.user{background:rgba(77,163,255,.2);margin-left:auto;text-align:right}
-.msg.bot{background:rgba(212,168,75,.12)}
+#chatbox{height:200px;overflow-y:auto;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);border-radius:4px;padding:8px;margin-bottom:8px;font-size:.8rem}
+.msg{margin:6px 0;padding:7px 9px;border-radius:4px;max-width:96%;white-space:pre-wrap}
+.msg.user{background:rgba(0,120,215,.28);margin-left:auto;text-align:right}
+.msg.bot{background:rgba(255,255,255,.14)}
 .hint{font-size:.72rem;color:var(--m);margin-top:4px}
 .bar{display:flex;gap:6px}
-.bar input{flex:1;padding:10px;border-radius:10px;border:1px solid var(--bd);background:rgba(0,0,0,.35);color:var(--t)}
-.bar button{padding:10px 14px;border-radius:10px;border:0;background:var(--gold);color:#1a1208;font-weight:800;cursor:pointer}
+.bar input{flex:1;padding:10px;border-radius:4px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14);color:var(--t);outline:none}
+.bar input:focus{border-color:#4cc2ff;box-shadow:0 0 0 2px rgba(76,194,255,.25)}
+.bar button{padding:10px 14px;border-radius:4px;border:0;background:linear-gradient(180deg,#4cc2ff,#0078d7);color:#fff;font-weight:700;cursor:pointer}
 .qbar{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 8px}
-.qbar button{padding:6px 8px;border-radius:8px;border:1px solid var(--bd);background:rgba(0,0,0,.35);color:var(--t);font-size:.68rem;font-weight:700;cursor:pointer}
-.foot{text-align:center;font-size:.62rem;color:#6a5a48;margin-top:6px}
-.link{color:var(--gold);cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;align-items:center;justify-content:center;padding:16px}
+.qbar button{padding:6px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:var(--t);font-size:.68rem;font-weight:650;cursor:pointer;backdrop-filter:blur(12px)}
+.qbar button:hover{background:rgba(76,194,255,.28);border-color:#4cc2ff}
+.bgbar{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:8px 0 2px}
+.bgbar button,.bgbar label{padding:5px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font-size:.64rem;font-weight:650;cursor:pointer}
+.bgbar button.on{background:rgba(0,120,215,.45);border-color:#4cc2ff}
+.foot{text-align:center;font-size:.62rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+.link{color:#9ad8ff;cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
 .modal.on{display:flex}
-.modal .box{background:#121820;border:1px solid var(--bd);border-radius:12px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column}
-.modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(212,168,75,.2)}
-.terms{padding:12px 14px;overflow-y:auto;flex:1;font-size:.78rem;line-height:1.45;white-space:pre-wrap;color:#e8e0d4}
-.modal .footbar{padding:10px 14px;border-top:1px solid rgba(212,168,75,.2);display:flex;flex-direction:column;gap:8px}
+.modal .box{background:rgba(20,28,40,.55);border:1px solid rgba(255,255,255,.35);border-radius:6px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;backdrop-filter:blur(24px)}
+.modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(255,255,255,.2)}
+.terms{padding:12px 14px;overflow-y:auto;flex:1;font-size:.78rem;line-height:1.45;white-space:pre-wrap;color:#eef3f8}
+.modal .footbar{padding:10px 14px;border-top:1px solid rgba(255,255,255,.2);display:flex;flex-direction:column;gap:8px}
 .modal label{font-size:.75rem;color:var(--m);display:flex;gap:8px;align-items:flex-start}
-.btn{padding:10px;border-radius:8px;border:0;font-weight:700;cursor:pointer}
+.btn{padding:10px;border-radius:4px;border:0;font-weight:700;cursor:pointer}
 .btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-ok{background:var(--ok);color:#fff}
-.btn-no{background:#444;color:#fff}
+.btn-ok{background:var(--win);color:#fff}
+.btn-no{background:rgba(255,255,255,.18);color:#fff}
 </style>
 </head>
 <body>
@@ -49,7 +58,12 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.41</p>
+    <p class="sub">SoloHost · v2.6.42</p>
+    <div class="bgbar">
+      <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
+      <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
+      <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
+    </div>
   </div>
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
@@ -244,6 +258,29 @@ document.getElementById('qbar').addEventListener('click',function(e){
 });
 document.getElementById('send').onclick=send;
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+
+const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")'};
+function applyBg(kind, custom){
+  const root=document.documentElement;
+  if(kind==='custom' && custom){ root.style.setProperty('--bg-image','url("'+custom+'")'); }
+  else { root.style.setProperty('--bg-image', BG[kind]||BG.cave); kind = BG[kind]?kind:'cave'; }
+  document.querySelectorAll('.bgbar button').forEach(b=>b.classList.toggle('on', b.getAttribute('data-bg')===kind));
+  try{ localStorage.setItem('pinode_bg', JSON.stringify({kind, custom: kind==='custom'?custom:''})); }catch(e){}
+}
+try{
+  const saved=JSON.parse(localStorage.getItem('pinode_bg')||'{}');
+  applyBg(saved.kind||'cave', saved.custom||'');
+}catch(e){ applyBg('cave'); }
+document.getElementById('bgCave').onclick=()=>applyBg('cave');
+document.getElementById('bgClassic').onclick=()=>applyBg('classic');
+document.getElementById('bgFile').onchange=function(){
+  const f=this.files&&this.files[0]; if(!f)return;
+  if(f.size>2500000){ add('bot','🌄 Wallpaper too large (max 2.5 MB).'); return; }
+  const r=new FileReader();
+  r.onload=()=>applyBg('custom', r.result);
+  r.readAsDataURL(f);
+};
+
 loadStatus();setInterval(loadStatus,15000);
 </script>
 </body>
