@@ -3,7 +3,7 @@ UPLOAD TO GITHUB (required for image build)
 1. Open https://github.com/cannoi/pinode-telegram-solohost
 2. Extract THIS zip.
 3. Put files at the REPO ROOT. Do NOT leave them inside a subfolder
-   such as SoloHost/ or github-SoloHost-v2.6.39/
+   such as SoloHost/ or github-SoloHost-v2.6.40/
 4. These files MUST exist at root after upload:
    Dockerfile
    loader.js
@@ -13,7 +13,7 @@ UPLOAD TO GITHUB (required for image build)
 5. Commit to branch main.
 6. Actions tab -> "Build and publish SoloHost image" must run.
 7. Image:
-   ghcr.io/cannoi/pinode-telegram-solohost:v2.6.39
+   ghcr.io/cannoi/pinode-telegram-solohost:v2.6.40
 
 If the workflow file is missing, GitHub will not build.
 If files sit in a subfolder, Docker context "." will fail COPY.

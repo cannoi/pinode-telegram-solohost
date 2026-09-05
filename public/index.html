@@ -49,14 +49,13 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.39</p>
+    <p class="sub">SoloHost · v2.6.40</p>
   </div>
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
     <h2>Chat</h2>
-    <div id="chatbox"></div>
     <div class="qbar" id="abar">
-      <button type="button" data-dl="/actions/CleanRam.bat">🧹 CleanRam</button>
+      <button type="button" data-dl="/actions/CleanRAM.bat">🧹 CleanRAM</button>
       <button type="button" data-dl="/actions/DnsFlush.bat">🌐 DnsFlush</button>
       <button type="button" data-dl="/actions/Firewall.bat">🧱 Firewall</button>
       <button type="button" data-dl="/actions/NetRepair.bat">🔧 NetRepair</button>
@@ -65,6 +64,7 @@ h1{font-size:1.1rem;font-weight:800;background:linear-gradient(90deg,#f5e6c8,var
       <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Docker</button>
       <button type="button" data-dl="/actions/Maintain.bat">🗓️ Maintain</button>
     </div>
+    <div id="chatbox"></div>
     <div class="qbar" id="qbar">
       <button type="button" data-cmd="/help">❓ HELP</button>
       <button type="button" data-cmd="/status">📊 STATUS</button>
@@ -220,14 +220,15 @@ document.getElementById('dkAgree').onchange=function(){
 };
 
 const ACT={
- '/actions/CleanRam.bat':'When: RAM high / PC slow, node still synced.\nDoes: Close extra apps + TEMP + TRIM + DNS. Does not stop Pi/Docker.\nHow: Double-click. Allow Admin. Press Y.',
- '/actions/DnsFlush.bat':'When: Peers dropped, ports open, ledger moving.\nDoes: flushdns + registerdns only. Keeps LAN IP.\nHow: Double-click. Press Y.',
- '/actions/Firewall.bat':'When: Ports 31401-31403 closed locally, PC online.\nDoes: Firewall TCP 31401-31410 + local test.\nHow: Double-click. Press Y. Then /status.',
- '/actions/NetRepair.bat':'When: Long outage. Horizon/internet down.\nDoes: Keep-IP ladder. Never release/renew/int ip reset.\nHow: Double-click. Confirm each phase.',
- '/actions/LanSetup.bat':'When: First setup. Modem already forwards to this PC.\nDoes: Lock CURRENT LAN IP as static. Never forces .222.\nHow: Double-click. Press Y.',
- '/actions/NodeReset.bat':'When: Pi container stuck a long time. Docker Engine OK.\nDoes: Restart that container only. No WSL. No IP change.\nHow: Double-click. Press Y.',
- '/actions/DockerRecover.bat':'When: Docker Engine itself is down.\nDoes: Soft restart Docker. WSL only after Docker is stopped.\nHow: Double-click. Choose Soft first.',
- '/actions/Maintain.bat':'When: Node healthy. Sunday quiet hours.\nDoes: Weekly cleanup + optional Sunday 03:00 task.\nHow: Double-click. Press Y.'
+ '/actions/CleanRAM.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/CleanRam.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/DnsFlush.bat':'🌐 DnsFlush\nWhat: Refresh Windows DNS cache.\nWhen: Peers drop while ports stay open.',
+ '/actions/Firewall.bat':'🧱 Firewall\nWhat: Open TCP 31401-31410 on Windows Firewall.\nWhen: Local Pi ports stay closed.',
+ '/actions/NetRepair.bat':'🔧 NetRepair\nWhat: Repair internet while keeping the current LAN IP.\nWhen: Horizon or internet is down for a long time.',
+ '/actions/LanSetup.bat':'📌 LanSetup\nWhat: Lock the current LAN IP as static + open Pi ports.\nWhen: First setup on this PC.',
+ '/actions/NodeReset.bat':'♻️ NodeReset\nWhat: Restart the Pi container only.\nWhen: The container is stuck and Docker Engine is healthy.',
+ '/actions/DockerRecover.bat':'🐳 DockerRecover\nWhat: Restart Docker Desktop safely.\nWhen: Docker Engine itself is down.',
+ '/actions/Maintain.bat':'🗓️ Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
 };
 document.getElementById('abar').addEventListener('click',function(e){
   const b=e.target.closest('button[data-dl]'); if(!b)return;

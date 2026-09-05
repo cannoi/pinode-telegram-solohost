@@ -3,13 +3,14 @@ setlocal EnableExtensions
 title Pi Node - DockerRecover
 cd /d "%~dp0"
 
-fltmc >nul 2>&1
-if errorlevel 1 (
-  echo [INFO] Requesting Administrator permission...
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-  exit /b
-)
-
+if /I "%~1"=="/scheduled" goto GOTADMIN
+if /I "%~1"=="/quiet" goto GOTADMIN
+net session >nul 2>&1
+if %errorLevel%==0 goto GOTADMIN
+echo Requesting Administrator...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -LiteralPath '%~f0' -WorkingDirectory '%~dp0' -Verb RunAs"
+exit /b
+:GOTADMIN
 echo.
 echo ============================================================
 echo   PI NODE - DOCKER RECOVERY

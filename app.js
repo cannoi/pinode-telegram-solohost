@@ -63,7 +63,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.39-solohost';
+const VERSION = '2.6.40-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -992,13 +992,35 @@ const ACTION_CATALOG = [
   { id: 'CleanTemp', file: 'CleanTemp.bat', when: 'Gentle cleanup while node is healthy.', does: 'Delete temp older than 6 hours + Recycle Bin.', how: 'Double-click CleanTemp.bat. Auto-elevates. Press Y.' },
   { id: 'DnsFlush', file: 'DnsFlush.bat', when: 'Peers dropped but ports stay open and ledger still moves.', does: 'ipconfig /flushdns and /registerdns only. Keeps LAN IP.', how: 'Double-click DnsFlush.bat. Auto-elevates. Press Y.' },
   { id: 'Firewall', file: 'Firewall.bat', when: 'Local ports 31401-31403 stay closed while the PC is online.', does: 'Recreate Windows Firewall TCP 31401-31410 inbound + outbound remote ports, then test local listen.', how: 'Double-click Firewall.bat. Auto-elevates. Press Y. Then /status.' },
-  { id: 'NetRepair', file: 'NetRepair.bat', when: 'Internet/Horizon down for a LONG window. Never after a 1-minute catch-up.', does: 'Keep-IP ladder: DNS/ARP/firewall -> restart adapter (same IP) -> winsock. Never release/renew or int ip reset.', how: 'Double-click NetRepair.bat. Confirm each phase.' },
-  { id: 'LanSetup', file: 'LanSetup.bat', when: 'First setup on a new PC, or modem already forwards to this PC IP.', does: 'Detect current IPv4. Optional lock THAT SAME IP as static + Google DNS + firewall. Never forces .222.', how: 'Double-click LanSetup.bat. Press Y only to lock the current IP.' },
+  { id: 'NetRepair', file: 'NetRepair.bat', when: 'Internet/Horizon down for a LONG window. Never after a 1-minute catch-up.', does: 'Keep current LAN IP. DNS/ARP/firewall, then adapter restart, then winsock if still offline.', how: 'Double-click NetRepair.bat. Confirm each phase.' },
+  { id: 'LanSetup', file: 'LanSetup.bat', when: 'First setup on a new PC, or modem already forwards to this PC IP.', does: 'Detect current IPv4. Optional lock that same IP as static + Google DNS + firewall.', how: 'Double-click LanSetup.bat. Press Y to lock the current IP.' },
   { id: 'NodeReset', file: 'NodeReset.bat', when: 'Pi container stuck/exited for a long time. Docker Engine is healthy.', does: 'Restart testnet2/mainnet/testnet only. Then DNS + firewall + anti-sleep. No WSL shutdown. No IP change.', how: 'Double-click NodeReset.bat. Auto-elevates. Press Y.' },
   { id: 'DockerRecover', file: 'DockerRecover.bat', when: 'Docker Engine itself is down. Not for a short Core catch-up.', does: 'Soft restart Docker Desktop. Ordered WSL only AFTER Docker process is confirmed stopped.', how: 'Double-click DockerRecover.bat. Choose Soft first.' },
   { id: 'Maintain', file: 'Maintain.bat', when: 'Node is healthy. Sunday quiet hours.', does: 'Weekly v13.2 cleanup, unused docker prune, optional Sunday 03:00 task. No token inside the file.', how: 'Double-click Maintain.bat. Press Y. Optional schedule.' },
   { id: 'Reboot', file: 'Reboot.bat', when: 'Last resort after NetRepair + DockerRecover failed and the host is wedged.', does: 'Controlled shutdown /r with delay. Cancel: shutdown /a', how: 'Double-click Reboot.bat. Type delay. Press Y. Never auto-suggested for a short sync dip.' }
 ];
+
+
+const APP_GUIDE = `
+HOW TO USE THIS APP
+Telegram: talk to the bot from your phone. Commands: /status /sync /peers /report /diagnostic /analyze /logs /donate /help /mute.
+SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
+Ask in any language. AI answers as a Pi Node technician using real telemetry + 24h history.
+Alerts: only after a problem lasts. Mute 1h / 24h / night / off on the alert buttons.
+Reports: 07:00 / 18:00 / both / off.
+Scripts (Windows, double-click, auto Admin):
+ CleanRAM — PC slow, node still synced.
+ DnsFlush — peers dropped, ports open.
+ Firewall — local Pi ports closed.
+ NetRepair — internet/Horizon down a long time; keeps LAN IP.
+ LanSetup — first setup; lock current LAN IP.
+ NodeReset — Pi container stuck; Docker Engine OK.
+ DockerRecover — Docker Engine down; Soft first.
+ Maintain — weekly cleanup when healthy.
+ Reboot — last resort only.
+Optional Docker probe is enabled only in this SoloHost window on the PC (Terms + Confirm + Stop/Start). Telegram cannot raise Docker rights.
+Donate: /donate — Pay with Pi or MB Bank QR.
+`;
 
 const SCRIPT_MAP = `
 APP FLOW
@@ -1247,15 +1269,15 @@ function formatScripts() {
 
 function randomDonateThanks() {
   const pool = [
-    '💜 Cảm ơn bạn — ly cà phê này giúp app tiếp tục được nâng cấp!',
-    '💜 Bạn quá tuyệt! Cảm ơn sự ủng hộ cho cộng đồng Pi Node.',
-    '💜 Nhận được ủng hộ là động lực lớn. Chúc node chạy ổn định!',
+    '💜 Thank you — this coffee helps keep the app going.',
+    '💜 Thank you for supporting the Pi Node community.',
+    '💜 Thank you. Wishing your node a stable run.',
     '💜 Thanks a lot! Your coffee keeps SoloHost updates coming.',
-    '💜 Ly cà phê này ý nghĩa lắm — cảm ơn bạn đã đồng hành.',
-    '💜 Ủng hộ của bạn ý nghĩa hơn cả con số. Cảm ơn bạn!',
-    '💜 Wow, cảm ơn! Mình sẽ cải thiện bot và báo cáo tốt hơn.',
-    '💜 Cảm ơn nhé — mỗi đóng góp giúp app ổn định hơn.',
-    '💜 Pi hay MB đều trân trọng như nhau. Cảm ơn bạn!',
+    '💜 That coffee means a lot. Thank you for walking with us.',
+    '💜 Your support means more than a number. Thank you.',
+    '💜 Wow, thank you. We will keep improving the bot.',
+    '💜 Thank you — every gift helps the app stay stable.',
+    '💜 Pi or MB Bank — both are appreciated. Thank you.',
     '💜 Thank you for supporting open Pi Node tools.'
   ];
   return pool[Math.floor(Math.random() * pool.length)];
@@ -1264,7 +1286,7 @@ function formatDonate() {
   return [
     '💛 DONATE · DEV COFFEE',
     '────────',
-    'Chọn 1 trong 2 cách ủng hộ:',
+    'Choose one donate method:',
     '',
     '🟣 1) Pay with Pi',
     '   User: @cannoi',
@@ -1295,7 +1317,7 @@ function donateKeyboard() {
         { text: '🏦 MB Bank', callback_data: 'cmd_donate_mb' }
       ],
       [
-        { text: '📦 Gửi cả 2 QR', callback_data: 'cmd_donate_both' }
+        { text: '📦 Both QR', callback_data: 'cmd_donate_both' }
       ],
       [
         { text: '📊 STATUS', callback_data: 'cmd_status' },
@@ -1450,7 +1472,7 @@ function pushChatPersistent(role, text) {
 function evidenceSummary(t) {
   const parts = [];
   if (t.source) parts.push('Nguồn: ' + t.source);
-  if (t.sync) parts.push('Đồng bộ: ' + t.sync);
+  if (t.sync) parts.push('🔄 Sync: ' + t.sync);
   if (t.ledger != null) parts.push('Ledger: ' + Number(t.ledger).toLocaleString('en-US'));
   if (t.ledger_age != null) parts.push('Age: ' + t.ledger_age + 's');
   if (t.peer_in != null || t.peer_out != null)
@@ -1466,15 +1488,15 @@ function evidenceSummary(t) {
 
 function collectIssues(t) {
   const issues = [];
-  if (t.docker && /stop|exit/i.test(String(t.docker))) issues.push('Container/Docker không chạy');
-  if (t.ports_open === 0) issues.push('Cổng node đang đóng');
-  if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Đồng bộ bất thường: ' + t.sync);
-  if (t.stall) issues.push('Ledger không tăng trong thời gian dài');
+  if (t.docker && /stop|exit/i.test(String(t.docker))) issues.push('Docker/container not running');
+  if (t.ports_open === 0) issues.push('Node ports closed');
+  if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Unusual sync: ' + t.sync);
+  if (t.stall) issues.push('Ledger stalled for a long time');
   if (t.ledger_age != null && t.ledger_age > 300) issues.push('Ledger age cao (' + t.ledger_age + 's)');
   if (t.peer_in != null && t.peer_in < 2) issues.push('Peer IN thấp (' + t.peer_in + ')');
   if (t.ram != null && t.ram >= 88) issues.push('RAM cao (' + t.ram + '%)');
   if (t.cpu != null && t.cpu >= 90) issues.push('CPU cao (' + t.cpu + '%)');
-  if (t.temp != null && t.temp >= 78) issues.push('Nhiệt độ cao (' + t.temp + '°C)');
+  if (t.temp != null && t.temp >= 78) issues.push('High temperature (' + t.temp + 'C)');
   if (!t.source && t.ports_open === 0)
     issues.push('No telemetry source and ports closed');
   return issues;
@@ -1499,20 +1521,20 @@ function localAssistantReply(t, intent, userQ) {
   const age = t.ledger_age != null ? t.ledger_age : null;
   const sync = t.sync || null;
   const ledger = t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null;
-  const vi = (lang === 'vi');
+  const vi = false; // system blocks stay EN + icons
   const h24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
   const hTxt = (typeof formatHistory24hText === 'function') ? formatHistory24hText(h24) : '';
   function withHistory(msg) {
     if (!h24 || !h24.samples) return msg;
     const tail = vi
-      ? ('\n\n— Dữ liệu ~24h —\n' + hTxt + '\n\nGợi ý: xem /report nếu cần chi tiết thêm.')
+      ? ('\n\n— Last ~24h —\n' + hTxt + '\n\nTip: /report for more detail.')
       : ('\n\n— Last ~24h data —\n' + hTxt + '\n\nTip: use /report for a fuller summary.');
     return msg + tail;
   }
 
   if (intent === 'GREETING') {
     return vi
-      ? ('Chào bạn! Mình đang theo dõi Pi Node của bạn. Hiện node ' + (ok ? 'trông ổn' : 'có điểm cần để ý') + '. Bạn muốn hỏi gì — đồng bộ, cổng, bonus, hay cách cải thiện?')
+      ? ('Hi. I am watching your Pi Node. Right now it is ' + (ok ? 'OK' : 'needs a look') + '. Ask about sync, ports, bonus, or upgrades.')
       : ('Hi! I am watching your Pi Node. Right now it looks ' + (ok ? 'fine' : 'like it needs attention') + '. Ask about sync, ports, bonus, or upgrades anytime.');
   }
   if (intent === 'SMALLTALK') {
@@ -1562,13 +1584,13 @@ function localAssistantReply(t, intent, userQ) {
       : ('Practical tips: (1) keep online, (2) keep ports 31401–31403 open, (3) enough RAM and cooling, (4) avoid constant resets. Windows PRO: https://github.com/cannoi/pinode-telegram-controller');
   }
   if (intent === 'RAM') {
-    return formatMetricAnalysis('ram', 7, lang) + (t.ram != null ? ((vi ? '\n\nHiện tại · ' : '\n\nNow · ') + t.ram + '%') : '');
+    return formatMetricAnalysis('ram', 7, lang) + (t.ram != null ? ((vi ? '\n\nNow · ' : '\n\nNow · ') + t.ram + '%') : '');
   }
   if (intent === 'CPU') {
-    return formatMetricAnalysis('cpu', 7, lang) + (t.cpu != null ? ((vi ? '\n\nHiện tại · ' : '\n\nNow · ') + t.cpu + '%') : '');
+    return formatMetricAnalysis('cpu', 7, lang) + (t.cpu != null ? ((vi ? '\n\nNow · ' : '\n\nNow · ') + t.cpu + '%') : '');
   }
   if (intent === 'TEMP') {
-    return formatMetricAnalysis('temp', 7, lang) + (t.temp != null ? ((vi ? '\n\nHiện tại · ' : '\n\nNow · ') + t.temp + '°C') : '');
+    return formatMetricAnalysis('temp', 7, lang) + (t.temp != null ? ((vi ? '\n\nNow · ' : '\n\nNow · ') + t.temp + '°C') : '');
   }
   if (intent === 'FINANCE') {
     return financialBoundaryReply(lang) + (h24 && h24.samples ? ('\n\n' + hTxt) : '');
@@ -1663,7 +1685,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.39-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.40-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -1971,7 +1993,7 @@ function historyRowsDays(days) {
   });
 }
 function periodLabel(days, lang) {
-  const vi = lang === 'vi';
+  const vi = false; // system blocks stay EN + icons
   if (days <= 1) return vi ? '24 giờ' : '24h';
   if (days <= 7) return vi ? '7 ngày' : '7 days';
   return vi ? (days + ' ngày') : (days + ' days');
@@ -1984,7 +2006,7 @@ function periodLabel(days, lang) {
  * 📉 Thấp nhất · 60.8%
  */
 function formatMetricAnalysis(metricKey, days, lang) {
-  const vi = lang === 'vi';
+  const vi = false; // system blocks stay EN + icons
   const d = Math.max(1, days || 7);
   const rows = historyRowsDays(d);
   const vals = rows.map(function (r) { return toNum(r[metricKey]); }).filter(function (x) { return x != null; });
@@ -2009,21 +2031,21 @@ function formatMetricAnalysis(metricKey, days, lang) {
   return [
     title,
     '━━━━━━━━━━━━━━━━━━',
-    (vi ? '📋 Mẫu đo · ' : '📋 Samples · ') + vals.length,
+    '📋 Samples · ' + vals.length,
     (vi ? '📉 Thấp nhất · ' : '📉 Min · ') + mm.min + unit,
     (vi ? '📈 Cao nhất · ' : '📈 Max · ') + mm.max + unit,
-    (vi ? '📊 Trung bình · ' : '📊 Avg · ') + a + unit,
-    (vi ? '🎯 Trung vị · ' : '🎯 Median · ') + med + unit
+    '📊 Avg · ' + a + unit,
+    '🎯 Median · ' + med + unit
   ].join('\n');
 }
 
 function financialBoundaryReply(lang) {
-  const vi = lang === 'vi';
+  const vi = false; // system blocks stay EN + icons
   if (vi) {
     return [
       '🤖 AI APP GUIDE',
       '',
-      'Mình hiểu bạn đang cân nhắc tài chính. Với vai trò trợ lý kỹ thuật Pi Node, mình chỉ đánh giá tình trạng máy — không tư vấn mua/bán hay quyết định tiền bạc.',
+      'I can review node health only. I do not give buy/sell or money advice.',
       '',
       'Về kỹ thuật, xem /status và khối dữ liệu lịch sử bên dưới. Quyết định giữ hay dừng Node là của bạn dựa trên kế hoạch riêng.',
       '',
@@ -2263,7 +2285,7 @@ function formatAiReply(raw) {
 
 /** Offline technician narrative from real history (used when Gemini unavailable) */
 function technicianEvaluate(t, userQ, intent, lang) {
-  const vi = lang === 'vi';
+  const vi = false; // system blocks stay EN + icons
   const h = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
   const rows7 = (typeof historyRowsDays === 'function') ? historyRowsDays(7) : [];
   const sync = (t && t.sync) || (h && h.last_sync) || null;
@@ -2272,14 +2294,14 @@ function technicianEvaluate(t, userQ, intent, lang) {
   const ok = (t && t.level === 'ok') || (sync && /synced|live|horizon ok/i.test(String(sync)));
   const lines = [];
 
-  lines.push(vi ? '🤖 ĐÁNH GIÁ KỸ THUẬT' : '🤖 TECHNICIAN ASSESSMENT');
+  lines.push('🤖 TECHNICIAN ASSESSMENT');
   lines.push('────────');
   lines.push('');
 
   // Opening verdict in plain language
   if (ok && (!h.samples || h.level_critical === 0)) {
     lines.push(vi
-      ? 'Trong khoảng thời gian có dữ liệu, Node của bạn nhìn chung đang vận hành ổn định: đồng bộ tốt, không thấy mẫu Critical.'
+      ? 'In this window the node looks stable: sync is good, no Critical samples.'
       : 'From available data, your Node looks stable overall: sync is healthy and there are no Critical samples.');
   } else if (h.level_critical > 0) {
     lines.push(vi
@@ -2293,7 +2315,7 @@ function technicianEvaluate(t, userQ, intent, lang) {
   lines.push('');
 
   // What the numbers mean
-  lines.push(vi ? 'Ý nghĩa số liệu:' : 'What the numbers mean:');
+  lines.push('What the numbers mean:');
   if (sync) lines.push(vi ? ('• Đồng bộ: ' + sync + (age != null ? (' (age ' + age + 's — block đóng khá đúng nhịp)') : '')) : ('• Sync: ' + sync + (age != null ? (' (age ' + age + 's)') : '')));
   if (ledger) lines.push(vi ? ('• Ledger hiện tại: ' + ledger) : ('• Current ledger: ' + ledger));
   if (h.samples) {
@@ -2307,7 +2329,7 @@ function technicianEvaluate(t, userQ, intent, lang) {
     }
     if (h.sync_flips != null) {
       lines.push(vi
-        ? ('• Đổi trạng thái sync: ' + h.sync_flips + ' lần' + (h.sync_flips === 0 ? ' (ổn định)' : ' (cần để ý nếu lặp lại)'))
+        ? ('• Sync flips: ' + h.sync_flips + ' lần' + (h.sync_flips === 0 ? ' (stable)' : ' (watch if it repeats)'))
         : ('• Sync flips: ' + h.sync_flips + (h.sync_flips === 0 ? ' (stable)' : ' (watch if frequent)')));
     }
     if (h.age_max_s != null) {
@@ -2325,14 +2347,14 @@ function technicianEvaluate(t, userQ, intent, lang) {
   lines.push('');
 
   // Advice
-  lines.push(vi ? 'Gợi ý thực tế:' : 'Practical next steps:');
+  lines.push('Practical next steps:');
   if (ok) {
     lines.push(vi ? '1) Giữ máy online ổn định, tránh restart liên tục.' : '1) Keep the machine online; avoid frequent restarts.');
     lines.push(vi ? '2) Đảm bảo cổng 31401–31403 mở.' : '2) Keep ports 31401–31403 open.');
     lines.push(vi ? '3) Xem /report sau vài giờ khi đã có nhiều mẫu hơn.' : '3) Check /report after more samples accumulate.');
   } else {
     lines.push(vi ? '1) Chạy /diagnostic và kiểm tra cổng/mạng.' : '1) Run /diagnostic and verify ports/network.');
-    lines.push(vi ? '2) Theo dõi /report xem có SYNC LOST lặp lại không.' : '2) Watch /report for repeated SYNC LOST.');
+    lines.push(vi ? '2) Watch /report for repeated SYNC LOST.' : '2) Watch /report for repeated SYNC LOST.');
   }
   lines.push('');
   lines.push(vi
@@ -2368,7 +2390,7 @@ async function aiAnalyze(t, userQ) {
     if (mk) {
       metricBlock = formatMetricAnalysis(mk, days, lang);
       if (t && t[mk] != null) {
-        metricBlock += (lang === 'vi' ? '\n\nHiện tại · ' : '\n\nNow · ') + t[mk] + (mk === 'temp' ? '°C' : '%');
+        metricBlock += (lang === 'vi' ? '\n\nNow · ' : '\n\nNow · ') + t[mk] + (mk === 'temp' ? '°C' : '%');
       }
     } else if (intent === 'BLOCK_SYNC' || intent === 'DIAGNOSIS' || intent === 'NODE_HEALTH' || intent === 'GENERAL' || intent === 'BONUS' || intent === 'RECOMMENDATION' || intent === 'ADVICE' || intent === 'CLARIFY' || intent === 'FINANCE') {
       // sync-oriented summary from 24h
@@ -2415,6 +2437,7 @@ async function aiAnalyze(t, userQ) {
         'CURRENT_FACTS: ' + JSON.stringify(facts),
         'ACTION_POLICY: Use SCRIPT_MAP. Never recommend NodeReset/Reboot for a one-sample sync dip. Catch-up + open ports + ledger = wait. Long closed ports = Firewall then NetRepair (keep LAN IP). RAM high + synced = CleanRam. Zero peers + live = DnsFlush. Docker engine dead = DockerRecover (soft first). Reboot last resort only. Explain why.',
         'SCRIPT_MAP:\n' + SCRIPT_MAP,
+        'APP_GUIDE:\n' + APP_GUIDE,
         'CONTEXT_HINTS: Official Pi Node upgrades (PCT / pi-node-docker) often cause temporary Catching up. Regional submarine-cable or ISP cuts can drop peers without the machine being broken. Restart after update is normal catch-up, not always a hardware fault.',
         'PCT_RELEASES: ' + JSON.stringify(state.pctNews || []),
         'HISTORY_24H: ' + JSON.stringify(hist24),
@@ -2628,7 +2651,7 @@ async function handleText(text) {
   const cmd = low.split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
 
   if (raw.startsWith('/')) {
-    return (await runCmd(cmd, raw)) || tgSend('Lenh khong ro. /help', { reply_markup: mainKeyboard() });
+    return (await runCmd(cmd, raw)) || tgSend('❓ Unknown command. /help', { reply_markup: mainKeyboard() });
   }
   if (/^(status|ping)$/i.test(raw.trim())) return runCmd(raw.toLowerCase(), raw);
   if (/^(peers?|ports?|report|diagnostic|donate|scripts?)$/i.test(raw.trim())) return runCmd(cmd, raw);
@@ -3095,7 +3118,7 @@ srv.listen(PORT, '0.0.0.0', () => {
       if (pend && pend.need_ui_restart && BOT_TOKEN && CHAT_ID) {
         setTimeout(async function () {
           try {
-            await tgSend('🔄 SoloHost · Docker sock\nCompose đã cập nhật.\nNếu /status vẫn báo sock: no — bấm Restart app 1 lần (hoặc chạy APPLY_DOCKER_SOCK.bat trong thư mục app).');
+            await tgSend('🔄 Docker probe\nCompose updated.\nIf /status still shows sock: no — Stop then Start the app once.');
             pend.need_ui_restart = false;
             pend.notified = true;
             fs.writeFileSync(pf, JSON.stringify(pend));

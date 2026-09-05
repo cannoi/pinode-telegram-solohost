@@ -5,14 +5,12 @@ cd /d "%~dp0"
 
 if /I "%~1"=="/scheduled" goto GOTADMIN
 if /I "%~1"=="/quiet" goto GOTADMIN
-fltmc >nul 2>&1
-if errorlevel 1 (
-  echo Requesting Administrator...
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs"
-  exit /b
-)
+net session >nul 2>&1
+if %errorLevel%==0 goto GOTADMIN
+echo Requesting Administrator...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -LiteralPath '%~f0' -WorkingDirectory '%~dp0' -Verb RunAs"
+exit /b
 :GOTADMIN
-
 if /I "%~1"=="/scheduled" goto RUN
 if /I "%~1"=="/quiet" goto RUN
 echo.

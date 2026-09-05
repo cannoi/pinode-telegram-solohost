@@ -1,18 +1,16 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
-title Pi Node - NetRepair keep LAN IP
+setlocal EnableExtensions
+title Pi Node - NetRepair
 cd /d "%~dp0"
 
 if /I "%~1"=="/scheduled" goto GOTADMIN
 if /I "%~1"=="/quiet" goto GOTADMIN
-fltmc >nul 2>&1
-if errorlevel 1 (
-  echo Requesting Administrator...
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs"
-  exit /b
-)
+net session >nul 2>&1
+if %errorLevel%==0 goto GOTADMIN
+echo Requesting Administrator...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -LiteralPath '%~f0' -WorkingDirectory '%~dp0' -Verb RunAs"
+exit /b
 :GOTADMIN
-
 if /I "%~1"=="/scheduled" goto PHASE1
 if /I "%~1"=="/quiet" goto PHASE1
 echo.
@@ -24,7 +22,6 @@ echo  Phase 2: restart adapter if offline  (same IP)
 echo  Phase 3: winsock reset if still offline
 echo  NEVER: ipconfig /release /renew
 echo  NEVER: netsh int ip reset   (wipes static IP)
-echo  NEVER: force 192.168.1.222
 echo ============================================================
 choice /C YN /N /M "Run Phase 1 now? [Y/N] "
 if errorlevel 2 exit /b 0
