@@ -38,6 +38,12 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .bgbar{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:8px 0 2px}
 .bgbar button,.bgbar label{padding:5px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font-size:.64rem;font-weight:650;cursor:pointer}
 .bgbar button.on{background:rgba(0,120,215,.45);border-color:#4cc2ff}
+.bellwrap{position:relative;display:inline-block;margin-left:8px;vertical-align:middle}
+.bell{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:4px 8px;cursor:pointer;font-size:.85rem}
+.badge{position:absolute;top:-6px;right:-6px;background:#e81123;color:#fff;border-radius:8px;font-size:.6rem;min-width:16px;text-align:center;padding:1px 4px;display:none}
+.panel{display:none;text-align:left;background:rgba(20,28,40,.72);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:8px;margin:8px auto 0;max-width:480px;max-height:220px;overflow:auto;font-size:.75rem;backdrop-filter:blur(18px)}
+.panel.on{display:block}
+.panel .item{border-bottom:1px dashed rgba(255,255,255,.2);padding:6px 0;white-space:pre-wrap}
 .foot{text-align:center;font-size:.62rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
 .link{color:#9ad8ff;cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
@@ -57,8 +63,8 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 <div class="w">
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
-    <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.45</p>
+    <h1>Pi Node Controller PRO <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
+    <p class="sub">SoloHost · v2.6.46</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
@@ -66,6 +72,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
       <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
     </div>
   </div>
+  <div class="panel" id="alertPanel"></div>
   <div class="card"><h2>Live status</h2><div id="s">…</div></div>
   <div class="card">
     <h2>Chat</h2>
@@ -178,6 +185,10 @@ async function loadStatus(){
     addR('Source',t.source);addR('Sync',t.sync);addR('Ledger',t.ledger);addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
     addR('Peers',(t.peer_in!=null||t.peer_out!=null)?('IN '+(t.peer_in??'?')+' / OUT '+(t.peer_out??'?')):null);
     addR('Network',t.network_kind||t.network);
+    addR('Health',t.health!=null?t.health:null);addR('Trend',t.trend);
+    addR('Ledger/min',t.ledger_per_min);
+    addR('Ctr health',t.container_health);addR('Ctr CPU',t.container_cpu!=null?t.container_cpu+'%':null);
+    addR('Ctr RAM',t.container_ram!=null?t.container_ram+'%':null);
     document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
   }catch(e){document.getElementById('s').textContent='Status error';}
 }
@@ -282,6 +293,31 @@ document.getElementById('bgFile').onchange=function(){
   r.onload=()=>applyBg('custom', r.result);
   r.readAsDataURL(f);
 };
+
+
+async function loadAlerts(){
+  try{
+    const j=await fetch('/api/alerts').then(r=>r.json());
+    const n=j.unread||0;
+    const badge=document.getElementById('badge');
+    badge.textContent=n; badge.style.display=n?'inline-block':'none';
+    const pan=document.getElementById('alertPanel');
+    if(!j.items||!j.items.length){pan.innerHTML='🔔 No action alerts.';return;}
+    pan.innerHTML=j.items.map(function(it){
+      return '<div class="item">'+(it.ts||'').replace('T',' ').slice(0,16)+'\n'+(it.text||'')+(it.tip?'\n💡 '+it.tip:'')+(it.scripts?'\n🛠️ '+it.scripts:'')+'</div>';
+    }).join('');
+  }catch(e){}
+}
+document.getElementById('bell').onclick=async function(){
+  const pan=document.getElementById('alertPanel');
+  pan.classList.toggle('on');
+  if(pan.classList.contains('on')){
+    try{ await fetch('/api/alerts',{method:'POST'}); }catch(e){}
+    document.getElementById('badge').style.display='none';
+    loadAlerts();
+  }
+};
+loadAlerts();setInterval(loadAlerts,20000);
 
 loadStatus();setInterval(loadStatus,15000);
 </script>

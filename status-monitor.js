@@ -291,6 +291,14 @@ class PiNodeStatusMonitor {
         if (hzE.network && !primary.network) primary.network = hzE.network;
         primary.sources.docker_horizon = true;
       }
+      if (dock.container_health) primary.container_health = dock.container_health;
+      if (dock.container_cpu != null) primary.container_cpu = dock.container_cpu;
+      if (dock.container_ram != null) primary.container_ram = dock.container_ram;
+      if (dock.blkio) primary.blkio = dock.blkio;
+      if (dock.net_io) primary.net_io = dock.net_io;
+      if (dock.restart_count != null) primary.restart_count = dock.restart_count;
+      if (dock.oom) primary.oom = true;
+      if (dock.pid) primary.pid = dock.pid;
       if (Array.isArray(dock.containers) && dock.containers.length) {
         primary.docker_containers = dock.containers.length;
       }

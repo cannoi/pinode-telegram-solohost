@@ -64,7 +64,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.45-solohost';
+const VERSION = '2.6.46-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -491,6 +491,17 @@ async function collectTelemetry() {
     t.docker_health = lf.docker_health;
     t.health = lf.health;
     t.trend = lf.trend;
+    try {
+      const hist = readHistory(1);
+      const prev = hist.length ? hist[hist.length - 1] : null;
+      if (prev && prev.ledger != null && t.ledger != null && prev.ts) {
+        const dt = (Date.now() - Date.parse(prev.ts)) / 60000;
+        if (dt > 0.2 && t.ledger >= prev.ledger) {
+          const rate = (t.ledger - prev.ledger) / dt;
+          if (isFinite(rate) && rate >= 0) t.ledger_per_min = Math.round(rate * 10) / 10;
+        }
+      }
+    } catch (e2) {}
     if (t.disk == null) t.disk = lf.disk;
   } catch (e) {}
   // cgroup optional enrich
@@ -772,9 +783,32 @@ async function sendAlertTelegram(text, t) {
   }
   state.alertDedupe = { fp: fp, at: now };
   try { saveJSON(STATE_F, state); } catch (e) {}
+  try { pushDashAlert(text, t); } catch (e) {}
   await tgSend(text, { reply_markup: alertKeyboard() });
   return true;
 }
+function dashAlertPath() { return path.join(DATA, 'state', 'dash-alerts.json'); }
+function readDashAlerts() {
+  try { const x = JSON.parse(fs.readFileSync(dashAlertPath(), 'utf8')); return Array.isArray(x) ? x : []; } catch (e) { return []; }
+}
+function pushDashAlert(text, t) {
+  const rows = readDashAlerts();
+  const rec = recommendActions(t || {});
+  const tip = (rec && rec.why && rec.why[0]) ? rec.why[0] : '';
+  const files = (rec && rec.items) ? rec.items.map(function (i) { return i.file; }).join(', ') : '';
+  rows.unshift({
+    ts: nowISO(),
+    text: String(text || '').slice(0, 500),
+    tip: tip,
+    scripts: files,
+    health: t && t.health != null ? t.health : null,
+    sync: t && t.sync || null,
+    read: false
+  });
+  fs.mkdirSync(path.dirname(dashAlertPath()), { recursive: true });
+  fs.writeFileSync(dashAlertPath(), JSON.stringify(rows.slice(0, 30)));
+}
+
 
 async function runAlertMachine(t) {
   const next = mapLevelToFsm(t.level);
@@ -790,7 +824,9 @@ async function runAlertMachine(t) {
     const lastedMin = state.incidentSince ? Math.round((now - state.incidentSince) / 60000) : 0;
     if ((prev === 'CRITICAL' || prev === 'WARNING' || prev === 'DEGRADED') && lastedMin >= 2) {
       if (now - (state.lastAlertAt || 0) >= Math.min(ALERT_COOLDOWN, 120) * 1000) {
-        await tgSend('🟢 RECOVERED after ~' + lastedMin + ' min\n\n' + formatStatus(t, 'RECOVERED'));
+        const recTxt = '🟢 RECOVERED after ~' + lastedMin + ' min\n\n' + formatStatus(t, 'RECOVERED');
+        try { pushDashAlert(recTxt, t); } catch (e3) {}
+        await tgSend(recTxt);
         state.lastAlertAt = now;
       }
     }
@@ -1746,7 +1782,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.45-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.46-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -3123,6 +3159,20 @@ const srv = http.createServer(async (req, res) => {
         res.statusCode = 500;
         res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
       }
+      return;
+    }
+    if (u === '/api/alerts') {
+      if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      if (req.method === 'POST') {
+        const rows = readDashAlerts().map(function (r) { r.read = true; return r; });
+        try { fs.writeFileSync(dashAlertPath(), JSON.stringify(rows)); } catch (e) {}
+        res.end(JSON.stringify({ ok: true, unread: 0, items: rows.slice(0, 12) }));
+        return;
+      }
+      const items = readDashAlerts();
+      const unread = items.filter(function (r) { return !r.read; }).length;
+      res.end(JSON.stringify({ ok: true, unread: unread, items: items.slice(0, 12) }));
       return;
     }
     if (u === '/api/info') {

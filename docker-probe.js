@@ -288,6 +288,58 @@ async function probeDocker() {
     } catch (e) {}
   }
 
+
+  // Runtime extras (only if inspect/stats available — never invent 0)
+  if (pick.id && result.docker_sock) {
+    try {
+      const ins = await dockerApi('/containers/' + pick.id + '/json', 2500);
+      if (ins && ins.State) {
+        const st = ins.State;
+        result.container_health = st.Health && st.Health.Status ? String(st.Health.Status) : (st.Running ? 'running' : 'stopped');
+        if (st.RestartCount != null && isFinite(Number(st.RestartCount))) result.restart_count = Number(st.RestartCount);
+        if (st.OOMKilled === true) result.oom = true;
+        if (st.Pid != null && Number(st.Pid) > 0) result.pid = Number(st.Pid);
+      }
+    } catch (e) {}
+    try {
+      const stats = await dockerApi('/containers/' + pick.id + '/stats?stream=false', 3500);
+      if (stats) {
+        const cpu = stats.cpu_stats || {};
+        const pre = stats.precpu_stats || {};
+        const cpuDelta = (cpu.cpu_usage && pre.cpu_usage) ? (cpu.cpu_usage.total_usage - pre.cpu_usage.total_usage) : null;
+        const sysDelta = (cpu.system_cpu_usage != null && pre.system_cpu_usage != null) ? (cpu.system_cpu_usage - pre.system_cpu_usage) : null;
+        const ncpu = (cpu.online_cpus || (cpu.cpu_usage && cpu.cpu_usage.percpu_usage && cpu.cpu_usage.percpu_usage.length) || 0);
+        if (cpuDelta != null && sysDelta > 0 && ncpu > 0) {
+          const pct = cpuDelta / sysDelta * ncpu * 100;
+          if (isFinite(pct) && pct > 0) result.container_cpu = Math.round(pct * 10) / 10;
+        }
+        const mem = stats.memory_stats || {};
+        if (mem.usage && mem.limit && mem.limit > 0) {
+          const rp = mem.usage / mem.limit * 100;
+          if (isFinite(rp) && rp > 0) result.container_ram = Math.round(rp * 10) / 10;
+        }
+        const bio = stats.blkio_stats && stats.blkio_stats.io_service_bytes_recursive;
+        if (Array.isArray(bio) && bio.length) {
+          let rd = 0, wr = 0;
+          bio.forEach(function (x) {
+            if (/read/i.test(x.op || '')) rd += Number(x.value) || 0;
+            if (/write/i.test(x.op || '')) wr += Number(x.value) || 0;
+          });
+          if (rd || wr) result.blkio = { read: rd || null, write: wr || null };
+        }
+        const nets = stats.networks;
+        if (nets && typeof nets === 'object') {
+          let rx = 0, tx = 0;
+          Object.keys(nets).forEach(function (k) {
+            rx += Number(nets[k].rx_bytes) || 0;
+            tx += Number(nets[k].tx_bytes) || 0;
+          });
+          if (rx || tx) result.net_io = { rx: rx || null, tx: tx || null };
+        }
+      }
+    } catch (e) {}
+  }
+
   return result;
 }
 
