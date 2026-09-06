@@ -64,7 +64,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.43-solohost';
+const VERSION = '2.6.44-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1713,7 +1713,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.43-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.44-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2467,6 +2467,7 @@ async function aiAnalyze(t, userQ) {
         'CONTEXT_HINTS: Official Pi Node upgrades (PCT / pi-node-docker) often cause temporary Catching up. Regional submarine-cable or ISP cuts can drop peers without the machine being broken. Restart after update is normal catch-up, not always a hardware fault.',
         'PCT_RELEASES: ' + JSON.stringify(state.pctNews || []),
         'HISTORY_24H: ' + JSON.stringify(hist24),
+        'HOUR_TREND: ' + (function(){ try { const hf=path.join(DIR_HIST,'hourly.json'); const arr=JSON.parse(fs.readFileSync(hf,'utf8')).slice(-12); return JSON.stringify(arr.map(function(x){return {hour:x.hour,n:x.n,health_min:x.health_min,max_age:x.max_age,min_peers:x.min_peers,max_ram:x.max_ram,bad:x.bad};})); } catch(e){ return '[]'; } })(),
         'STATS_7D: ' + JSON.stringify(stats7),
         metricBlock ? ('RELATED_METRIC_BLOCK:\n' + metricBlock) : '',
         facts.health != null && facts.health < 60 ? (hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist.slice(-8))) : '') : '',

@@ -18,6 +18,8 @@ jobs:
           test -f loader.js
           test -f app.js
           test -f package.json
+          test -f telemetry-lite.js
+          test -f status-monitor.js
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -31,4 +33,4 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/pinode-telegram-solohost:latest
-            ghcr.io/${{ github.repository_owner }}/pinode-telegram-solohost:v2.6.43
+            ghcr.io/${{ github.repository_owner }}/pinode-telegram-solohost:v2.6.44

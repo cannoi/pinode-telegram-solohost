@@ -58,10 +58,11 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO</h1>
-    <p class="sub">SoloHost · v2.6.43</p>
+    <p class="sub">SoloHost · v2.6.44</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
+      <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
       <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
     </div>
   </div>
@@ -259,7 +260,7 @@ document.getElementById('qbar').addEventListener('click',function(e){
 document.getElementById('send').onclick=send;
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 
-const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")'};
+const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")',pi:'url("/bg-pi.jpg")'};
 function applyBg(kind, custom){
   const root=document.documentElement;
   if(kind==='custom' && custom){ root.style.setProperty('--bg-image','url("'+custom+'")'); }
@@ -273,6 +274,7 @@ try{
 }catch(e){ applyBg('cave'); }
 document.getElementById('bgCave').onclick=()=>applyBg('cave');
 document.getElementById('bgClassic').onclick=()=>applyBg('classic');
+document.getElementById('bgPi').onclick=()=>applyBg('pi');
 document.getElementById('bgFile').onchange=function(){
   const f=this.files&&this.files[0]; if(!f)return;
   if(f.size>2500000){ add('bot','🌄 Wallpaper too large (max 2.5 MB).'); return; }

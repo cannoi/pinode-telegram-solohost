@@ -105,7 +105,7 @@ function scoreHealth(t) {
 }
 
 function trendFrom(curr, prevRows) {
-  const rows = (prevRows || []).slice(-8);
+  const rows = (prevRows || []).slice(-16);
   if (rows.length < 3 || !curr) return 'stable';
   const ages = rows.map(function (r) { return num(r.ledger_age); }).filter(function (x) { return x != null; });
   const peers = rows.map(function (r) { return num(r.peers != null ? r.peers : r.peer_total); }).filter(function (x) { return x != null; });
