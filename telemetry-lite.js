@@ -6,8 +6,15 @@
 
 function num(v) {
   if (v == null || v === '') return null;
+  if (v === false || v === true) return null;
   const n = Number(v);
   return isFinite(n) ? n : null;
+}
+/** Host resources: 0 means not collected on SoloHost, not a real reading. */
+function hostMetric(v) {
+  const n = num(v);
+  if (n == null || n <= 0) return null;
+  return n;
 }
 
 function portsOkFrom(t) {
@@ -82,19 +89,19 @@ function scoreHealth(t) {
   const dh = dockerHealthFrom(t);
   if (dh === 'healthy') { used++; score += 4; }
   else if (dh === 'unhealthy') { used++; score -= 10; }
-  const ram = num(t.ram);
+  const ram = hostMetric(t.ram);
   if (ram != null) {
     used++;
     if (ram >= 92) score -= 14;
     else if (ram >= 85) score -= 6;
   }
-  const cpu = num(t.cpu);
+  const cpu = hostMetric(t.cpu);
   if (cpu != null) {
     used++;
     if (cpu >= 95) score -= 10;
     else if (cpu >= 85) score -= 4;
   }
-  const disk = num(t.disk);
+  const disk = hostMetric(t.disk);
   if (disk != null) {
     used++;
     if (disk >= 95) score -= 16;
@@ -151,9 +158,9 @@ function liveFrame(t, prevRows) {
     ledger_age: num(t.ledger_age),
     peers: peers,
     ports_ok: pok,
-    cpu: num(t.cpu),
-    ram: num(t.ram),
-    disk: num(t.disk),
+    cpu: hostMetric(t.cpu),
+    ram: hostMetric(t.ram),
+    disk: hostMetric(t.disk),
     docker_status: ds,
     docker_health: dh,
     health: health,
@@ -202,12 +209,15 @@ function aiContext(t, extra) {
     trend: f.trend,
     source: f.source
   };
+  Object.keys(out).forEach(function (k) {
+    if (out[k] == null) delete out[k];
+  });
   if (extra.events) out.recent_events = extra.events;
   if (extra.diagnostic) out.diagnostic = extra.diagnostic;
   return out;
 }
 
 module.exports = {
-  num, portsOkFrom, dockerStatusFrom, dockerHealthFrom,
+  num, hostMetric, portsOkFrom, dockerStatusFrom, dockerHealthFrom,
   scoreHealth, trendFrom, liveFrame, historyRow, aiContext
 };

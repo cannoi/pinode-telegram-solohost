@@ -64,7 +64,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.44-solohost';
+const VERSION = '2.6.45-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -497,8 +497,8 @@ async function collectTelemetry() {
   try {
     const cg = readCgroupResources();
     if (cg) {
-      if (cg.ram != null && t.ram == null) t.ram = cg.ram;
-      if (cg.cpu != null && t.cpu == null) t.cpu = cg.cpu;
+      if (cg.ram != null && Number(cg.ram) > 0 && t.ram == null) t.ram = cg.ram;
+      if (cg.cpu != null && Number(cg.cpu) > 0 && t.cpu == null) t.cpu = cg.cpu;
       t.sources.cgroup = true;
     }
   } catch (e) {}
@@ -1080,30 +1080,63 @@ function recommendActions(t) {
   const persistent = !!(longBad || repeated);
   const catching = /catch|behind|syncing/i.test(String(t.sync || ''));
   const live = /synced|live|horizon ok|good/i.test(String(t.sync || ''));
-  const portsClosed = t.ports_open === 0;
-  const ramHigh = t.ram != null && Number(t.ram) >= 85;
+  const portsClosed = t.ports_ok === false || t.ports_open === 0;
+  const ramVal = (typeof lite !== 'undefined' && lite.hostMetric) ? lite.hostMetric(t.ram) : (t.ram != null && Number(t.ram) > 0 ? Number(t.ram) : null);
+  const cpuVal = (typeof lite !== 'undefined' && lite.hostMetric) ? lite.hostMetric(t.cpu) : (t.cpu != null && Number(t.cpu) > 0 ? Number(t.cpu) : null);
+  const diskVal = (typeof lite !== 'undefined' && lite.hostMetric) ? lite.hostMetric(t.disk) : (t.disk != null && Number(t.disk) > 0 ? Number(t.disk) : null);
+  const peers = t.peers != null ? Number(t.peers) : (t.peer_total != null ? Number(t.peer_total) : null);
+  const health = t.health != null ? Number(t.health) : null;
+  const trend = String(t.trend || 'stable');
+  const degrading = trend === 'degrading';
+  const dockerBad = t.docker_health === 'unhealthy' || t.docker_status === 'stopped';
+  const ramHigh = ramVal != null && ramVal >= 85;
+  const cpuHigh = cpuVal != null && cpuVal >= 90;
+  const diskHigh = diskVal != null && diskVal >= 90;
   const picks = [];
   const why = [];
-  if (!persistent && !ramHigh) {
-    why.push('No repeated / long-lasting incident in history. Wait and watch. Do not run repair BATs yet.');
+
+  const lastFix = state.lastRepair || null;
+  const sameScriptRecently = function (id) {
+    if (!lastFix || lastFix.id !== id) return false;
+    return Date.now() - (lastFix.ts || 0) < 6 * 3600 * 1000;
+  };
+
+  if (health != null && health >= 80 && trend === 'stable' && !portsClosed && !dockerBad) {
+    why.push('Health ' + health + ' · trend stable. Observe. Repair BATs not needed.');
+    return { why: why, items: [], picks: [] };
+  }
+  if (!persistent && !degrading && !(ramHigh && degrading) && !dockerBad) {
+    why.push('No repeated / degrading incident. Wait and watch. Do not run repair BATs yet.');
     return { why: why, items: [], picks: [] };
   }
   if (catching && !portsClosed && (t.ledger != null)) {
-    why.push('Catch-up with open ports and a live ledger. Wait for Core; do not restart or repair network.');
+    why.push('Catch-up with ports_ok and a live ledger. Wait for Core; do not restart.');
     return { why: why, items: [], picks: [] };
   }
-  if (portsClosed && persistent && !live) {
-    why.push('Ports closed across a long window. Firewall first, then keep-IP network repair. Never change LAN IP.');
-    picks.push('Firewall');
-    picks.push('NetRepair');
-  } else if (t.peer_total != null && t.peer_total === 0 && persistent) {
-    why.push('Zero peers for a long stretch. Flush DNS only. Keep current LAN IP.');
-    picks.push('DnsFlush');
-  } else if (ramHigh && persistent) {
-    why.push('RAM stayed high. Clean host apps. Do not restart the node.');
-    picks.push('CleanRam');
+  if (portsClosed && (persistent || degrading) && !live) {
+    why.push('ports_ok=false for a lasting window. Firewall then NetRepair. Keep current LAN IP.');
+    if (!sameScriptRecently('Firewall')) picks.push('Firewall');
+    if (!sameScriptRecently('NetRepair')) picks.push('NetRepair');
+  } else if (peers === 0 && (persistent || degrading) && t.ports_ok !== false) {
+    why.push('Peers 0 while ports not closed. DnsFlush only.');
+    if (!sameScriptRecently('DnsFlush')) picks.push('DnsFlush');
+  } else if (dockerBad && (persistent || degrading)) {
+    why.push('docker_health/status bad. Soft DockerRecover first. No WSL while Docker lives.');
+    if (!sameScriptRecently('DockerRecover')) picks.push('DockerRecover');
+  } else if (ramHigh && (persistent || degrading)) {
+    why.push('RAM ' + ramVal + '% and ' + trend + '. CleanRam. Do not restart the node.');
+    if (!sameScriptRecently('CleanRam')) picks.push('CleanRam');
+  } else if (cpuHigh && degrading) {
+    why.push('CPU high and degrading. Observe first; CleanRam if host is busy with extra apps.');
+    if (!sameScriptRecently('CleanRam')) picks.push('CleanRam');
+  } else if (diskHigh && (persistent || degrading)) {
+    why.push('Disk pressure. Maintain cleanup only while node is otherwise healthy.');
+    if (!sameScriptRecently('Maintain')) picks.push('Maintain');
   } else {
     why.push('Incident lasted, but no safe BAT maps cleanly. Collect /diagnostic first.');
+  }
+  if (!picks.length && lastFix && lastFix.ok === false) {
+    why.push('Previous repair did not improve telemetry. Escalate to /analyze rather than repeat the same BAT.');
   }
   const items = ACTION_CATALOG.filter(function (a) { return picks.indexOf(a.id) >= 0; });
   return { why: why, items: items, picks: picks };
@@ -1713,7 +1746,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.44-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.45-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -1994,6 +2027,7 @@ function formatHistory24hText(h) {
 }
 
 function toNum(v) {
+  if (v == null || v === '') return null;
   const n = Number(v);
   return isFinite(n) ? n : null;
 }
@@ -2448,7 +2482,7 @@ async function aiAnalyze(t, userQ) {
         'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
         'LANGUAGE: Reply in the SAME language as the user. Never force Vietnamese if they use another language.',
         'PRIORITY: Every free-text question needs a real technician evaluation — simple words, practical value for a normal node operator.',
-        'DATA RULES: Use ONLY the JSON blocks below. Never invent ledger, bonus, peers, RAM, CPU, temp, or uptime.',
+        'DATA RULES: Use ONLY the JSON blocks below. Never invent ledger, bonus, peers, RAM, CPU, temp, or uptime. If a field is absent it was NOT collected — say unknown. NEVER treat missing cpu/ram/disk as 0%.',
         'MISSING DATA: You MAY ask the user for more information when it would make the analysis more accurate (examples: how long the node has been running, recent restart, power cut, WiFi issues, Docker container name, Windows host symptoms). Ask clearly in 1-3 short questions at the end. Do not invent answers for missing fields.',
         'FORMAT (mandatory):',
         '- Easy to read on Telegram phone screen.',
