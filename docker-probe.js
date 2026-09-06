@@ -310,13 +310,21 @@ async function probeDocker() {
         const sysDelta = (cpu.system_cpu_usage != null && pre.system_cpu_usage != null) ? (cpu.system_cpu_usage - pre.system_cpu_usage) : null;
         const ncpu = (cpu.online_cpus || (cpu.cpu_usage && cpu.cpu_usage.percpu_usage && cpu.cpu_usage.percpu_usage.length) || 0);
         if (cpuDelta != null && sysDelta > 0 && ncpu > 0) {
-          const pct = cpuDelta / sysDelta * ncpu * 100;
-          if (isFinite(pct) && pct > 0) result.container_cpu = Math.round(pct * 10) / 10;
+          const coresUsed = cpuDelta / sysDelta * ncpu;
+          if (isFinite(coresUsed) && coresUsed > 0) {
+            result.container_cpus = ncpu;
+            result.container_cpu_cores = Math.round(coresUsed * 100) / 100;
+            result.container_cpu_docker = Math.round(coresUsed * 1000) / 10;
+            const hostPct = coresUsed / ncpu * 100;
+            if (hostPct > 0) result.container_cpu = Math.round(hostPct * 10) / 10;
+          }
         }
         const mem = stats.memory_stats || {};
         if (mem.usage && mem.limit && mem.limit > 0) {
           const rp = mem.usage / mem.limit * 100;
           if (isFinite(rp) && rp > 0) result.container_ram = Math.round(rp * 10) / 10;
+          result.container_ram_mb = Math.round(mem.usage / 1048576);
+          result.container_ram_limit_mb = Math.round(mem.limit / 1048576);
         }
         const bio = stats.blkio_stats && stats.blkio_stats.io_service_bytes_recursive;
         if (Array.isArray(bio) && bio.length) {

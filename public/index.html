@@ -64,7 +64,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
-    <p class="sub">SoloHost · v2.6.46</p>
+    <p class="sub">SoloHost · v2.6.47</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
@@ -182,13 +182,11 @@ async function loadStatus(){
     const t=await fetch('/api/status').then(r=>r.json());
     const rows=[];
     const addR=(k,v)=>{if(v!=null&&v!=='')rows.push('<div class="row"><span class="k">'+k+'</span><span class="val">'+String(v)+'</span></div>');};
-    addR('Source',t.source);addR('Sync',t.sync);addR('Ledger',t.ledger);addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
-    addR('Peers',(t.peer_in!=null||t.peer_out!=null)?('IN '+(t.peer_in??'?')+' / OUT '+(t.peer_out??'?')):null);
-    addR('Network',t.network_kind||t.network);
-    addR('Health',t.health!=null?t.health:null);addR('Trend',t.trend);
-    addR('Ledger/min',t.ledger_per_min);
-    addR('Ctr health',t.container_health);addR('Ctr CPU',t.container_cpu!=null?t.container_cpu+'%':null);
-    addR('Ctr RAM',t.container_ram!=null?t.container_ram+'%':null);
+    addR('Sync',t.sync);
+    addR('Ledger',t.ledger!=null?Number(t.ledger).toLocaleString('en-US'):null);
+    addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
+    addR('Peers',t.peers!=null?t.peers:((t.peer_in!=null||t.peer_out!=null)?((t.peer_in??0)+(t.peer_out??0)):null));
+    addR('Health',t.health!=null?t.health+'/100':'');
     document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
   }catch(e){document.getElementById('s').textContent='Status error';}
 }

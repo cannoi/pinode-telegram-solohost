@@ -209,6 +209,11 @@ function aiContext(t, extra) {
     trend: f.trend,
     source: f.source
   };
+  const extraKeys = ['ledger_per_min','container_health','container_cpu','container_cpu_docker','container_cpu_cores','container_cpus','container_ram','container_ram_mb','container_ram_limit_mb','blkio','net_io','restart_count','oom','pid','peer_in','peer_out'];
+  extraKeys.forEach(function (k) {
+    if (t[k] != null && t[k] !== '' && t[k] !== 0) out[k] = t[k];
+  });
+  if (t.restart_count === 0) out.restart_count = 0;
   Object.keys(out).forEach(function (k) {
     if (out[k] == null) delete out[k];
   });

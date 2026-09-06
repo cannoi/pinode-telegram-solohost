@@ -64,7 +64,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.46-solohost';
+const VERSION = '2.6.47-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -1782,7 +1782,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.46-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.47-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2518,7 +2518,7 @@ async function aiAnalyze(t, userQ) {
         'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
         'LANGUAGE: Reply in the SAME language as the user. Never force Vietnamese if they use another language.',
         'PRIORITY: Every free-text question needs a real technician evaluation — simple words, practical value for a normal node operator.',
-        'DATA RULES: Use ONLY the JSON blocks below. Never invent ledger, bonus, peers, RAM, CPU, temp, or uptime. If a field is absent it was NOT collected — say unknown. NEVER treat missing cpu/ram/disk as 0%.',
+        'DATA RULES: Use ONLY the JSON blocks below. If container_cpu / container_ram / ledger_per_min / peers / health exist, you MUST use them in the answer. container_cpu is percent of the WHOLE host (all cores). container_cpu_docker is the Docker Desktop left-hand number (percent of one CPU, max = cpus*100). container_ram is percent of the container memory limit. Missing field = unknown, NEVER say 0%. Never claim you cannot see CPU/RAM when those container_* fields are present.',
         'MISSING DATA: You MAY ask the user for more information when it would make the analysis more accurate (examples: how long the node has been running, recent restart, power cut, WiFi issues, Docker container name, Windows host symptoms). Ask clearly in 1-3 short questions at the end. Do not invent answers for missing fields.',
         'FORMAT (mandatory):',
         '- Easy to read on Telegram phone screen.',

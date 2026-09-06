@@ -293,6 +293,11 @@ class PiNodeStatusMonitor {
       }
       if (dock.container_health) primary.container_health = dock.container_health;
       if (dock.container_cpu != null) primary.container_cpu = dock.container_cpu;
+      if (dock.container_ram_limit_mb != null) primary.container_ram_limit_mb = dock.container_ram_limit_mb;
+      if (dock.container_ram_mb != null) primary.container_ram_mb = dock.container_ram_mb;
+      if (dock.container_cpu_docker != null) primary.container_cpu_docker = dock.container_cpu_docker;
+      if (dock.container_cpu_cores != null) primary.container_cpu_cores = dock.container_cpu_cores;
+      if (dock.container_cpus != null) primary.container_cpus = dock.container_cpus;
       if (dock.container_ram != null) primary.container_ram = dock.container_ram;
       if (dock.blkio) primary.blkio = dock.blkio;
       if (dock.net_io) primary.net_io = dock.net_io;
