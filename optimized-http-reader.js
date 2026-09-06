@@ -119,6 +119,22 @@ class OptimizedHttpReader {
     });
   }
 
+  httpGetText(url, timeoutMs) {
+    timeoutMs = timeoutMs || 2500;
+    return new Promise((resolve, reject) => {
+      const req = http.get(url, { timeout: timeoutMs }, (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          if (res.statusCode === 200) resolve(data);
+          else reject(new Error('HTTP ' + res.statusCode));
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { try { req.destroy(); } catch (e) {} reject(new Error('timeout')); });
+    });
+  }
+
   // ============ CORE HTTP PROBE (PRIMARY) ============
 
   /**
@@ -257,7 +273,8 @@ class OptimizedHttpReader {
           this.config.timeouts.horizon
         );
         if (result && (result.core_latest_ledger != null || result.history_latest_ledger != null)) {
-          return this.parseHorizonRoot(result, this.sticky.horizonHost, this.sticky.horizonPort, Date.now() - start);
+          const parsed = this.parseHorizonRoot(result, this.sticky.horizonHost, this.sticky.horizonPort, Date.now() - start);
+          return this.enrichHorizon(this.sticky.horizonHost, this.sticky.horizonPort, parsed);
         }
       } catch (e) {
         // Continue to discovery
@@ -282,7 +299,8 @@ class OptimizedHttpReader {
                 if (result && (result.core_latest_ledger != null || result.history_latest_ledger != null)) {
                   this.sticky.horizonHost = c.host;
                   this.sticky.horizonPort = c.port;
-                  return this.parseHorizonRoot(result, c.host, c.port, Date.now() - start);
+                  const parsed = this.parseHorizonRoot(result, c.host, c.port, Date.now() - start);
+                  return this.enrichHorizon(c.host, c.port, parsed);
                 }
                 return null;
               }
@@ -326,23 +344,30 @@ class OptimizedHttpReader {
       ingestLag = Math.max(0, coreL - ingestL);
     }
 
-    // Sync inference from age (NOT VERIFIED)
+    // Official Pi node-status rule (no docker.sock):
+    // Synced when core and ingest are within 5 ledgers.
     let syncInferred = 'Unknown';
     let syncConfidence = 'low';
-    if (ledgerAge != null) {
-      if (ledgerAge <= 35) {
-        syncInferred = 'Likely Synced';
-        syncConfidence = 'medium';
-      } else if (ledgerAge <= 120) {
-        syncInferred = 'Catching up';
-        syncConfidence = 'medium';
-      } else if (ledgerAge <= 300) {
-        syncInferred = 'Behind';
-        syncConfidence = 'low';
+    let syncBasis = 'unknown';
+    if (coreL === 0 && ingestL === 0) {
+      syncInferred = 'Catching Up';
+      syncConfidence = 'medium';
+      syncBasis = 'horizon-bootstrap';
+    } else if (coreL != null && ingestL != null) {
+      if (ingestLag != null && ingestLag <= 5) {
+        syncInferred = 'Synced';
+        syncConfidence = 'high';
+        syncBasis = 'horizon-core-vs-ingest';
       } else {
-        syncInferred = 'Stalled/Offline';
-        syncConfidence = 'low';
+        syncInferred = 'Syncing';
+        syncConfidence = 'medium';
+        syncBasis = 'horizon-core-vs-ingest';
       }
+    } else if (ledgerAge != null) {
+      if (ledgerAge <= 35) { syncInferred = 'Likely Synced'; syncConfidence = 'medium'; }
+      else if (ledgerAge <= 300) { syncInferred = 'Behind'; syncConfidence = 'low'; }
+      else { syncInferred = 'Stalled/Offline'; syncConfidence = 'low'; }
+      syncBasis = 'age-inferred';
     }
 
     return {
@@ -350,9 +375,9 @@ class OptimizedHttpReader {
       source: 'Horizon',
       probe: 'horizon-root',
       core_verified: false,
-      sync_verified: false,
+      sync_verified: syncBasis === 'horizon-core-vs-ingest' && ingestLag != null && ingestLag <= 5,
       sync: syncInferred,
-      sync_basis: 'age-inferred',
+      sync_basis: syncBasis,
       sync_confidence: syncConfidence,
       horizon_host: host,
       horizon_port: port,
@@ -368,6 +393,53 @@ class OptimizedHttpReader {
       core_version: data.core_version || null,
       protocol: data.current_protocol_version != null ? data.current_protocol_version : null
     };
+  }
+
+
+  async enrichHorizon(host, port, parsed) {
+    if (!parsed || !parsed.ok) return parsed;
+    try {
+      const led = await this.httpGet('http://' + host + ':' + port + '/ledgers?order=desc&limit=1', 2500);
+      const rec = led && led._embedded && led._embedded.records && led._embedded.records[0];
+      if (rec) {
+        if (rec.closed_at && parsed.ledger_age == null) {
+          const ts = new Date(rec.closed_at).getTime();
+          if (isFinite(ts)) parsed.ledger_age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+        }
+        if (rec.sequence != null && parsed.history_ledger == null) parsed.history_ledger = Number(rec.sequence);
+        parsed.tx_count = rec.successful_transaction_count != null ? Number(rec.successful_transaction_count) : null;
+      }
+    } catch (e) {}
+    try {
+      let met = null;
+      try { met = await this.httpGet('http://' + host + ':' + port + '/metrics', 2000); } catch (e1) { met = null; }
+      if (met && typeof met === 'object' && !Buffer.isBuffer(met)) {
+        const coreM = met['stellar_core.latest_ledger'] || met['horizon.stellar_core.latest_ledger'] || met['horizon.stellar_core.latest_ledger'];
+        const histM = met['history.latest_ledger'] || met['horizon.history.latest_ledger'];
+        const cv = coreM && (coreM.value != null ? coreM.value : coreM);
+        const hv = histM && (histM.value != null ? histM.value : histM);
+        if (parsed.core_ledger == null && cv != null) parsed.core_ledger = Number(cv);
+        if (parsed.history_ledger == null && hv != null) parsed.history_ledger = Number(hv);
+      } else {
+        const raw = await this.httpGetText('http://' + host + ':' + port + '/metrics', 2000);
+        const pick = function (name) {
+          const re = new RegExp('^' + name.replace(/\./g, '\\.') + '(?:\\s|\\{)[^\\n]*?\\s([0-9.]+)$', 'm');
+          const m = raw.match(re) || raw.match(new RegExp(name.replace(/\./g,'\\.') + '\\s+([0-9.]+)'));
+          return m ? Number(m[1]) : null;
+        };
+        const cv = pick('horizon_stellar_core_latest_ledger') || pick('stellar_core_latest_ledger');
+        const hv = pick('horizon_history_latest_ledger') || pick('history_latest_ledger');
+        if (parsed.core_ledger == null && cv != null) parsed.core_ledger = cv;
+        if (parsed.history_ledger == null && hv != null) parsed.history_ledger = hv;
+      }
+      if (parsed.core_ledger != null && parsed.history_ledger != null) {
+        parsed.ingest_lag = Math.max(0, Number(parsed.core_ledger) - Number(parsed.history_ledger));
+      } else if (parsed.core_ledger != null && parsed.ingest_ledger != null) {
+        parsed.ingest_lag = Math.max(0, Number(parsed.core_ledger) - Number(parsed.ingest_ledger));
+      }
+      if (parsed.core_ledger != null && parsed.ledger == null) parsed.ledger = parsed.core_ledger;
+    } catch (e) {}
+    return parsed;
   }
 
   // ============ LEDGER DRIFT DETECTION ============
@@ -461,6 +533,15 @@ class OptimizedHttpReader {
         core_verified: false,
         ledger: horizonResult.ledger,
         ledger_age: horizonResult.ledger_age,
+        core_ledger: horizonResult.core_ledger,
+        history_ledger: horizonResult.history_ledger,
+        ingest_ledger: horizonResult.ingest_ledger,
+        ingest_lag: horizonResult.ingest_lag,
+        core_version: horizonResult.core_version,
+        horizon_version: horizonResult.horizon_version,
+        protocol: horizonResult.protocol,
+        network: horizonResult.network,
+        tx_count: horizonResult.tx_count,
         core_unreachable: true,
         warning: 'CORE_HTTP_UNAVAILABLE'
       });

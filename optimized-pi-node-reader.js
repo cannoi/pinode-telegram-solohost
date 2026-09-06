@@ -75,15 +75,16 @@ class OptimizedPiNodeReader {
 
     let sync = 'Horizon OK';
     let conf = 'medium';
-    if (ledger_age != null) {
-      if (ledger_age <= 35) { sync = 'Horizon live'; conf = 'high'; }
-      else if (ledger_age <= 120) { sync = 'Horizon slow'; conf = 'medium'; }
+    if (coreL === 0 && ingestL === 0) {
+      sync = 'Catching Up';
+      conf = 'medium';
+    } else if (coreL != null && ingestL != null) {
+      if (ingest_lag != null && ingest_lag <= 5) { sync = 'Synced'; conf = 'high'; }
+      else { sync = 'Syncing'; conf = 'medium'; }
+    } else if (ledger_age != null) {
+      if (ledger_age <= 35) { sync = 'Horizon live'; conf = 'medium'; }
       else if (ledger_age <= 300) { sync = 'Horizon behind'; conf = 'low'; }
       else { sync = 'Horizon catching up (~' + Math.round(ledger_age / 60) + 'm)'; conf = 'low'; }
-    }
-    if (ingest_lag != null && ingest_lag > 10) {
-      sync = 'Horizon ingest lag · ' + ingest_lag;
-      conf = 'low';
     }
 
     const network = parsed.network_passphrase || null;
