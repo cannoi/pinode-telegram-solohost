@@ -198,7 +198,7 @@ class PiNodeStatusMonitor {
       const dockerOn = String(process.env.DOCKER_PROBE || '0').toLowerCase();
       wantDocker = dockerOn === '1' || dockerOn === 'true' || dockerOn === 'on' || dockerOn === 'auto';
     }
-    if (wantDocker) {
+    if (wantDocker && opts.docker === true) {
       tasks.push(dockerProbe.probeDocker().catch(function (e) {
         return { available: false, error: e.message };
       }));

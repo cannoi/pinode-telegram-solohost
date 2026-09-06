@@ -11,6 +11,7 @@ const http = require('http');
 const https = require('https');
 const PiNodeStatusMonitor = require('./status-monitor');
 const dataFrame = require('./data-frame');
+const lite = require('./telemetry-lite');
 
 const net = require('net');
 const fs = require('fs');
@@ -63,7 +64,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.42-solohost';
+const VERSION = '2.6.43-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -465,7 +466,7 @@ async function collectTelemetry() {
   // Network-agnostic: no dependency on testnet2 / mainnet container names
   let t = null;
   try {
-    t = await statusMonitor.getStatus(true, { detailed: false });
+    t = await statusMonitor.getStatus(true, { detailed: false, docker: false });
   } catch (e) {
     try { actionLog('error', 'statusMonitor: ' + (e && e.message)); } catch (e2) {}
   }
@@ -480,6 +481,18 @@ async function collectTelemetry() {
   if (!t.container && NODE_LABEL) t.container = NODE_LABEL;
   if (!t.container) t.container = NODE_LABEL || null;
   try { t = Object.assign(t, dataFrame.toFrame(t)); dataFrame.applyPeerRule(t); } catch (e) {}
+  try {
+    const prev = readHistory(1).slice(-10);
+    const lf = lite.liveFrame(t, prev);
+    t.status = lf.status;
+    t.peers = lf.peers;
+    t.ports_ok = lf.ports_ok;
+    t.docker_status = lf.docker_status;
+    t.docker_health = lf.docker_health;
+    t.health = lf.health;
+    t.trend = lf.trend;
+    if (t.disk == null) t.disk = lf.disk;
+  } catch (e) {}
   // cgroup optional enrich
   try {
     const cg = readCgroupResources();
@@ -491,31 +504,7 @@ async function collectTelemetry() {
   } catch (e) {}
   // Persist last telemetry (Horizon + optional Docker) for history / report / AI
   try {
-    state.lastTelemetry = {
-      ts: t.ts || new Date().toISOString(),
-      sync: t.sync,
-      ledger: t.ledger,
-      ledger_age: t.ledger_age,
-      core_verified: t.core_verified,
-      core_state: t.core_state,
-      peer_in: t.peer_in,
-      peer_out: t.peer_out,
-      ports: t.ports,
-      ports_open: t.ports_open,
-      level: t.level,
-      source: t.source,
-      docker: t.docker,
-      docker_sock: t.docker_sock === true,
-      container: t.container,
-      cpu: t.cpu,
-      ram: t.ram,
-      temp: t.temp,
-      protocol: t.protocol,
-      core_version: t.core_version,
-      horizon_version: t.horizon_version,
-      network_kind: t.network_kind || t.network,
-      ingest_lag: t.ingest_lag
-    };
+    state.lastTelemetry = lite.historyRow(t);
     saveJSON(STATE_F, state);
   } catch (e) {}
   try {
@@ -542,19 +531,51 @@ function getTelemetry() {
 function appendHistory(t) {
   try {
     const f = path.join(DIR_HIST, dayVN() + '.ndjson');
-    const row = { ts: nowISO(), level: t.level, source: t.source };
-    ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'docker', 'docker_sock', 'container',
-      'cpu', 'ram', 'temp', 'ports_open', 'peer_total', 'peer_rule', 'core_state', 'core_verified', 'protocol',
-      'ingest_lag', 'network_kind', 'core_version'].forEach(k => {
-      if (t[k] != null) row[k] = t[k];
-    });
+    const row = lite.historyRow(t);
+    row.ts = nowISO();
+    // compat aliases for old report/peer formatters
+    if (t.peer_in != null) row.peer_in = t.peer_in;
+    if (t.peer_out != null) row.peer_out = t.peer_out;
+    if (t.peer_total != null) row.peer_total = t.peer_total;
+    if (t.level != null) row.level = t.level;
     fs.appendFileSync(f, JSON.stringify(row) + '\n');
+    try { rollupHistory(row); } catch (e2) {}
     pruneHistory();
   } catch (e) {}
 }
+function rollupHistory(row) {
+  const hourKey = nowISO().slice(0, 13);
+  const hf = path.join(DIR_HIST, 'hourly.json');
+  let hours = [];
+  try { hours = JSON.parse(fs.readFileSync(hf, 'utf8')); } catch (e) { hours = []; }
+  if (!Array.isArray(hours)) hours = [];
+  let cur = hours.find(function (x) { return x.hour === hourKey; });
+  if (!cur) { cur = { hour: hourKey, n: 0, sum_cpu: 0, max_cpu: null, sum_ram: 0, max_ram: null, min_peers: null, max_age: null, sum_health: 0, health_min: null, bad: 0 }; hours.push(cur); }
+  cur.n++;
+  if (row.cpu != null) { cur.sum_cpu += row.cpu; cur.max_cpu = cur.max_cpu == null ? row.cpu : Math.max(cur.max_cpu, row.cpu); }
+  if (row.ram != null) { cur.sum_ram += row.ram; cur.max_ram = cur.max_ram == null ? row.ram : Math.max(cur.max_ram, row.ram); }
+  if (row.peers != null) cur.min_peers = cur.min_peers == null ? row.peers : Math.min(cur.min_peers, row.peers);
+  if (row.ledger_age != null) cur.max_age = cur.max_age == null ? row.ledger_age : Math.max(cur.max_age, row.ledger_age);
+  if (row.health != null) { cur.sum_health += row.health; cur.health_min = cur.health_min == null ? row.health : Math.min(cur.health_min, row.health); }
+  if (row.health != null && row.health < 55) cur.bad++;
+  hours = hours.slice(-24 * 30);
+  fs.writeFileSync(hf, JSON.stringify(hours));
+  const dayKey = dayVN();
+  const df = path.join(DIR_HIST, 'daily.json');
+  let days = [];
+  try { days = JSON.parse(fs.readFileSync(df, 'utf8')); } catch (e) { days = []; }
+  if (!Array.isArray(days)) days = [];
+  let d = days.find(function (x) { return x.day === dayKey; });
+  if (!d) { d = { day: dayKey, n: 0, sum_health: 0, health_min: null, sync_fail: 0 }; days.push(d); }
+  d.n++;
+  if (row.health != null) { d.sum_health += row.health; d.health_min = d.health_min == null ? row.health : Math.min(d.health_min, row.health); }
+  if (row.sync && /not synced|offline|fail|error/i.test(String(row.sync))) d.sync_fail++;
+  days = days.slice(-370);
+  fs.writeFileSync(df, JSON.stringify(days));
+}
 function pruneHistory() {
   try {
-    const keepRawDays = 7;
+    const keepRawDays = 2;
     const files = fs.readdirSync(DIR_HIST).filter(n => n.endsWith('.ndjson'));
     const cutoff = Date.now() - keepRawDays * 864e5;
     for (const n of files) {
@@ -1692,7 +1713,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.42-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.43-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -2405,7 +2426,7 @@ async function aiAnalyze(t, userQ) {
       } catch (e) {}
     }
 
-    const facts = (typeof buildFacts === 'function') ? buildFacts(t) : { source: t && t.source, sync: t && t.sync, ledger: t && t.ledger };
+    const facts = lite.aiContext(t, { prevRows: (typeof readHistory === 'function') ? readHistory(1) : [] });
     const hist24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
     const hist = (typeof historySnippet === 'function') ? historySnippet(40) : [];
     const chat = loadChatHistory().slice(-10);
@@ -2448,7 +2469,7 @@ async function aiAnalyze(t, userQ) {
         'HISTORY_24H: ' + JSON.stringify(hist24),
         'STATS_7D: ' + JSON.stringify(stats7),
         metricBlock ? ('RELATED_METRIC_BLOCK:\n' + metricBlock) : '',
-        hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist)) : '',
+        facts.health != null && facts.health < 60 ? (hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist.slice(-8))) : '') : '',
         chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
         'Write the reply now following FORMAT rules.'
       ].filter(Boolean).join('\n');
@@ -2834,7 +2855,7 @@ const srv = http.createServer(async (req, res) => {
         let tel;
         if (u.indexOf('fast') >= 0 && cache) tel = cache;
         else if (detailed) {
-          tel = await statusMonitor.getStatus(true, { detailed: true });
+          tel = await statusMonitor.getStatus(true, { detailed: true, docker: true });
           cache = tel; cacheAt = Date.now();
         } else tel = cache || await getTelemetry();
         res.end(JSON.stringify(tel || {}));
