@@ -71,7 +71,7 @@ class OptimizedPiNodeReader {
     if (coreL != null && ingestL != null) ingest_lag = Math.max(0, coreL - ingestL);
 
     // Prefer history/core ledger for display
-    const ledger = histL != null ? histL : (coreL != null ? coreL : ingestL);
+    const ledger = coreL != null ? coreL : (histL != null ? histL : ingestL);
 
     let sync = 'Horizon OK';
     let conf = 'medium';

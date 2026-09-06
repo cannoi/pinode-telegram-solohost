@@ -16,6 +16,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
+const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
 const dockerProbe = require('./docker-probe');
 
@@ -42,6 +43,7 @@ class PiNodeStatusMonitor {
     this.sticky = loadJson(this.stickyFile, {});
     this.discovery = new PiNodeDiscovery({ stateDir: this.stateDir, cacheTTL: 180000 });
     this.optReader = new OptimizedPiNodeReader({ stateDir: this.stateDir });
+    this.httpReader = new OptimizedHttpReader({ stateDir: this.stateDir });
     this.metrics = { requests: 0, failures: 0, lastMs: 0, lastSource: null };
   }
 
@@ -184,7 +186,7 @@ class PiNodeStatusMonitor {
 
     // Parallel: Horizon optimized + Core + Network (+ optional Docker)
     const tasks = [
-      this.optReader.getStatus({ fresh: true, detailed: detailed }).then(function (d) {
+      this.httpReader.getStatus({ fresh: true }).then(function (d) {
         return { ok: true, data: d };
       }).catch(function (e) { return { ok: false, error: e.message }; }),
       this.probeCoreHttp(),
@@ -233,12 +235,19 @@ class PiNodeStatusMonitor {
 
     if (hz.ok && hz.data) {
       Object.assign(primary, hz.data);
-      primary.source = 'Horizon';
-      primary.sources.horizon = true;
-      if (hz.data.responseTime != null) primary.source_latency.horizon = hz.data.responseTime;
+      primary.source = hz.data.source || 'Horizon';
+      primary.sources.horizon = !!(hz.data.sources && hz.data.sources.horizon) || primary.source.indexOf('Horizon') >= 0;
+      primary.sources.core = !!(hz.data.core_verified || (hz.data.sources && hz.data.sources.core));
+      primary.sync_verified = !!hz.data.sync_verified;
+      if (hz.data.ingest_lag != null) primary.ingest_lag = hz.data.ingest_lag;
+      if (hz.data.history_ledger != null && hz.data.ledger != null) {
+        primary.ledger_drift = Math.abs(Number(hz.data.ledger) - Number(hz.data.history_ledger));
+      }
+      if (hz.data.responseTime != null) primary.source_latency.http = hz.data.responseTime;
     }
     if (core.ok) {
       primary.core_verified = true;
+      primary.sync_verified = true;
       primary.core_state = core.core_state;
       primary.sync = core.sync || primary.sync;
       primary.sync_confidence = 'high';
@@ -246,11 +255,12 @@ class PiNodeStatusMonitor {
       if (core.ledger_age != null) primary.ledger_age = core.ledger_age;
       if (core.peer_in != null) primary.peer_in = core.peer_in;
       if (core.peer_out != null) primary.peer_out = core.peer_out;
-      primary.source = hz.ok ? 'Core+Horizon' : 'Core';
+      primary.source = (hz.ok && hz.data && hz.data.sources && hz.data.sources.horizon) ? 'Core+Horizon' : 'Core';
       primary.sources.core = true;
-    } else if (hz.ok) {
+    } else if (hz.ok && !primary.sync_verified) {
       primary.core_verified = false;
-      primary.sync = (primary.sync || 'Horizon OK') + ' · Core n/a';
+      primary.warning = primary.warning || 'CORE_HTTP_UNAVAILABLE';
+      if (primary.sync && primary.sync.indexOf('Core n/a') < 0) primary.sync = String(primary.sync);
       primary.sync_confidence = primary.sync_confidence || 'medium';
     }
 
