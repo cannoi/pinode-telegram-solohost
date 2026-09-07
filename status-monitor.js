@@ -19,6 +19,7 @@ const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
 const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
 const dockerProbe = require('./docker-probe');
+const { applyHorizonSyncLabel } = require('./horizon-sync-label');
 
 class PiNodeStatusMonitor {
   constructor(options) {
@@ -257,10 +258,17 @@ class PiNodeStatusMonitor {
       if (core.peer_out != null) primary.peer_out = core.peer_out;
       primary.source = (hz.ok && hz.data && hz.data.sources && hz.data.sources.horizon) ? 'Core+Horizon' : 'Core';
       primary.sources.core = true;
-    } else if (hz.ok && !primary.sync_verified) {
+    } else if (hz.ok && !primary.core_verified) {
       primary.core_verified = false;
+      primary.sync_verified = false;
       primary.warning = primary.warning || 'CORE_HTTP_UNAVAILABLE';
-      if (primary.sync && primary.sync.indexOf('Core n/a') < 0) primary.sync = String(primary.sync);
+      try {
+        applyHorizonSyncLabel(primary);
+      } catch (e) {
+        if (primary.sync && /synced/i.test(String(primary.sync))) {
+          primary.sync = 'Horizon live';
+        }
+      }
       primary.sync_confidence = primary.sync_confidence || 'medium';
     }
 

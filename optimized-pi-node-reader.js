@@ -9,6 +9,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { horizonSyncLabel } = require('./horizon-sync-label');
 
 class OptimizedPiNodeReader {
   constructor(options) {
@@ -73,19 +74,15 @@ class OptimizedPiNodeReader {
     // Prefer history/core ledger for display
     const ledger = coreL != null ? coreL : (histL != null ? histL : ingestL);
 
-    let sync = 'Horizon OK';
-    let conf = 'medium';
-    if (coreL === 0 && ingestL === 0) {
-      sync = 'Catching Up';
-      conf = 'medium';
-    } else if (coreL != null && ingestL != null) {
-      if (ingest_lag != null && ingest_lag <= 5) { sync = 'Synced'; conf = 'high'; }
-      else { sync = 'Syncing'; conf = 'medium'; }
-    } else if (ledger_age != null) {
-      if (ledger_age <= 35) { sync = 'Horizon live'; conf = 'medium'; }
-      else if (ledger_age <= 300) { sync = 'Horizon behind'; conf = 'low'; }
-      else { sync = 'Horizon catching up (~' + Math.round(ledger_age / 60) + 'm)'; conf = 'low'; }
-    }
+    const lab = horizonSyncLabel({
+      ledger_age: ledger_age,
+      ingest_lag: ingest_lag,
+      core_ledger: coreL,
+      ingest_ledger: ingestL,
+      history_ledger: histL
+    });
+    const sync = lab.sync;
+    const conf = lab.sync_confidence;
 
     const network = parsed.network_passphrase || null;
     let network_kind = null;

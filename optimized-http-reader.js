@@ -15,6 +15,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { horizonSyncLabel, applyHorizonSyncLabel } = require('./horizon-sync-label');
 
 class OptimizedHttpReader {
   constructor(options) {
@@ -344,41 +345,24 @@ class OptimizedHttpReader {
       ingestLag = Math.max(0, coreL - ingestL);
     }
 
-    // Official Pi node-status rule (no docker.sock):
-    // Synced when core and ingest are within 5 ledgers.
-    let syncInferred = 'Unknown';
-    let syncConfidence = 'low';
-    let syncBasis = 'unknown';
-    if (coreL === 0 && ingestL === 0) {
-      syncInferred = 'Catching Up';
-      syncConfidence = 'medium';
-      syncBasis = 'horizon-bootstrap';
-    } else if (coreL != null && ingestL != null) {
-      if (ingestLag != null && ingestLag <= 5) {
-        syncInferred = 'Synced';
-        syncConfidence = 'high';
-        syncBasis = 'horizon-core-vs-ingest';
-      } else {
-        syncInferred = 'Syncing';
-        syncConfidence = 'medium';
-        syncBasis = 'horizon-core-vs-ingest';
-      }
-    } else if (ledgerAge != null) {
-      if (ledgerAge <= 35) { syncInferred = 'Likely Synced'; syncConfidence = 'medium'; }
-      else if (ledgerAge <= 300) { syncInferred = 'Behind'; syncConfidence = 'low'; }
-      else { syncInferred = 'Stalled/Offline'; syncConfidence = 'low'; }
-      syncBasis = 'age-inferred';
-    }
+    // Horizon-only: never claim Core "Synced". Age vs network + ingest lag.
+    const lab = horizonSyncLabel({
+      ledger_age: ledgerAge,
+      ingest_lag: ingestLag,
+      core_ledger: coreL,
+      ingest_ledger: ingestL,
+      history_ledger: histL
+    });
 
     return {
       ok: true,
       source: 'Horizon',
       probe: 'horizon-root',
       core_verified: false,
-      sync_verified: syncBasis === 'horizon-core-vs-ingest' && ingestLag != null && ingestLag <= 5,
-      sync: syncInferred,
-      sync_basis: syncBasis,
-      sync_confidence: syncConfidence,
+      sync_verified: false,
+      sync: lab.sync,
+      sync_basis: lab.sync_basis,
+      sync_confidence: lab.sync_confidence,
       horizon_host: host,
       horizon_port: port,
       ledger: ledger,
@@ -439,6 +423,7 @@ class OptimizedHttpReader {
       }
       if (parsed.core_ledger != null && parsed.ledger == null) parsed.ledger = parsed.core_ledger;
     } catch (e) {}
+    try { applyHorizonSyncLabel(parsed); } catch (e2) {}
     return parsed;
   }
 
@@ -545,6 +530,7 @@ class OptimizedHttpReader {
         core_unreachable: true,
         warning: 'CORE_HTTP_UNAVAILABLE'
       });
+      try { applyHorizonSyncLabel(status); } catch (eLab) {}
     } else {
       // Both failed: try state file fallback
       const stateData = this.readStateFile();
