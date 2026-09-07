@@ -19,7 +19,26 @@ const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
 const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
 const dockerProbe = require('./docker-probe');
-const { applyHorizonSyncLabel } = require('./horizon-sync-label');
+let applyHorizonSyncLabel;
+try { applyHorizonSyncLabel = require('./horizon-sync-label').applyHorizonSyncLabel; }
+catch (e) {
+  applyHorizonSyncLabel = function (obj) {
+    if (!obj) return obj;
+    const age = obj.ledger_age != null ? Number(obj.ledger_age) : null;
+    const lag = obj.ingest_lag != null ? Number(obj.ingest_lag) : null;
+    if (obj.core_ledger === 0 && obj.ingest_ledger === 0) obj.sync = 'Horizon catching up';
+    else if (lag != null && lag > 50) obj.sync = 'Horizon ingest lag · ' + lag;
+    else if (age != null && isFinite(age)) {
+      if (age <= 35) obj.sync = 'Horizon live';
+      else if (age <= 120) obj.sync = 'Horizon slow';
+      else if (age <= 300) obj.sync = 'Horizon behind';
+      else obj.sync = 'Horizon catching up (~' + Math.max(1, Math.round(age / 60)) + 'm)';
+    } else if (!obj.sync || /synced/i.test(String(obj.sync))) obj.sync = 'Horizon OK';
+    obj.sync_verified = false;
+    obj.core_verified = false;
+    return obj;
+  };
+}
 
 class PiNodeStatusMonitor {
   constructor(options) {

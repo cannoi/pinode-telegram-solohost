@@ -15,7 +15,37 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { horizonSyncLabel, applyHorizonSyncLabel } = require('./horizon-sync-label');
+let horizonSyncLabel, applyHorizonSyncLabel;
+try {
+  const hsl = require('./horizon-sync-label');
+  horizonSyncLabel = hsl.horizonSyncLabel;
+  applyHorizonSyncLabel = hsl.applyHorizonSyncLabel;
+} catch (e) {
+  horizonSyncLabel = function (opts) {
+    opts = opts || {};
+    const age = opts.ledger_age != null ? Number(opts.ledger_age) : null;
+    const lag = opts.ingest_lag != null ? Number(opts.ingest_lag) : null;
+    if (opts.core_ledger === 0 && opts.ingest_ledger === 0) return { sync: 'Horizon catching up', sync_confidence: 'medium', sync_basis: 'horizon-bootstrap', sync_verified: false };
+    if (lag != null && lag > 50) return { sync: 'Horizon ingest lag · ' + lag, sync_confidence: 'low', sync_basis: 'horizon-ingest-lag', sync_verified: false };
+    if (age != null && isFinite(age)) {
+      if (age <= 35) return { sync: (lag != null && lag > 10) ? ('Horizon ingest lag · ' + lag) : 'Horizon live', sync_confidence: 'medium', sync_basis: 'horizon-age', sync_verified: false };
+      if (age <= 120) return { sync: 'Horizon slow', sync_confidence: 'medium', sync_basis: 'horizon-age', sync_verified: false };
+      if (age <= 300) return { sync: 'Horizon behind', sync_confidence: 'low', sync_basis: 'horizon-age', sync_verified: false };
+      return { sync: 'Horizon catching up (~' + Math.max(1, Math.round(age / 60)) + 'm)', sync_confidence: 'low', sync_basis: 'horizon-age', sync_verified: false };
+    }
+    return { sync: 'Horizon OK', sync_confidence: 'low', sync_basis: 'horizon-root', sync_verified: false };
+  };
+  applyHorizonSyncLabel = function (obj) {
+    if (!obj) return obj;
+    const lab = horizonSyncLabel(obj);
+    obj.sync = lab.sync;
+    obj.sync_confidence = lab.sync_confidence;
+    obj.sync_basis = lab.sync_basis;
+    obj.sync_verified = false;
+    obj.core_verified = false;
+    return obj;
+  };
+}
 
 class OptimizedHttpReader {
   constructor(options) {

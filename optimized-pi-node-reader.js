@@ -9,7 +9,24 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { horizonSyncLabel } = require('./horizon-sync-label');
+let horizonSyncLabel;
+try { horizonSyncLabel = require('./horizon-sync-label').horizonSyncLabel; }
+catch (e) {
+  horizonSyncLabel = function (opts) {
+    opts = opts || {};
+    const age = opts.ledger_age != null ? Number(opts.ledger_age) : null;
+    const lag = opts.ingest_lag != null ? Number(opts.ingest_lag) : null;
+    if (opts.core_ledger === 0 && opts.ingest_ledger === 0) return { sync: 'Horizon catching up', sync_confidence: 'medium' };
+    if (lag != null && lag > 50) return { sync: 'Horizon ingest lag · ' + lag, sync_confidence: 'low' };
+    if (age != null && isFinite(age)) {
+      if (age <= 35) return { sync: 'Horizon live', sync_confidence: 'medium' };
+      if (age <= 120) return { sync: 'Horizon slow', sync_confidence: 'medium' };
+      if (age <= 300) return { sync: 'Horizon behind', sync_confidence: 'low' };
+      return { sync: 'Horizon catching up (~' + Math.max(1, Math.round(age / 60)) + 'm)', sync_confidence: 'low' };
+    }
+    return { sync: 'Horizon OK', sync_confidence: 'low' };
+  };
+}
 
 class OptimizedPiNodeReader {
   constructor(options) {
