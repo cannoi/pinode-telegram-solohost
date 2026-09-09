@@ -2,27 +2,24 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Pi Node Controller PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dự Báo Hoạt Động Pi Node - Windows 10 Glass UI</title>
 <style>
 :root {
-  --bg-wallpaper: url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1920&auto=format&fit=crop');
-  --app-shell-bg: rgba(10, 10, 16, 0.78);
-  --bar-bg: rgba(15, 15, 25, 0.85);
-  --sidebar-bg: rgba(20, 20, 35, 0.6);
-  --card-bg: rgba(255, 255, 255, 0.07);
-  --card-border: rgba(255, 255, 255, 0.14);
-  --card-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --bg-wallpaper: url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1920&auto=format&fit=crop');
+  --glass-bg: rgba(16, 22, 34, 0.52);
+  --glass-card: rgba(255, 255, 255, 0.12);
+  --glass-border: rgba(255, 255, 255, 0.22);
+  --glass-blur: blur(26px) saturate(160%);
   
   --text-main: #ffffff;
-  --text-sub: #a1a1aa;
+  --text-sub: #cbd5e1;
+  --text-muted: #94a3b8;
   
-  --purple-accent: #a855f7;
-  --purple-light: #c084fc;
-  --ok-green: #34d399;
-  --blue-accent: #38bdf8;
-  --warn-red: #f87171;
-  --blur-amt: 20px;
+  --status-good: #34d399; /* Xanh lá - Thời tiết đẹp */
+  --status-blue: #38bdf8; /* Xanh dương - Đồng bộ */
+  --status-warn: #fbbf24; /* Vàng - Chú ý */
+  --status-danger: #f87171;/* Đỏ - Nóng/Lỗi */
 }
 
 * {
@@ -30,906 +27,454 @@
   margin: 0;
   padding: 0;
   user-select: none;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
 }
 
-html, body {
+body {
   width: 100vw;
-  height: 100dvh;
-  overflow: hidden;
-  background: #09020e;
-  color: var(--text-main);
-  font-size: clamp(11px, 1.2vh, 14px);
-}
-
-.app-container {
-  display: flex;
-  width: 100vw;
-  height: 100dvh;
+  min-height: 100vh;
   background-image: var(--bg-wallpaper);
   background-size: cover;
   background-position: center;
-  position: relative;
-  overflow: hidden;
+  background-attachment: fixed;
+  color: var(--text-main);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  overflow-x: hidden;
 }
 
-.app-overlay {
-  display: flex;
+/* LỚP NỀN KÍNH MỜ TOÀN CẦU */
+.weather-app-window {
   width: 100%;
-  height: 100%;
-  background: var(--app-shell-bg);
-  backdrop-filter: blur(var(--blur-amt)) saturate(150%);
-  -webkit-backdrop-filter: blur(var(--blur-amt)) saturate(150%);
-}
-
-/* 1. FAR-LEFT BAR */
-.far-left-bar {
-  width: clamp(32px, 2.8vw, 42px);
-  height: 100%;
-  background: rgba(10, 10, 18, 0.7);
-  border-right: 1px solid var(--card-border);
+  max-width: 1050px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 8px 0;
-  gap: 10px;
-  z-index: 50;
-  flex-shrink: 0;
+  gap: 20px;
 }
 
-.far-left-bar .icon-btn {
-  width: 28px;
-  height: 28px;
+/* HEADER THỜI TIẾT TIÊU CHUẨN */
+.header-bar {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-sub);
-  font-size: 0.9rem;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.far-left-bar .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-}
-
-.far-left-bar .icon-btn.active {
-  color: var(--purple-light);
-  background: rgba(168, 85, 247, 0.3);
-  border: 1px solid rgba(192, 132, 252, 0.5);
-}
-
-/* 2. MAIN WINDOW FRAME */
-.main-window {
-  flex: 1;
-  display: grid;
-  grid-template-rows: clamp(26px, 3vh, 32px) 1fr clamp(20px, 2.2vh, 24px);
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.window-titlebar {
-  grid-row: 1;
-  background: var(--bar-bg);
-  border-bottom: 1px solid var(--card-border);
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
-  font-size: 0.8em;
-  z-index: 30;
-}
-
-.title-text {
-  font-weight: 600;
-  color: #f1f5f9;
-}
-
-.window-nav-links {
-  display: flex;
-  gap: 12px;
-  color: var(--text-sub);
-}
-
-.window-nav-links span {
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.window-nav-links span.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.window-controls {
-  display: flex;
-  gap: 12px;
-  color: var(--text-sub);
-}
-
-/* WORKSPACE BODY */
-.workspace-body {
-  grid-row: 2;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-  padding: 6px 8px;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* SIDEBAR & TOGGLE FUNCTIONALITY */
-.nav-sidebar {
-  width: clamp(150px, 14vw, 190px);
-  background: var(--sidebar-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  box-shadow: var(--card-glow);
-  min-height: 0;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-/* Trạng thái THU GỌN của Sidebar */
-.nav-sidebar.collapsed {
-  width: clamp(48px, 4.2vw, 56px);
-  padding: 8px 4px;
-}
-
-.sidebar-top-header {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 16px;
 }
 
-.sidebar-toggle-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid var(--card-border);
-  color: var(--text-sub);
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 0.75em;
-  transition: all 0.2s ease;
-  margin-left: auto;
-}
-
-.sidebar-toggle-btn:hover {
-  background: var(--purple-accent);
-  color: #fff;
-}
-
-.sidebar-profile {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--card-border);
-}
-
-.nav-sidebar.collapsed .sidebar-profile {
-  justify-content: center;
-}
-
-.sidebar-profile img {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 1.5px solid var(--purple-accent);
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.profile-info .title {
-  font-size: 0.88em;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
-}
-
-.profile-info .subtitle {
-  font-size: 0.72em;
-  color: var(--text-sub);
-  white-space: nowrap;
-}
-
-.nav-sidebar.collapsed .profile-info,
-.nav-sidebar.collapsed .nav-btn-text,
-.nav-sidebar.collapsed .sidebar-system-box {
-  display: none !important;
-}
-
-.nav-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 6px;
-  font-size: 0.85em;
-  font-weight: 600;
-  color: var(--text-sub);
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  width: 100%;
-  text-align: left;
-}
-
-.nav-sidebar.collapsed .nav-btn {
-  justify-content: center;
-  padding: 8px 0;
-}
-
-.nav-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
-.nav-btn.active {
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: #fff;
-}
-
-.nav-btn-icon {
-  font-size: 1.1em;
-  flex-shrink: 0;
-}
-
-.sidebar-system-box {
-  font-size: 0.72em;
-  color: var(--text-sub);
-  border-top: 1px dashed var(--card-border);
-  padding-top: 6px;
-  line-height: 1.3;
-}
-
-/* PAGES CONTAINER */
-.pages-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.page-view {
-  display: none !important;
-  height: 100%;
-  min-height: 0;
-  width: 100%;
-  overflow: hidden;
-}
-
-.page-view.active {
-  display: flex !important;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.page-view.active.home-layout {
-  display: grid !important;
-  grid-template-rows: auto minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 6px;
-}
-
-.view-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 4px;
-}
-
-.view-header h2 {
-  font-size: 1.1em;
-  font-weight: 700;
-  color: #fff;
-}
-
-.view-header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.85em;
-}
-
-.status-connected {
-  color: var(--ok-green);
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.status-connected::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok-green);
-  box-shadow: 0 0 6px var(--ok-green);
-}
-
-.user-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.user-badge img {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-}
-
-/* GLASS PANEL DÙNG CHUNG */
-.glass-panel {
-  background: var(--card-bg);
-  backdrop-filter: blur(var(--blur-amt));
-  -webkit-backdrop-filter: blur(var(--blur-amt));
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  box-shadow: var(--card-glow);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.panel-title {
-  font-size: 0.75em;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--text-sub);
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-/* HÀNG 1: TOP GRID */
-.top-row-grid {
-  display: grid;
-  grid-template-columns: 1.8fr 1fr 1fr 1fr;
-  gap: 8px;
-  min-height: 0;
-}
-
-.score-panel {
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 6px 10px;
-}
-
-.ring-box-large {
-  position: relative;
-  width: clamp(100px, 17vh, 150px);
-  height: clamp(100px, 17vh, 150px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 2px 0;
-}
-
-.ring-box-large svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.ring-text {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.ring-text .lbl-top {
-  font-size: 0.7em;
-  color: var(--text-sub);
-  font-weight: 600;
-}
-
-.ring-text .big-val-highlight {
-  font-size: clamp(1.6em, 3.2vh, 2.4em);
-  font-weight: 900;
-  color: #ffffff;
-  line-height: 1.0;
+.location-info h1 {
+  font-size: 1.6rem;
+  font-weight: 800;
   letter-spacing: -0.5px;
-}
-
-.ring-text .sub-lbl {
-  font-size: 0.72em;
-  color: var(--text-sub);
-  margin-top: 2px;
-}
-
-.badge-excellent {
-  background: rgba(52, 211, 153, 0.22);
-  border: 1px solid rgba(52, 211, 153, 0.5);
-  color: var(--ok-green);
-  font-size: 0.72em;
-  font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 12px;
-  margin-top: 2px;
-}
-
-/* CÂN CHỈNH CÁC Ô CHỨA ICON + TIẾNG ANH NGẮN NẰM TRUNG TÂM VÀ PHÓNG TO VỪA VẶN */
-.glass-panel.center-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 10px 8px;
-  gap: 6px;
-}
-
-.glass-panel.center-card .panel-title {
-  margin-bottom: 2px;
-}
-
-.glass-panel.center-card .icon-box {
-  width: clamp(36px, 4.8vh, 48px);
-  height: clamp(36px, 4.8vh, 48px);
-  border-radius: 12px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: clamp(1.2em, 2.4vh, 1.6em);
-  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.05);
-}
-
-.glass-panel.center-card .card-content-centered {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.status-card-val {
-  font-size: clamp(1.3em, 2.6vh, 1.8em);
-  font-weight: 800;
-  color: #fff;
-  white-space: nowrap;
-  line-height: 1.1;
-  letter-spacing: -0.3px;
-}
-
-.status-card-sub {
-  font-size: 0.75em;
-  color: var(--text-sub);
-  white-space: nowrap;
-  font-weight: 500;
-}
-
-/* SYSTEM RESOURCES METER - CĂN TRUNG TÂM PHÓNG TO */
-.meters-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  height: 100%;
-  align-items: center;
 }
 
-.meter-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.meter-svg-small {
-  width: clamp(40px, 6vh, 56px);
-  height: clamp(40px, 6vh, 56px);
-  transform: rotate(-90deg);
-}
-
-.meter-val-compact {
-  position: absolute;
-  top: 25%;
-  font-size: clamp(0.8em, 1.5vh, 1.05em);
-  font-weight: 800;
-  color: #fff;
-}
-
-.meter-lbl {
-  font-size: 0.78em;
+.location-info p {
+  font-size: 1rem;
   color: var(--text-sub);
-  font-weight: 700;
   margin-top: 4px;
 }
 
-/* HÀNG 3: BOTTOM GRID */
-.bot-row-grid {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
-  gap: 8px;
-  min-height: 0;
-}
-
-.chart-wrapper {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: flex-end;
-  min-height: 0;
-}
-
-.info-table {
-  width: 100%;
-  font-size: 0.78em;
-  border-collapse: collapse;
-}
-
-.info-table tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.info-table td {
-  padding: 2px 0;
-  color: var(--text-sub);
-  white-space: nowrap;
-}
-
-.info-table td:last-child {
-  text-align: right;
-  color: #fff;
-  font-weight: 700;
-}
-
-.log-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow: hidden;
-}
-
-.log-item {
+.top-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  font-size: 0.73em;
-  padding: 2px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
-  white-space: nowrap;
+  gap: 12px;
 }
 
-.log-left {
+.status-badge {
+  background: rgba(52, 211, 153, 0.25);
+  border: 1px solid var(--status-good);
+  color: #a7f3d0;
+  padding: 8px 16px;
+  border-radius: 30px;
+  font-size: 0.95rem;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-sub);
-  overflow: hidden;
 }
 
-.log-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--ok-green);
-  flex-shrink: 0;
-}
-
-/* FOOTER BAR */
-.window-footer {
-  grid-row: 3;
-  background: var(--bar-bg);
-  border-top: 1px solid var(--card-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px;
-  font-size: 0.7em;
-  color: var(--text-sub);
-  z-index: 30;
-  white-space: nowrap;
-}
-
-.footer-running {
-  color: var(--ok-green);
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.footer-running::before {
+.status-badge::before {
   content: "";
-  width: 5px;
-  height: 5px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: var(--ok-green);
+  background: var(--status-good);
+  box-shadow: 0 0 10px var(--status-good);
+}
+
+.bg-select-btn {
+  background: var(--glass-card);
+  border: 1px solid var(--glass-border);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.bg-select-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* KHU VỰC CHÍNH - DỰ BÁO TỔNG QUAN (HERO WEATHER CARD) */
+.hero-weather-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20px;
+  align-items: center;
+}
+
+.hero-main-temp {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.weather-icon-large {
+  font-size: 4.8rem;
+  line-height: 1;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
+}
+
+.score-display {
+  display: flex;
+  flex-direction: column;
+}
+
+.big-number {
+  font-size: 4.2rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.big-number span {
+  font-size: 1.8rem;
+  font-weight: 600;
+  color: var(--text-sub);
+}
+
+.weather-status-text {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--status-good);
+  margin-top: 6px;
+}
+
+.hero-sub-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sub-detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.05rem;
+  border-bottom: 1px stroke rgba(255,255,255,0.08);
+  padding-bottom: 4px;
+}
+
+.sub-detail-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.sub-detail-row .lbl {
+  color: var(--text-sub);
+}
+
+.sub-detail-row .val {
+  font-weight: 700;
+}
+
+/* KHU VỰC DỰ BÁO NĂNG SUẤT 24 GIỜ (HOURLY FORECAST STYLE) */
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-sub);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.forecast-trend-box {
+  background: var(--glass-card);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.trend-chart-svg {
+  width: 100%;
+  height: 80px;
+}
+
+/* LƯỚI CHỈ SỐ PHẦN CỨNG (METRICS GRID - KIỂU ĐỘ ẨM/SỨC GIÓ) */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.metric-card {
+  background: var(--glass-card);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.metric-card .icon {
+  font-size: 2rem;
+}
+
+.metric-card .title {
+  font-size: 0.95rem;
+  color: var(--text-sub);
+  font-weight: 600;
+}
+
+.metric-card .value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.metric-card .tag {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* NÚT KHUYÊN DÙNG BẢO TRÌ (WEATHER ADVISORY TIPS) */
+.actions-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.action-btn {
+  background: rgba(0, 120, 215, 0.4);
+  border: 1px solid rgba(76, 194, 255, 0.5);
+  color: #fff;
+  padding: 14px;
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  background: rgba(0, 120, 215, 0.7);
+  box-shadow: 0 4px 15px rgba(0, 120, 215, 0.4);
+}
+
+/* FOOTER DỄ ĐỌC */
+.app-footer {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 12px;
+}
+
+@media (max-width: 768px) {
+  .hero-weather-card {
+    grid-template-columns: 1fr;
+  }
+  .big-number {
+    font-size: 3.2rem;
+  }
 }
 </style>
 </head>
 <body>
 
-<div class="app-container" id="appBg">
-  <div class="app-overlay">
+<div class="weather-app-window">
 
-    <!-- FAR-LEFT BAR -->
-    <aside class="far-left-bar">
-      <div class="icon-btn">❯</div>
-      <div class="icon-btn">❐</div>
-      <div class="icon-btn">🔧</div>
-      <div class="icon-btn">☰</div>
-      <div class="icon-btn">🔍</div>
-      <div class="icon-btn active">➕</div>
-      <div class="icon-btn">🔔</div>
-      <div class="icon-btn">⚙️</div>
-      <div class="icon-btn" style="margin-top: auto;">👤</div>
-    </aside>
+  <!-- thanh tiêu đề địa điểm / máy chủ -->
+  <header class="header-bar">
+    <div class="location-info">
+      <h1>🌐 Trạm Pi Node SoloHost</h1>
+      <p>Windows 10 Pro • Cập nhật lúc: <span id="time-now">14:35</span></p>
+    </div>
+    <div class="top-controls">
+      <div class="status-badge">Đang Kết Nối Mạng</div>
+      <button class="bg-select-btn" onclick="changeWallpaper()">🖼️ Đổi Hình Nền</button>
+    </div>
+  </header>
 
-    <!-- MAIN WINDOW -->
-    <div class="main-window">
+  <!-- KHU VỰC CHÍNH: DỰ BÁO TỔNG QUAN (GIỐNG THỜI TIẾT) -->
+  <section class="hero-weather-card">
+    <div class="hero-main-temp">
+      <div class="weather-icon-large">☀️</div>
+      <div class="score-display">
+        <div class="big-number">97.43<span>/100</span></div>
+        <div class="weather-status-text">Thời Tiết Nút: RẤT TỐT (EXCELLENT)</div>
+      </div>
+    </div>
 
-      <!-- Titlebar -->
-      <header class="window-titlebar">
-        <span class="title-text">Pi Node Controller PRO</span>
-        <div class="window-nav-links">
-          <span class="active">App</span>
-          <span>Config</span>
-          <span>Logs</span>
-          <span>Shell</span>
-        </div>
-        <div class="window-controls">
-          <span>─</span>
-          <span>▢</span>
-          <span>✕</span>
-        </div>
-      </header>
+    <div class="hero-sub-details">
+      <div class="sub-detail-row">
+        <span class="lbl">Trạng thái Khối:</span>
+        <span class="val" style="color: var(--status-blue);">🧊 Đã Đồng Bộ (Synced)</span>
+      </div>
+      <div class="sub-detail-row">
+        <span class="lbl">Container Đồng Thuận:</span>
+        <span class="val" style="color: var(--status-good);">⚙️ Đang Chạy (Running)</span>
+      </div>
+      <div class="sub-detail-row">
+        <span class="lbl">Mạng Kết Nối (Peers):</span>
+        <span class="val">👥 6 Vào / 8 Ra</span>
+      </div>
+      <div class="sub-detail-row">
+        <span class="lbl">Số Khối Hiện Tại:</span>
+        <span class="val">10,796,465</span>
+      </div>
+    </div>
+  </section>
 
-      <!-- Workspace Body -->
-      <div class="workspace-body">
+  <!-- XU HƯỚNG HOẠT ĐỘNG 24 GIỜ (HOURLY FORECAST CHART) -->
+  <section>
+    <div class="section-title">📈 Biểu Đồ Hoạt Động Liên Tục 24 Giờ Qua</div>
+    <div class="forecast-trend-box">
+      <svg class="trend-chart-svg" viewBox="0 0 500 80" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#34d399" stop-opacity="0.5" />
+            <stop offset="100%" stop-color="#34d399" stop-opacity="0.0" />
+          </linearGradient>
+        </defs>
+        <!-- Đường biểu đồ giả lập mịn màng -->
+        <path d="M0,60 Q50,20 100,35 T200,25 T300,15 T400,20 T500,10 L500,80 L0,80 Z" fill="url(#grad)" />
+        <path d="M0,60 Q50,20 100,35 T200,25 T300,15 T400,20 T500,10" fill="none" stroke="#34d399" stroke-width="3" />
+      </svg>
+    </div>
+  </section>
 
-        <!-- Navigation Sidebar có nút thu gọn -->
-        <nav class="nav-sidebar" id="sidebar">
-          <div>
-            <div class="sidebar-top-header">
-              <button class="sidebar-toggle-btn" id="toggleBtn" onclick="toggleSidebar()" title="Thu gọn / Mở rộng">❮</button>
-            </div>
-
-            <div class="sidebar-profile">
-              <img src="/avatar.jpg" alt="Avatar">
-              <div class="profile-info">
-                <div class="title">SoloHost</div>
-                <div class="subtitle">v2.6.55</div>
-              </div>
-            </div>
-
-            <div class="nav-menu">
-              <button class="nav-btn active" onclick="switchPage('home', this)">
-                <span class="nav-btn-icon">🏠</span>
-                <span class="nav-btn-text">Home</span>
-              </button>
-              <button class="nav-btn" onclick="switchPage('ai', this)">
-                <span class="nav-btn-icon">🤖</span>
-                <span class="nav-btn-text">AI Assistant</span>
-              </button>
-              <button class="nav-btn" onclick="switchPage('settings', this)">
-                <span class="nav-btn-icon">⚙️</span>
-                <span class="nav-btn-text">Settings</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="sidebar-system-box">
-            <div><b>Windows 10</b> 64-bit</div>
-            <div style="margin-top:2px;">Last Updated:</div>
-            <div style="color:#fff; font-weight:600;">2026-09-09</div>
-          </div>
-        </nav>
-
-        <!-- Pages Container -->
-        <div class="pages-container">
-
-          <!-- PAGE 1: HOME -->
-          <main id="page-home" class="page-view active home-layout">
-            <div class="view-header">
-              <h2>Pi Node Controller PRO</h2>
-              <div class="view-header-right">
-                <span class="status-connected">Connected</span>
-                <span style="cursor:pointer;">🔔</span>
-                <div class="user-badge">
-                  <span>Users</span>
-                  <img src="/avatar.jpg" alt="User">
-                </div>
-              </div>
-            </div>
-
-            <!-- TẦNG 1: ĐIỂM NODE + 3 Ô CĂN GIỮA PHÓNG TO HOÀN HẢO -->
-            <div class="top-row-grid">
-              <div class="glass-panel score-panel">
-                <div class="panel-title">Node Performance Overview</div>
-                <div class="ring-box-large">
-                  <svg viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="248 265"/>
-                  </svg>
-                  <div class="ring-text">
-                    <span class="lbl-top">Node Score:</span>
-                    <span class="big-val-highlight">97.43 <span style="font-size:0.45em; font-weight:500; color:var(--text-sub);">/ 100</span></span>
-                    <span class="sub-lbl">Availability: <b style="color:#fff;">97.43%</b></span>
-                  </div>
-                </div>
-                <div class="badge-excellent">✔ Excellent</div>
-              </div>
-
-              <!-- Ô ICON + TIẾNG ANH 1 (CĂN TRUNG TÂM PHÓNG TO) -->
-              <div class="glass-panel center-card">
-                <div class="panel-title">State & Consensus</div>
-                <div class="icon-box" style="background:rgba(56, 189, 248, 0.2); color:#38bdf8;">🧊</div>
-                <div class="card-content-centered">
-                  <div class="status-card-val">Synced</div>
-                  <div class="status-card-sub">(healthy)</div>
-                </div>
-              </div>
-
-              <!-- Ô ICON + TIẾNG ANH 2 (CĂN TRUNG TÂM PHÓNG TO) -->
-              <div class="glass-panel center-card">
-                <div class="panel-title">Consensus</div>
-                <div class="icon-box" style="background:rgba(52, 211, 153, 0.2); color:#34d399;">⚙️</div>
-                <div class="card-content-centered">
-                  <div class="status-card-val">Running</div>
-                  <div class="status-card-sub">(container)</div>
-                </div>
-              </div>
-
-              <!-- Ô ICON + TIẾNG ANH 3 (CĂN TRUNG TÂM PHÓNG TO) -->
-              <div class="glass-panel center-card">
-                <div class="panel-title">Peers Connection</div>
-                <div class="icon-box" style="background:rgba(192, 132, 252, 0.2); color:#c084fc;">👥</div>
-                <div class="card-content-centered">
-                  <div class="status-card-val">6 IN / 8 OUT</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- TẦNG 2: SYSTEM RESOURCES CĂN TRUNG TÂM CÂN BẰNG -->
-            <div class="glass-panel" style="justify-content:center;">
-              <div class="panel-title">💻 System Resources</div>
-              <div class="meters-grid">
-                <div class="meter-item">
-                  <svg class="meter-svg-small" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="#38bdf8" stroke-width="8" stroke-dasharray="67 240" stroke-linecap="round"/>
-                  </svg>
-                  <div class="meter-val-compact">28%</div>
-                  <div class="meter-lbl">CPU</div>
-                </div>
-                <div class="meter-item">
-                  <svg class="meter-svg-small" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="#c084fc" stroke-width="8" stroke-dasharray="148 240" stroke-linecap="round"/>
-                  </svg>
-                  <div class="meter-val-compact">62%</div>
-                  <div class="meter-lbl">RAM</div>
-                </div>
-                <div class="meter-item">
-                  <svg class="meter-svg-small" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="#38bdf8" stroke-width="8" stroke-dasharray="163 240" stroke-linecap="round"/>
-                  </svg>
-                  <div class="meter-val-compact">68%</div>
-                  <div class="meter-lbl">Disk</div>
-                </div>
-                <div class="meter-item">
-                  <svg class="meter-svg-small" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
-                    <circle cx="50" cy="50" r="38" fill="none" stroke="#f87171" stroke-width="8" stroke-dasharray="125 240" stroke-linecap="round"/>
-                  </svg>
-                  <div class="meter-val-compact">52°C</div>
-                  <div class="meter-lbl">System Temp</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- TẦNG 3: VĂN BẢN & BẢNG BIỂU (GIỮ NGUYÊN BỐ CỤC) -->
-            <div class="bot-row-grid">
-              <div class="glass-panel">
-                <div class="panel-title" style="justify-content:space-between;">
-                  <span>📈 Availability Trend (24h)</span>
-                  <span style="color:var(--ok-green); font-weight:800;">97.43%</span>
-                </div>
-                <div class="chart-wrapper">
-                  <svg viewBox="0 0 240 70" preserveAspectRatio="none" style="width:100%; height:100%;">
-                    <line x1="0" y1="18" x2="240" y2="18" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
-                    <line x1="0" y1="38" x2="240" y2="38" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
-                    <line x1="0" y1="58" x2="240" y2="58" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
-                    <path d="M0,52 Q40,55 80,45 T160,32 T240,22" fill="none" stroke="#34d399" stroke-width="2.5"/>
-                  </svg>
-                </div>
-              </div>
-
-              <div class="glass-panel">
-                <div class="panel-title">ℹ️ Detailed Pi Node Information</div>
-                <table class="info-table">
-                  <tr><td>Service</td><td>testnet2</td></tr>
-                  <tr><td>Node Version</td><td>0.6.2</td></tr>
-                  <tr><td>Protocol Version</td><td>27</td></tr>
-                  <tr><td>Block Height</td><td>10,796,465</td></tr>
-                  <tr><td>Ports Status</td><td>10/10 open</td></tr>
-                </table>
-              </div>
-
-              <div class="glass-panel">
-                <div class="panel-title">🕒 Refined Activity Log</div>
-                <div class="log-list">
-                  <div class="log-item"><div class="log-left"><i class="log-dot"></i>Node connected</div><span>14:32</span></div>
-                  <div class="log-item"><div class="log-left"><i class="log-dot"></i>Peers updated</div><span>14:31</span></div>
-                  <div class="log-item"><div class="log-left"><i class="log-dot"></i>Ledger advanced</div><span>14:28</span></div>
-                  <div class="log-item"><div class="log-left"><i class="log-dot"></i>Status: Synced!</div><span>14:25</span></div>
-                </div>
-              </div>
-            </div>
-          </main>
-
-        </div>
-
+  <!-- CÁC CHỈ SỐ CHI TIẾT PHẦN CỨNG (SỨC GIÓ, ĐỘ ẨM, NHIỆT ĐỘ) -->
+  <section>
+    <div class="section-title">🌤️ Chỉ Số Sức Khỏe Máy Tính (Chi Tiết)</div>
+    <div class="metrics-grid">
+      
+      <div class="metric-card">
+        <div class="icon">💻</div>
+        <div class="title">Vi Xử Lý CPU</div>
+        <div class="value">28%</div>
+        <div class="tag" style="color: var(--status-good);">Mát Mẻ</div>
       </div>
 
-      <!-- Footer Bar -->
-      <footer class="window-footer">
-        <div class="footer-running">RUNNING</div>
-        <div>Data Source: Pi Desktop Sentry (Primary)</div>
-        <div style="font-weight:600; color:#fff;">32 MB - CPU 8%</div>
-      </footer>
+      <div class="metric-card">
+        <div class="icon">🧠</div>
+        <div class="title">Bộ Nhớ RAM</div>
+        <div class="value">62%</div>
+        <div class="tag" style="color: var(--status-warn);">Ổn Định</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="icon">💽</div>
+        <div class="title">Ổ Cứng Disk</div>
+        <div class="value">68%</div>
+        <div class="tag" style="color: var(--status-blue);">Còn Trống</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="icon">🌡️</div>
+        <div class="title">Nhiệt Độ PC</div>
+        <div class="value">52°C</div>
+        <div class="tag" style="color: var(--status-good);">An Toàn</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="icon">🌐</div>
+        <div class="title">Cổng Pi Ports</div>
+        <div class="value">10/10</div>
+        <div class="tag" style="color: var(--status-good);">Thông Suốt</div>
+      </div>
 
     </div>
-  </div>
+  </section>
+
+  <!-- NÚT THAO TÁC SỬA LỖI & BẢO TRÌ (KHUYÊN DÙNG) -->
+  <section>
+    <div class="section-title">🛠️ Khuyên Dùng Bảo Trì Nhanh (Dành Cho Người Dùng)</div>
+    <div class="actions-bar">
+      <button class="action-btn" onclick="alert('Đã dọn dẹp bộ nhớ RAM thành công!')">🧹 Dọn Dẹp RAM Máy</button>
+      <button class="action-btn" onclick="alert('Đã làm sạch DNS mạng!')">🔄 Làm Mới Kết Nối Mạng</button>
+      <button class="action-btn" onclick="alert('Đang kiểm tra các cổng Ports...')">🛡️ Kiểm Tra Cổng Mạng</button>
+    </div>
+  </section>
+
+  <footer class="app-footer">
+    Hệ thống tự động giám sát Pi Node Pro • Giao diện tối ưu đơn giản hóa cho người lớn tuổi
+  </footer>
+
 </div>
 
 <script>
-function toggleSidebar() {
-  const sidebar = document.getElementById('sidebar');
-  const btn = document.getElementById('toggleBtn');
-  sidebar.classList.toggle('collapsed');
-  
-  if (sidebar.classList.contains('collapsed')) {
-    btn.innerHTML = '❯';
-  } else {
-    btn.innerHTML = '❮';
-  }
+// Cập nhật giờ thực tế
+function updateClock() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  document.getElementById('time-now').textContent = hours + ':' + minutes;
 }
+setInterval(updateClock, 1000);
+updateClock();
 
-function switchPage(pageId, btn) {
-  document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  
-  document.getElementById('page-' + pageId).classList.add('active');
-  btn.classList.add('active');
+// Đổi hình nền ngẫu nhiên tạo cảm giác mới mẻ
+const wallpapers = [
+  'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1920&auto=format&fit=crop', // Biển xanh
+  'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?q=80&w=1920&auto=format&fit=crop', // Núi sương
+  'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1920&auto=format&fit=crop'  // Vũ trụ mờ
+];
+let bgIndex = 0;
+
+function changeWallpaper() {
+  bgIndex = (bgIndex + 1) % wallpapers.length;
+  document.documentElement.style.setProperty('--bg-wallpaper', `url('${wallpapers[bgIndex]}')`);
 }
 </script>
 
