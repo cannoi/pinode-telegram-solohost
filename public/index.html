@@ -1,199 +1,284 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dự Báo Hoạt Động Pi Node - Windows 10 Glass UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Pi Node Controller - Weather Station Edition</title>
 <style>
 :root {
-  --bg-wallpaper: url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1920&auto=format&fit=crop');
-  --glass-bg: rgba(16, 22, 34, 0.52);
-  --glass-card: rgba(255, 255, 255, 0.12);
-  --glass-border: rgba(255, 255, 255, 0.22);
-  --glass-blur: blur(26px) saturate(160%);
-  
-  --text-main: #ffffff;
-  --text-sub: #cbd5e1;
-  --text-muted: #94a3b8;
-  
-  --status-good: #34d399; /* Xanh lá - Thời tiết đẹp */
-  --status-blue: #38bdf8; /* Xanh dương - Đồng bộ */
-  --status-warn: #fbbf24; /* Vàng - Chú ý */
-  --status-danger: #f87171;/* Đỏ - Nóng/Lỗi */
+  --p: rgba(16, 22, 34, 0.58);
+  --p-card: rgba(255, 255, 255, 0.12);
+  --bd: rgba(255, 255, 255, 0.22);
+  --t: #ffffff;
+  --m: #c5d0de;
+  --win: #0078d7;
+  --acc: #4cc2ff;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --glass: blur(24px) saturate(160%);
+  --bg-image: url("/bg-cave.jpg");
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  user-select: none;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+html, body {
+  min-height: 100vh;
+  color: var(--t);
+  background-color: #0d1117;
+  background-image: linear-gradient(180deg, rgba(8, 12, 20, 0.45), rgba(4, 6, 12, 0.65)), var(--bg-image);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 body {
-  width: 100vw;
-  min-height: 100vh;
-  background-image: var(--bg-wallpaper);
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-  color: var(--text-main);
   display: flex;
   justify-content: center;
-  align-items: center;
-  padding: 16px;
-  overflow-x: hidden;
+  align-items: flex-start;
+  padding: 12px;
 }
 
-/* LỚP NỀN KÍNH MỜ TOÀN CẦU */
-.weather-app-window {
+/* RESPONSIVE WRAPPER CONTAINER */
+.w {
   width: 100%;
-  max-width: 1050px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-  padding: 24px;
+  max-width: 1100px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
-/* HEADER THỜI TIẾT TIÊU CHUẨN */
-.header-bar {
+/* GLASS PANEL BASE STYLE */
+.glass {
+  background: var(--p);
+  border: 1px solid var(--bd);
+  border-radius: 18px;
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* TOP HEADER BAR */
+.top {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  padding-bottom: 16px;
+  padding: 12px 18px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.location-info h1 {
-  font-size: 1.6rem;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.location-info p {
-  font-size: 1rem;
-  color: var(--text-sub);
-  margin-top: 4px;
-}
-
-.top-controls {
+.top-left {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.status-badge {
-  background: rgba(52, 211, 153, 0.25);
-  border: 1px solid var(--status-good);
-  color: #a7f3d0;
-  padding: 8px 16px;
-  border-radius: 30px;
-  font-size: 0.95rem;
-  font-weight: 700;
+.top img.av {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--acc);
+}
+
+.top h1 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.sub {
+  font-size: 0.75rem;
+  color: var(--m);
+}
+
+.top-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
 }
 
-.status-badge::before {
-  content: "";
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--status-good);
-  box-shadow: 0 0 10px var(--status-good);
+.conn {
+  font-size: 0.78rem;
+  color: var(--ok);
+  font-weight: 700;
+  background: rgba(52, 211, 153, 0.15);
+  border: 1px solid var(--ok);
+  padding: 4px 10px;
+  border-radius: 20px;
 }
 
-.bg-select-btn {
-  background: var(--glass-card);
-  border: 1px solid var(--glass-border);
+.bellwrap {
+  position: relative;
+}
+
+.bell {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.35);
   color: #fff;
-  padding: 8px 14px;
-  border-radius: 12px;
+  border-radius: 10px;
+  padding: 6px 12px;
   cursor: pointer;
   font-size: 0.9rem;
-  font-weight: 600;
+}
+
+.badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--bad);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  min-width: 18px;
+  text-align: center;
+  padding: 2px 5px;
+  display: none;
+  font-weight: 800;
+}
+
+/* NAVIGATION TABS */
+.nav {
+  display: flex;
+  gap: 8px;
+}
+
+.nav button {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
   transition: all 0.2s ease;
 }
 
-.bg-select-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
+.nav button.on, .nav button:hover {
+  background: rgba(0, 120, 215, 0.45);
+  border-color: var(--acc);
 }
 
-/* KHU VỰC CHÍNH - DỰ BÁO TỔNG QUAN (HERO WEATHER CARD) */
-.hero-weather-card {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 20px;
-  padding: 24px;
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 20px;
-  align-items: center;
-}
-
-.hero-main-temp {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-
-.weather-icon-large {
-  font-size: 4.8rem;
-  line-height: 1;
-  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
-}
-
-.score-display {
-  display: flex;
+/* PAGES CONTAINER */
+.page {
+  display: none;
   flex-direction: column;
+  gap: 12px;
 }
 
-.big-number {
-  font-size: 4.2rem;
-  font-weight: 900;
-  line-height: 1;
-  color: #ffffff;
-  text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+.page.on {
+  display: flex;
 }
 
-.big-number span {
-  font-size: 1.8rem;
-  font-weight: 600;
-  color: var(--text-sub);
-}
-
-.weather-status-text {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--status-good);
-  margin-top: 6px;
-}
-
-.hero-sub-details {
+/* CARDS COMMON */
+.card {
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 16px;
+}
+
+.card h2 {
+  font-size: 0.78rem;
+  color: var(--m);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 800;
+}
+
+/* WEATHER HERO OVERVIEW CARD */
+.hero-weather-card {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+  align-items: center;
+}
+
+.hero-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.weather-icon-large {
+  font-size: 3.8rem;
+  line-height: 1;
+}
+
+.ringwrap {
+  width: 110px;
+  height: 110px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ringwrap svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ringwrap .lab {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.ringwrap .lab b {
+  font-size: 1.05rem;
+}
+
+.ringwrap .lab span {
+  font-size: 0.6rem;
+  color: var(--m);
+}
+
+.weather-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.big-score {
+  font-size: 2.2rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.weather-status-tag {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--ok);
+  margin-top: 4px;
+}
+
+.hero-sub-details {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .sub-detail-row {
   display: flex;
   justify-content: space-between;
-  font-size: 1.05rem;
-  border-bottom: 1px stroke rgba(255,255,255,0.08);
+  font-size: 0.8rem;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.12);
   padding-bottom: 4px;
 }
 
@@ -202,280 +287,821 @@ body {
   padding-bottom: 0;
 }
 
-.sub-detail-row .lbl {
-  color: var(--text-sub);
-}
+.sub-detail-row .lbl { color: var(--m); }
+.sub-detail-row .val { font-weight: 700; }
 
-.sub-detail-row .val {
-  font-weight: 700;
-}
-
-/* KHU VỰC DỰ BÁO NĂNG SUẤT 24 GIỜ (HOURLY FORECAST STYLE) */
-.section-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-sub);
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.forecast-trend-box {
-  background: var(--glass-card);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  padding: 16px;
-}
-
-.trend-chart-svg {
-  width: 100%;
-  height: 80px;
-}
-
-/* LƯỚI CHỈ SỐ PHẦN CỨNG (METRICS GRID - KIỂU ĐỘ ẨM/SỨC GIÓ) */
-.metrics-grid {
+/* MINI METRICS GRID */
+.grid3 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
 }
 
-.metric-card {
-  background: var(--glass-card);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
-  padding: 16px 12px;
+.mini {
+  padding: 12px 10px;
+  text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: 6px;
-  transition: transform 0.2s ease, background 0.2s ease;
+  gap: 4px;
 }
 
-.metric-card:hover {
-  transform: translateY(-3px);
-  background: rgba(255, 255, 255, 0.2);
-}
+.mini .ic { font-size: 1.4rem; }
+.mini .k { font-size: 0.7rem; color: var(--m); }
+.mini .v { font-size: 0.92rem; font-weight: 800; }
+.mini .s { font-size: 0.65rem; color: var(--m); }
 
-.metric-card .icon {
-  font-size: 2rem;
-}
-
-.metric-card .title {
-  font-size: 0.95rem;
-  color: var(--text-sub);
-  font-weight: 600;
-}
-
-.metric-card .value {
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: #fff;
-}
-
-.metric-card .tag {
-  font-size: 0.8rem;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.15);
-}
-
-/* NÚT KHUYÊN DÙNG BẢO TRÌ (WEATHER ADVISORY TIPS) */
-.actions-bar {
+/* LIVE HARDWARE METRICS (RESBOX METRIC CARDS) */
+.res {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
 }
 
-.action-btn {
-  background: rgba(0, 120, 215, 0.4);
-  border: 1px solid rgba(76, 194, 255, 0.5);
+.res .met {
+  text-align: center;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: var(--p-card);
+  border: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.res .met b { font-size: 1.1rem; color: #fff; }
+.res .met span { font-size: 0.68rem; color: var(--m); }
+.res .met.off { opacity: 0.5; }
+
+/* CHART BOX */
+.chartbox {
+  height: 80px;
+  width: 100%;
+}
+
+.chartbox svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* DETAILS & LOGS */
+.info .row, .log .item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.14);
+  font-size: 0.8rem;
+}
+
+.k { color: var(--m); }
+.val { font-weight: 700; }
+
+/* SCRIPTS AND CHAT PAGE */
+.scripts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.scripts button {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: var(--p-card);
   color: #fff;
-  padding: 14px;
-  border-radius: 14px;
-  font-size: 1rem;
+  font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  backdrop-filter: blur(10px);
+  text-align: left;
   transition: all 0.2s ease;
 }
 
-.action-btn:hover {
-  background: rgba(0, 120, 215, 0.7);
-  box-shadow: 0 4px 15px rgba(0, 120, 215, 0.4);
+.scripts button:hover {
+  border-color: var(--acc);
+  background: rgba(76, 194, 255, 0.22);
 }
 
-/* FOOTER DỄ ĐỌC */
-.app-footer {
+#chatbox {
+  height: 240px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 0.82rem;
+}
+
+.msg {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  max-width: 90%;
+  white-space: pre-wrap;
+}
+
+.msg.user {
+  background: rgba(0, 120, 215, 0.45);
+  margin-left: auto;
+  text-align: right;
+}
+
+.msg.bot {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.bar {
+  display: flex;
+  gap: 8px;
+}
+
+.bar input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--t);
+  outline: none;
+}
+
+.bar button {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 0;
+  background: linear-gradient(180deg, var(--acc), var(--win));
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.qbar, .bgbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qbar button, .bgbar button, .bgbar label {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--t);
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bgbar button.on {
+  background: rgba(0, 120, 215, 0.5);
+  border-color: var(--acc);
+}
+
+.panel {
+  display: none;
+  padding: 10px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 0.75rem;
+}
+
+.panel.on { display: block; }
+
+.foot {
   text-align: center;
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  padding-top: 12px;
+  font-size: 0.7rem;
+  color: var(--m);
+  padding: 6px;
+}
+
+.link {
+  color: var(--acc);
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  font: inherit;
+}
+
+/* MODAL DOCKER TERMS */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  backdrop-filter: blur(10px);
+}
+
+.modal.on { display: flex; }
+
+.modal .box {
+  background: rgba(20, 28, 40, 0.9);
+  border: 1px solid var(--bd);
+  border-radius: 16px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal h3 {
+  padding: 14px;
+  font-size: 0.95rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.terms {
+  padding: 14px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: #eef3f8;
+}
+
+.modal .footbar {
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal label {
+  font-size: 0.75rem;
+  color: var(--m);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.btn {
+  padding: 10px;
+  border-radius: 8px;
+  border: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-ok { background: var(--win); color: #fff; }
+.btn-no { background: rgba(255, 255, 255, 0.18); color: #fff; }
+
+.tile { cursor: grab; }
+.tile .grip { font-size: 0.62rem; color: var(--m); margin-bottom: 4px; user-select: none; }
+
+/* DESKTOP RESPONSIVE LAYOUT */
+@media (min-width: 880px) {
+  .w {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .top { grid-column: 1 / -1; }
+  .nav {
+    grid-column: 1;
+    flex-direction: column;
+  }
+  .page.on { grid-column: 2; }
+  .foot { grid-column: 1 / -1; }
+  .home-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
 }
 
 @media (max-width: 768px) {
-  .hero-weather-card {
-    grid-template-columns: 1fr;
-  }
-  .big-number {
-    font-size: 3.2rem;
-  }
+  .hero-weather-card { grid-template-columns: 1fr; }
+  .big-score { font-size: 1.8rem; }
 }
 </style>
 </head>
 <body>
 
-<div class="weather-app-window">
-
-  <!-- thanh tiêu đề địa điểm / máy chủ -->
-  <header class="header-bar">
-    <div class="location-info">
-      <h1>🌐 Trạm Pi Node SoloHost</h1>
-      <p>Windows 10 Pro • Cập nhật lúc: <span id="time-now">14:35</span></p>
-    </div>
-    <div class="top-controls">
-      <div class="status-badge">Đang Kết Nối Mạng</div>
-      <button class="bg-select-btn" onclick="changeWallpaper()">🖼️ Đổi Hình Nền</button>
-    </div>
-  </header>
-
-  <!-- KHU VỰC CHÍNH: DỰ BÁO TỔNG QUAN (GIỐNG THỜI TIẾT) -->
-  <section class="hero-weather-card">
-    <div class="hero-main-temp">
-      <div class="weather-icon-large">☀️</div>
-      <div class="score-display">
-        <div class="big-number">97.43<span>/100</span></div>
-        <div class="weather-status-text">Thời Tiết Nút: RẤT TỐT (EXCELLENT)</div>
+<div class="w">
+  <!-- TOP BAR -->
+  <div class="top glass">
+    <div class="top-left">
+      <img class="av" src="/avatar.jpg" alt="Avatar">
+      <div>
+        <h1>Pi Node Controller PRO</h1>
+        <div class="sub">SoloHost Weather Station · v2.6.55</div>
       </div>
     </div>
+    <div class="top-right">
+      <span class="conn" id="conn">● Connected</span>
+      <span class="bellwrap">
+        <button type="button" class="bell" id="bell">🔔 Alerts</button>
+        <span class="badge" id="badge">0</span>
+      </span>
+    </div>
+  </div>
 
-    <div class="hero-sub-details">
-      <div class="sub-detail-row">
-        <span class="lbl">Trạng thái Khối:</span>
-        <span class="val" style="color: var(--status-blue);">🧊 Đã Đồng Bộ (Synced)</span>
+  <!-- NAVIGATION TABS -->
+  <div class="nav">
+    <button type="button" class="on" data-page="home">🌤️ Node Forecast</button>
+    <button type="button" data-page="ai">🤖 AI & Maintenance</button>
+    <button type="button" data-page="set">⚙️ Settings</button>
+  </div>
+
+  <!-- ALERTS PANEL -->
+  <div class="panel glass" id="alertPanel"></div>
+
+  <!-- PAGE 1: HOME / WEATHER FORECAST -->
+  <div class="page on" id="page-home">
+    
+    <!-- HERO WEATHER CARD -->
+    <div class="card glass hero-weather-card tile" data-id="score" draggable="true">
+      <div class="hero-main">
+        <div class="weather-icon-large" id="weatherIcon">☀️</div>
+        <div class="ringwrap">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="8"/>
+            <circle id="scoreArc" cx="50" cy="50" r="42" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 264"/>
+          </svg>
+          <div class="lab">
+            <span>Score</span>
+            <b id="scoreVal">—</b>
+          </div>
+        </div>
+        <div class="weather-info">
+          <div class="big-score" id="availVal">Availability —</div>
+          <div class="weather-status-tag" id="scoreTag">Collecting Data…</div>
+        </div>
       </div>
-      <div class="sub-detail-row">
-        <span class="lbl">Container Đồng Thuận:</span>
-        <span class="val" style="color: var(--status-good);">⚙️ Đang Chạy (Running)</span>
-      </div>
-      <div class="sub-detail-row">
-        <span class="lbl">Mạng Kết Nối (Peers):</span>
-        <span class="val">👥 6 Vào / 8 Ra</span>
-      </div>
-      <div class="sub-detail-row">
-        <span class="lbl">Số Khối Hiện Tại:</span>
-        <span class="val">10,796,465</span>
+
+      <div class="hero-sub-details">
+        <div class="sub-detail-row">
+          <span class="lbl">Sync State:</span>
+          <span class="val" id="stSync">—</span>
+        </div>
+        <div class="sub-detail-row">
+          <span class="lbl">Consensus Protocol:</span>
+          <span class="val" id="stCons">—</span>
+        </div>
+        <div class="sub-detail-row">
+          <span class="lbl">Active Peers:</span>
+          <span class="val" id="stPeers">—</span>
+        </div>
+        <div class="sub-detail-row">
+          <span class="lbl">Health Verification:</span>
+          <span class="val" id="stHealth">—</span>
+        </div>
       </div>
     </div>
-  </section>
 
-  <!-- XU HƯỚNG HOẠT ĐỘNG 24 GIỜ (HOURLY FORECAST CHART) -->
-  <section>
-    <div class="section-title">📈 Biểu Đồ Hoạt Động Liên Tục 24 Giờ Qua</div>
-    <div class="forecast-trend-box">
-      <svg class="trend-chart-svg" viewBox="0 0 500 80" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#34d399" stop-opacity="0.5" />
-            <stop offset="100%" stop-color="#34d399" stop-opacity="0.0" />
-          </linearGradient>
-        </defs>
-        <!-- Đường biểu đồ giả lập mịn màng -->
-        <path d="M0,60 Q50,20 100,35 T200,25 T300,15 T400,20 T500,10 L500,80 L0,80 Z" fill="url(#grad)" />
-        <path d="M0,60 Q50,20 100,35 T200,25 T300,15 T400,20 T500,10" fill="none" stroke="#34d399" stroke-width="3" />
-      </svg>
+    <!-- MINI WEATHER SUMMARY METRICS -->
+    <div class="grid3">
+      <div class="mini glass tile" data-id="state" draggable="true">
+        <div class="ic">🧊</div>
+        <div class="k">Block Consensus</div>
+        <div class="v" id="stSrc">horizon</div>
+        <div class="s">Verification Source</div>
+      </div>
+      <div class="mini glass tile" data-id="cons" draggable="true">
+        <div class="ic">🌐</div>
+        <div class="k">Port Status</div>
+        <div class="v">10/10 Open</div>
+        <div class="s">Network Gateway</div>
+      </div>
+      <div class="mini glass tile" data-id="peers" draggable="true">
+        <div class="ic">👥</div>
+        <div class="k">Peer Traffic</div>
+        <div class="v">In / Out</div>
+        <div class="s">P2P Mesh Connections</div>
+      </div>
     </div>
-  </section>
 
-  <!-- CÁC CHỈ SỐ CHI TIẾT PHẦN CỨNG (SỨC GIÓ, ĐỘ ẨM, NHIỆT ĐỘ) -->
-  <section>
-    <div class="section-title">🌤️ Chỉ Số Sức Khỏe Máy Tính (Chi Tiết)</div>
-    <div class="metrics-grid">
-      
-      <div class="metric-card">
-        <div class="icon">💻</div>
-        <div class="title">Vi Xử Lý CPU</div>
-        <div class="value">28%</div>
-        <div class="tag" style="color: var(--status-good);">Mát Mẻ</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="icon">🧠</div>
-        <div class="title">Bộ Nhớ RAM</div>
-        <div class="value">62%</div>
-        <div class="tag" style="color: var(--status-warn);">Ổn Định</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="icon">💽</div>
-        <div class="title">Ổ Cứng Disk</div>
-        <div class="value">68%</div>
-        <div class="tag" style="color: var(--status-blue);">Còn Trống</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="icon">🌡️</div>
-        <div class="title">Nhiệt Độ PC</div>
-        <div class="value">52°C</div>
-        <div class="tag" style="color: var(--status-good);">An Toàn</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="icon">🌐</div>
-        <div class="title">Cổng Pi Ports</div>
-        <div class="value">10/10</div>
-        <div class="tag" style="color: var(--status-good);">Thông Suốt</div>
-      </div>
-
+    <!-- LIVE ATMOSPHERIC/HARDWARE METRICS -->
+    <div class="card glass tile" data-id="res" draggable="true">
+      <div class="grip">⠿ Live Hardware Metrics</div>
+      <h2>System Pressure & Telemetry</h2>
+      <div class="res" id="resBox"></div>
     </div>
-  </section>
 
-  <!-- NÚT THAO TÁC SỬA LỖI & BẢO TRÌ (KHUYÊN DÙNG) -->
-  <section>
-    <div class="section-title">🛠️ Khuyên Dùng Bảo Trì Nhanh (Dành Cho Người Dùng)</div>
-    <div class="actions-bar">
-      <button class="action-btn" onclick="alert('Đã dọn dẹp bộ nhớ RAM thành công!')">🧹 Dọn Dẹp RAM Máy</button>
-      <button class="action-btn" onclick="alert('Đã làm sạch DNS mạng!')">🔄 Làm Mới Kết Nối Mạng</button>
-      <button class="action-btn" onclick="alert('Đang kiểm tra các cổng Ports...')">🛡️ Kiểm Tra Cổng Mạng</button>
+    <!-- TWO COLUMN LAYOUT FOR TREND & LOGS ON DESKTOP -->
+    <div class="home-two-col">
+      <div class="card glass tile" data-id="chart" draggable="true">
+        <h2>24-Hour Availability Trend</h2>
+        <div class="chartbox">
+          <svg id="healthSvg" viewBox="0 0 240 72" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <div class="card glass log tile" data-id="log" draggable="true">
+        <h2>Telemetry Log</h2>
+        <div class="item" id="actLine">Waiting for telemetry…</div>
+      </div>
     </div>
-  </section>
 
-  <footer class="app-footer">
-    Hệ thống tự động giám sát Pi Node Pro • Giao diện tối ưu đơn giản hóa cho người lớn tuổi
-  </footer>
+    <!-- DETAILED PI NODE INFORMATION -->
+    <div class="card glass info tile" data-id="info" draggable="true">
+      <h2>Detailed Pi Node Parameters</h2>
+      <div id="s"></div>
+    </div>
 
+    <p class="sub">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker Terms…</button></p>
+  </div>
+
+  <!-- PAGE 2: AI ASSISTANT & SCRIPTS -->
+  <div class="page" id="page-ai">
+    <div class="card glass">
+      <h2>Pi Node Maintenance Actions</h2>
+      <div class="scripts" id="abar">
+        <button type="button" data-dl="/actions/CleanRAM.bat">🧹 Optimize RAM</button>
+        <button type="button" data-dl="/actions/DnsFlush.bat">🔄 Flush DNS</button>
+        <button type="button" data-dl="/actions/Firewall.bat">🛡️ Open Firewall</button>
+        <button type="button" data-dl="/actions/NetRepair.bat">🌐 Net Repair</button>
+        <button type="button" data-dl="/actions/LanSetup.bat">📡 LAN Setup</button>
+        <button type="button" data-dl="/actions/NodeReset.bat">⚙️ Reset Node Container</button>
+        <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Repair Docker</button>
+        <button type="button" data-dl="/actions/Maintain.bat">🛠️ Weekly Maintain</button>
+      </div>
+    </div>
+
+    <div class="card glass">
+      <h2>AI Weather & Node Assistant</h2>
+      <div id="chatbox"></div>
+      <div class="qbar" id="qbar">
+        <button type="button" data-cmd="/help">HELP</button>
+        <button type="button" data-cmd="/status">STATUS</button>
+        <button type="button" data-cmd="/report">REPORT</button>
+        <button type="button" data-cmd="/peers">PEERS</button>
+        <button type="button" data-cmd="/diagnostic">DIAG</button>
+        <button type="button" data-cmd="/analyze">ANALYZE</button>
+        <button type="button" data-cmd="/logs">LOGS</button>
+        <button type="button" data-cmd="/donate">DONATE</button>
+      </div>
+      <div class="bar">
+        <input id="inp" type="text" placeholder="Ask AI Assistant anything about your node..." autocomplete="off" maxlength="2000">
+        <button id="send" type="button">Send ➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE 3: SETTINGS -->
+  <div class="page" id="page-set">
+    <div class="card glass">
+      <h2>Weather Theme Wallpaper</h2>
+      <p class="sub">Choose a glass background theme for the app layout.</p>
+      <div class="bgbar">
+        <button type="button" data-bg="cave" id="bgCave">🌄 Cave View</button>
+        <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic Blue</button>
+        <button type="button" data-bg="pi" id="bgPi">🟣 Pi Network</button>
+        <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
+      </div>
+    </div>
+
+    <div class="card glass">
+      <h2>System Information</h2>
+      <div class="sub-detail-row"><span class="lbl">Application:</span><span class="val">SoloHost Pro v2.6.55</span></div>
+      <div class="sub-detail-row"><span class="lbl">UI Style:</span><span class="val">Windows 10 Glassmorphism (Weather Style)</span></div>
+      <div class="sub-detail-row"><span class="lbl">Responsive Layout:</span><span class="val">Adaptive Multi-Device View</span></div>
+    </div>
+  </div>
+
+  <p class="foot">Telegram remote status support • Docker diagnostics via SoloHost UI</p>
+</div>
+
+<!-- DOCKER TERMS MODAL -->
+<div class="modal" id="dkModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <h3>Optional Docker Access — Terms</h3>
+    <div class="terms" id="termsBox"></div>
+    <div class="footbar">
+      <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read the full terms</label>
+      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms and understand this is my choice on this machine</label>
+      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm — Apply Configuration</button>
+      <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <script>
-// Cập nhật giờ thực tế
-function updateClock() {
-  const now = new Date();
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  document.getElementById('time-now').textContent = hours + ':' + minutes;
-}
-setInterval(updateClock, 1000);
-updateClock();
+const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
 
-// Đổi hình nền ngẫu nhiên tạo cảm giác mới mẻ
-const wallpapers = [
-  'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1920&auto=format&fit=crop', // Biển xanh
-  'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?q=80&w=1920&auto=format&fit=crop', // Núi sương
-  'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1920&auto=format&fit=crop'  // Vũ trụ mờ
-];
-let bgIndex = 0;
+What this is:
+This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.
 
-function changeWallpaper() {
-  bgIndex = (bgIndex + 1) % wallpapers.length;
-  document.documentElement.style.setProperty('--bg-wallpaper', `url('${wallpapers[bgIndex]}')`);
+SoloHost default permissions:
+Sandbox: CPU and memory, one localhost port, the app data folder, outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring.
+
+What you grant if you Confirm:
+• The app may overwrite docker-compose.yml in this app folder to mount /var/run/docker.sock read-only.
+• The app may list containers and run limited read/exec commands for node status.
+
+Your responsibility (Operator):
+Under SoloHost Terms you decide permissions on this machine. By confirming you accept:
+1) docker.sock is powerful and may expose Docker on this PC.
+2) Risk of optional diagnostics is yours.
+3) You can disable later and remove the socket volume, then Stop → Start.
+
+Confirm only if you accept these terms in full.`;
+
+const box = document.getElementById('chatbox');
+const termsBox = document.getElementById('termsBox');
+termsBox.textContent = TERMS;
+
+// Navigation handling
+document.querySelectorAll('.nav button').forEach(function(b) {
+  b.onclick = function() {
+    document.querySelectorAll('.nav button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+    document.getElementById('page-' + b.getAttribute('data-page')).classList.add('on');
+  };
+});
+
+function add(role, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  d.textContent = text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
 }
+
+function setupTermsScroll() {
+  const read = document.getElementById('dkRead');
+  const agree = document.getElementById('dkAgree');
+  const conf = document.getElementById('dkConfirm');
+  function refresh() { conf.disabled = !(read.checked && agree.checked); }
+  read.onchange = refresh;
+  agree.onchange = refresh;
+  termsBox.onscroll = function() {
+    if (termsBox.scrollTop + termsBox.clientHeight >= termsBox.scrollHeight - 8) {
+      read.disabled = false;
+    }
+  };
+  setTimeout(function() {
+    if (termsBox.scrollHeight <= termsBox.clientHeight + 4) read.disabled = false;
+  }, 400);
+}
+
+function setArc(id, pct, maxDash) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  el.setAttribute('stroke-dasharray', (p / 100 * maxDash).toFixed(1) + ' ' + maxDash);
+}
+
+// Main API Telemetry Function
+function loadStatus() {
+  return fetch('/api/status').then(r => r.json()).then(function(t) {
+    const rows = [];
+    const addR = (k, v) => {
+      if (v != null && v !== '') rows.push('<div class="sub-detail-row"><span class="lbl">' + k + ':</span><span class="val">' + String(v) + '</span></div>');
+    };
+    addR('Sync Status', t.sync);
+    addR('Ledger Block', t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null);
+    addR('Ledger Age', t.ledger_age != null ? t.ledger_age + 's' : null);
+    addR('Source', t.source || null);
+    addR('Horizon Version', t.horizon_version || null);
+    addR('Core Version', t.core_version || null);
+    addR('Protocol Version', t.protocol || null);
+    addR('Ingest Lag', t.ingest_lag != null ? t.ingest_lag : null);
+    addR('Peers', t.peers != null ? t.peers : ((t.peer_in != null || t.peer_out != null) ? ((t.peer_in ?? 0) + ' in / ' + (t.peer_out ?? 0) + ' out') : null));
+    addR('Health Score', t.health != null ? t.health + ' / 100' : '');
+    document.getElementById('s').innerHTML = rows.join('') || '<span class="k">Collecting telemetry data…</span>';
+
+    const health = t.health != null ? Number(t.health) : (t.ledger && t.sync ? 88 : null);
+    document.getElementById('scoreVal').textContent = health != null ? health.toFixed(health % 1 ? 1 : 0) + '/100' : '—';
+    document.getElementById('availVal').textContent = health != null ? ('Availability ' + health.toFixed(2) + '%') : 'Availability —';
+    setArc('scoreArc', health || 0, 264);
+
+    const live = /horizon live|synced|ok/i.test(String(t.sync || ''));
+    const catchup = /catch|behind|slow|lag/i.test(String(t.sync || ''));
+    
+    // Dynamic Weather Icon and Condition Text
+    const weatherIcon = document.getElementById('weatherIcon');
+    if (live) {
+      document.getElementById('scoreTag').textContent = 'Sunny & Optimal Sync';
+      document.getElementById('scoreArc').setAttribute('stroke', '#34d399');
+      if (weatherIcon) weatherIcon.textContent = '☀️';
+    } else if (catchup) {
+      document.getElementById('scoreTag').textContent = 'Overcast / Catching Up';
+      document.getElementById('scoreArc').setAttribute('stroke', '#fbbf24');
+      if (weatherIcon) weatherIcon.textContent = '🌤️';
+    } else {
+      document.getElementById('scoreTag').textContent = 'Stormy / Connection Issues';
+      document.getElementById('scoreArc').setAttribute('stroke', '#f87171');
+      if (weatherIcon) weatherIcon.textContent = '🌧️';
+    }
+
+    document.getElementById('stSync').textContent = t.sync || '—';
+    document.getElementById('stHealth').textContent = t.core_verified ? 'Core Verified' : (t.source || 'Horizon');
+    document.getElementById('stCons').textContent = (t.fsm || (t.verification && t.verification.consensus)) || (t.source || '—');
+    document.getElementById('stSrc').textContent = t.source || 'source';
+    
+    const pin = t.peer_in, pout = t.peer_out;
+    document.getElementById('stPeers').textContent = (pin != null || pout != null) ? ((pin ?? '—') + ' in / ' + (pout ?? '—') + ' out') : (t.peers != null ? t.peers : '—');
+
+    // Hardware Telemetry Metric Cards
+    const cpu = t.container_cpu != null ? t.container_cpu : (t.cpu != null ? t.cpu : null);
+    const ram = t.container_ram != null ? t.container_ram : (t.ram != null ? t.ram : null);
+    const disk = t.disk != null ? t.disk : null;
+    const ports = t.ports_open != null ? t.ports_open : (t.ports && typeof t.ports === 'object' ? Object.keys(t.ports).length : null);
+    const mets = [];
+
+    function chip(label, val, ok) {
+      mets.push('<div class="met' + (ok ? '' : ' off') + '"><b>' + val + '</b><span>' + label + '</span></div>');
+    }
+    if (cpu != null) chip('CPU Pressure', Math.round(cpu) + '%', true);
+    if (ram != null) chip('RAM Usage', Math.round(ram) + '%', true);
+    if (disk != null) chip('Storage Disk', Math.round(disk) + '%', true);
+    if (t.ledger_age != null) chip('Ledger Age', t.ledger_age + 's', true);
+    if (t.ingest_lag != null) chip('Ingest Delay', String(t.ingest_lag), true);
+    if (ports != null) chip('Ports Open', String(ports) + ' Active', true);
+    if (t.ledger != null) chip('Block Ledger', Number(t.ledger).toLocaleString('en-US'), true);
+    if (!mets.length) chip('Telemetry', 'Waiting…', false);
+    document.getElementById('resBox').innerHTML = mets.join('');
+
+    document.getElementById('actLine').textContent =
+      new Date().toISOString().replace('T', ' ').slice(11, 19) + ' • Status: ' + (t.sync || '?') + ' • Ledger: ' + (t.ledger != null ? t.ledger : '?');
+    document.getElementById('conn').textContent = '● Connected';
+
+    // Availability Graph
+    try {
+      const key = 'pinode_health_hist';
+      let hist = [];
+      try { hist = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { hist = []; }
+      if (health != null) {
+        hist.push({ t: Date.now(), v: Number(health) });
+        const cut = Date.now() - 24 * 3600 * 1000;
+        hist = hist.filter(function(p) { return p.t >= cut; });
+        if (hist.length > 96) hist = hist.slice(-96);
+        localStorage.setItem(key, JSON.stringify(hist));
+      }
+      const svg = document.getElementById('healthSvg');
+      if (svg && hist.length) {
+        const w = 240, h = 72, pad = 4;
+        const min = 0, max = 100;
+        const pts = hist.map(function(p, i) {
+          const x = pad + (hist.length === 1 ? w / 2 : (i / (hist.length - 1)) * (w - pad * 2));
+          const y = h - pad - ((p.v - min) / (max - min)) * (h - pad * 2);
+          return x.toFixed(1) + ',' + y.toFixed(1);
+        });
+        const last = hist[hist.length - 1].v;
+        svg.innerHTML = '<polyline fill="none" stroke="#34d399" stroke-width="2.5" points="' + pts.join(' ') + '"/>' +
+          '<text x="' + (w - 4) + '" y="14" text-anchor="end" fill="#34d399" font-size="10" font-weight="bold">' + last.toFixed(1) + '%</text>';
+      }
+    } catch (e) {}
+  }).catch(function() {
+    document.getElementById('s').textContent = 'Status error / Offline';
+    document.getElementById('conn').textContent = '○ Offline';
+  });
+}
+
+// AI Chat function
+async function send() {
+  const inp = document.getElementById('inp');
+  let msg = (inp.value || '').trim();
+  if (!msg) return;
+  if (msg.length > 2000) msg = msg.slice(0, 2000);
+  inp.value = '';
+  add('user', msg);
+  add('bot', '…');
+  try {
+    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
+    const j = await r.json();
+    box.lastChild.textContent = j.reply || j.error || 'No reply';
+  } catch (e) {
+    box.lastChild.textContent = 'Chat error';
+  }
+}
+
+// Docker Modal controls
+function openDockerTerms() {
+  document.getElementById('dkRead').checked = false;
+  document.getElementById('dkAgree').checked = false;
+  document.getElementById('dkRead').disabled = true;
+  document.getElementById('dkAgree').disabled = false;
+  document.getElementById('dkConfirm').disabled = true;
+  document.getElementById('dkModal').classList.add('on');
+  termsBox.scrollTop = 0;
+  setupTermsScroll();
+}
+
+document.querySelectorAll('.dkTip').forEach(function(el) { el.onclick = openDockerTerms; });
+document.getElementById('dkCancel').onclick = function() {
+  document.getElementById('dkModal').classList.remove('on');
+};
+
+document.getElementById('dkConfirm').onclick = async function() {
+  if (document.getElementById('dkConfirm').disabled) return;
+  document.getElementById('dkModal').classList.remove('on');
+  add('bot', '…');
+  try {
+    const r = await fetch('/api/docker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, consent: true, terms_version: 'docker-optional-v1', read_full: true }) });
+    const j = await r.json();
+    box.lastChild.textContent = j.wrote_host ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: Stop, then Start the app again.' : (j.hint || 'Saved.');
+  } catch (e) {
+    box.lastChild.textContent = 'Network error';
+  }
+};
+
+// Script download triggers
+const ACT = {
+  '/actions/CleanRAM.bat': 'Optimize RAM\nFrees unused memory.',
+  '/actions/DnsFlush.bat': 'Flush DNS\nRefreshes Windows DNS cache.',
+  '/actions/Firewall.bat': 'Firewall\nOpens TCP 31401-31410 ports.',
+  '/actions/NetRepair.bat': 'Net Repair\nRepairs connection while preserving LAN IP.',
+  '/actions/LanSetup.bat': 'LAN Setup\nSets static LAN IP & configures ports.',
+  '/actions/NodeReset.bat': 'Reset Node\nRestarts Pi Container.',
+  '/actions/DockerRecover.bat': 'Repair Docker\nRestarts Docker Engine.',
+  '/actions/Maintain.bat': 'Maintain\nWeekly cleanup tasks.'
+};
+
+document.getElementById('abar').addEventListener('click', function(e) {
+  const b = e.target.closest('button[data-dl]');
+  if (!b) return;
+  const href = b.getAttribute('data-dl');
+  add('bot', (ACT[href] || 'Downloading Action Script') + '\n\nFile: ' + href);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+
+document.getElementById('qbar').addEventListener('click', function(e) {
+  const b = e.target.closest('button[data-cmd]');
+  if (!b) return;
+  document.getElementById('inp').value = b.getAttribute('data-cmd');
+  send();
+});
+
+document.getElementById('send').onclick = send;
+document.getElementById('inp').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+// Wallpaper styling switcher
+const BG = { cave: 'url("/bg-cave.jpg")', classic: 'url("/bg-classic.jpg")', pi: 'url("/bg-pi.jpg")' };
+function applyBg(kind, custom) {
+  const root = document.documentElement;
+  if (kind === 'custom' && custom) {
+    root.style.setProperty('--bg-image', 'url("' + custom + '")');
+  } else {
+    root.style.setProperty('--bg-image', BG[kind] || BG.cave);
+    kind = BG[kind] ? kind : 'cave';
+  }
+  document.querySelectorAll('.bgbar button').forEach(b => b.classList.toggle('on', b.getAttribute('data-bg') === kind));
+  try { localStorage.setItem('pinode_bg', JSON.stringify({ kind, custom: kind === 'custom' ? custom : '' })); } catch (e) {}
+}
+
+try {
+  const saved = JSON.parse(localStorage.getItem('pinode_bg') || '{}');
+  applyBg(saved.kind || 'cave', saved.custom || '');
+} catch (e) { applyBg('cave'); }
+
+document.getElementById('bgCave').onclick = () => applyBg('cave');
+document.getElementById('bgClassic').onclick = () => applyBg('classic');
+document.getElementById('bgPi').onclick = () => applyBg('pi');
+document.getElementById('bgFile').onchange = function() {
+  const f = this.files && this.files[0];
+  if (!f) return;
+  if (f.size > 2500000) { alert('Wallpaper image must be smaller than 2.5 MB.'); return; }
+  const r = new FileReader();
+  r.onload = () => applyBg('custom', r.result);
+  r.readAsDataURL(f);
+};
+
+// Alerts handler
+async function loadAlerts() {
+  try {
+    const j = await fetch('/api/alerts').then(r => r.json());
+    const n = j.unread || 0;
+    const badge = document.getElementById('badge');
+    badge.textContent = n;
+    badge.style.display = n ? 'inline-block' : 'none';
+    const pan = document.getElementById('alertPanel');
+    if (!j.items || !j.items.length) { pan.innerHTML = '🔔 No active system alerts.'; return; }
+    pan.innerHTML = j.items.map(function(it) {
+      return '<div class="item">' + (it.ts || '').replace('T', ' ').slice(0, 16) + '\n' + (it.text || '') + '</div>';
+    }).join('');
+  } catch (e) {}
+}
+
+document.getElementById('bell').onclick = async function() {
+  const pan = document.getElementById('alertPanel');
+  pan.classList.toggle('on');
+  if (pan.classList.contains('on')) {
+    try { await fetch('/api/alerts', { method: 'POST' }); } catch (e) {}
+    document.getElementById('badge').style.display = 'none';
+    loadAlerts();
+  }
+};
+
+loadAlerts();
+setInterval(loadAlerts, 20000);
+loadStatus();
+setInterval(loadStatus, 15000);
 </script>
 
 </body>
