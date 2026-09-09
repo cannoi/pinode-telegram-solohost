@@ -1,579 +1,353 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Pi Node Controller PRO</title>
-<style>
+/* ===== Pi Node Controller PRO Desktop Theme ===== */
+
 :root{
-  --p:rgba(255,255,255,.14);--p2:rgba(255,255,255,.20);--bd:rgba(255,255,255,.38);
-  --t:#f4f7fb;--m:#c5d0de;--win:#0078d7;--acc:#4cc2ff;--ok:#16c60c;--warn:#ffb900;--bad:#e81123;
-  --glass:blur(22px) saturate(165%);
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"Segoe UI",system-ui,sans-serif;color:var(--t);min-height:100vh;
-background-color:#1b140c;
-background-image:linear-gradient(180deg,rgba(12,22,38,.38),rgba(8,12,20,.52)),var(--bg-image,url("/bg-cave.jpg"));
-background-position:center top;background-size:cover;background-repeat:no-repeat;background-attachment:fixed;
-padding:10px;display:flex;justify-content:center}
-.w{width:100%;max-width:440px}
-.glass{background:var(--p);border:1px solid var(--bd);border-radius:14px;
-backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
-box-shadow:0 10px 28px rgba(0,0,0,.18)}
-.top{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px}
-.top img.av{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid rgba(76,194,255,.7)}
-.top h1{font-size:.92rem;font-weight:700;flex:1;text-shadow:0 1px 8px rgba(0,0,0,.4)}
-.conn{font-size:.62rem;color:#9fef9a;font-weight:700;white-space:nowrap}
-.bellwrap{position:relative}
-.bell{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:4px 8px;cursor:pointer}
-.badge{position:absolute;top:-6px;right:-6px;background:#e81123;color:#fff;border-radius:8px;font-size:.58rem;min-width:16px;text-align:center;padding:1px 4px;display:none}
-.nav{display:flex;gap:6px;margin-bottom:8px}
-.nav button{flex:1;padding:8px 6px;border-radius:10px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.10);color:#fff;font-size:.72rem;font-weight:650;cursor:pointer;backdrop-filter:blur(12px)}
-.nav button.on{background:rgba(0,120,215,.42);border-color:#4cc2ff}
-.page{display:none}.page.on{display:block}
-.card{padding:12px;margin-bottom:8px}
-.card h2{font-size:.62rem;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:700}
-.score{display:flex;flex-direction:column;align-items:center;gap:4px}
-.ringwrap{width:148px;height:148px;position:relative}
-.ringwrap svg{width:100%;height:100%;transform:rotate(-90deg)}
-.ringwrap .lab{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.ringwrap .lab b{font-size:1.25rem}
-.ringwrap .lab span{font-size:.62rem;color:var(--m)}
-.exc{font-size:.68rem;color:#9fef9a;font-weight:700;margin-top:2px}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px}
-.mini{padding:10px 6px;text-align:center}
-.mini .ic{font-size:1.05rem;margin-bottom:4px}
-.mini .k{font-size:.58rem;color:var(--m)}
-.mini .v{font-size:.78rem;font-weight:800;margin-top:2px}
-.mini .s{font-size:.55rem;color:var(--m)}
-.res{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.res .dot{width:88px;height:88px;margin:0 auto 4px;position:relative}
-.res .dot svg{width:100%;height:100%;transform:rotate(-90deg)}
-.res .dot span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:800}
-.res .n{text-align:center;font-size:.62rem;color:var(--m)}
-.info .row,.log .item{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.14);font-size:.78rem}
-.k{color:var(--m)}.val{font-weight:700}
-.log .item{display:block}
-.scripts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
-.scripts button{padding:10px 8px;border-radius:12px;border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.14);color:#fff;font-size:.68rem;font-weight:700;cursor:pointer;text-align:left;backdrop-filter:blur(12px)}
-.scripts button:hover{border-color:#4cc2ff;background:rgba(76,194,255,.22)}
-#chatbox{height:210px;overflow-y:auto;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.78rem}
-.msg{margin:6px 0;padding:8px 10px;border-radius:12px;max-width:94%;white-space:pre-wrap}
-.msg.user{background:rgba(0,120,215,.32);margin-left:auto;text-align:right}
-.msg.bot{background:rgba(255,255,255,.16)}
-.hint{font-size:.68rem;color:var(--m);margin:4px 0 8px}
-.bar{display:flex;gap:6px}
-.bar input{flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14);color:var(--t);outline:none}
-.bar input:focus{border-color:#4cc2ff}
-.bar button{padding:10px 14px;border-radius:10px;border:0;background:linear-gradient(180deg,#4cc2ff,#0078d7);color:#fff;font-weight:700;cursor:pointer}
-.qbar{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 8px}
-.qbar button{padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.14);color:var(--t);font-size:.64rem;font-weight:650;cursor:pointer}
-.bgbar{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
-.bgbar button,.bgbar label{padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font-size:.64rem;font-weight:650;cursor:pointer}
-.bgbar button.on{background:rgba(0,120,215,.45);border-color:#4cc2ff}
-.panel{display:none;text-align:left;padding:8px;margin:0 0 8px;max-height:200px;overflow:auto;font-size:.72rem}
-.panel.on{display:block}
-.panel .item{border-bottom:1px dashed rgba(255,255,255,.2);padding:6px 0;white-space:pre-wrap}
-.foot{text-align:center;font-size:.6rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
-.link{color:#9ad8ff;cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
-.modal.on{display:flex}
-.modal .box{background:rgba(20,28,40,.55);border:1px solid rgba(255,255,255,.35);border-radius:12px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;backdrop-filter:blur(24px)}
-.modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(255,255,255,.2)}
-.terms{padding:12px 14px;overflow-y:auto;flex:1;font-size:.78rem;line-height:1.45;white-space:pre-wrap;color:#eef3f8}
-.modal .footbar{padding:10px 14px;border-top:1px solid rgba(255,255,255,.2);display:flex;flex-direction:column;gap:8px}
-.modal label{font-size:.75rem;color:var(--m);display:flex;gap:8px;align-items:flex-start}
-.btn{padding:10px;border-radius:8px;border:0;font-weight:700;cursor:pointer}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-ok{background:var(--win);color:#fff}
-.btn-no{background:rgba(255,255,255,.18);color:#fff}
-html,body{height:100%;overflow:hidden}
-body{padding:8px;align-items:stretch}
-.w{width:100%;max-width:none;height:100%;display:flex;flex-direction:column;gap:6px}
-.top{margin:0;flex:0 0 auto}
-.nav{margin:0;flex:0 0 auto}
-.panel{margin:0;flex:0 0 auto;max-height:22vh}
-.page{flex:1 1 auto;min-height:0;overflow:hidden;display:none;flex-direction:column;gap:6px}
-.page.on{display:flex}
-.card{margin:0;padding:8px 10px;min-height:0;display:flex;flex-direction:column}
-.card h2{margin-bottom:4px}
-.score{flex:1;min-height:0}
-.ringwrap{width:min(128px,28vh);height:min(128px,28vh)}
-.res{display:flex;flex-wrap:wrap;gap:6px;justify-content:space-around;align-items:center}
-.res .met{flex:1 1 70px;text-align:center;padding:6px 4px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18)}
-.res .met b{display:block;font-size:.95rem}
-.res .met span{font-size:.58rem;color:var(--m)}
-.res .met.off{opacity:.45}
-.home-top{display:grid;grid-template-columns:minmax(160px,1.2fr) repeat(3,minmax(92px,max-content));gap:6px;flex:0 0 auto;align-items:stretch;justify-content:start}
-.home-top .score-card{grid-column:1}
-.grid3{display:contents}
-.mini{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:10px 8px;min-width:92px;max-width:160px;width:max-content}
-.home-bot{display:grid;grid-template-columns:1fr;gap:6px;flex:1 1 auto;min-height:0;align-content:start}
-.home-bot .card{overflow:visible}
-.info .row{font-size:.72rem;padding:3px 0}
-.chartbox{height:72px;width:100%}
-.chartbox svg{width:100%;height:100%;display:block}
-#chatbox{flex:1;min-height:80px;height:auto}
-.page#page-ai .card:last-child{flex:1;min-height:0}
-.foot{margin:0;flex:0 0 auto}
-.hint.dock{margin:2px 0 0;flex:0 0 auto}
-.tile{cursor:grab}
-.tile.wide{grid-column:1/-1}
-.tile .grip{font-size:.62rem;color:var(--m);cursor:grab;user-select:none}
-.sub{font-size:.68rem;color:var(--m);margin-top:2px}
-
-@media (max-width:879px){
-  .home-top{grid-template-columns:repeat(3,minmax(0,1fr));justify-content:stretch}
-  .home-top .score-card{grid-column:1/-1}
-  .mini{max-width:none;width:auto}
-}
-@media (min-width:880px){
-  .w{display:grid;grid-template-columns:168px 1fr;grid-template-rows:auto auto 1fr auto;gap:8px}
-  .top{grid-column:1/-1}
-  .nav{grid-column:1;grid-row:2/4;flex-direction:column;align-self:stretch}
-  .nav button{flex:0 0 auto;text-align:left;padding:11px 10px}
-  .panel{grid-column:2;grid-row:2}
-  .page.on{grid-column:2;grid-row:3}
-  .foot{grid-column:1/-1}
-  .home-top{grid-template-columns:minmax(200px,1.15fr) repeat(3,minmax(100px,max-content));flex:0 0 auto}
-  .home-top .score-card{grid-column:1;grid-row:1}
-  .home-bot{grid-template-columns:1.15fr .95fr .9fr;flex:1 1 auto}
-  .scripts{grid-template-columns:1fr 1fr 1fr}
-  .ringwrap{width:min(150px,22vh);height:min(150px,22vh)}
-}
-</style>
-</head>
-<body>
-<div class="w">
-  <div class="top glass">
-    <img class="av" src="/avatar.jpg" alt="">
-    <div style="flex:1">
-      <h1>Pi Node Controller PRO</h1>
-      <div class="sub">SoloHost · v2.6.55</div>
-    </div>
-    <span class="conn" id="conn">● Connected</span>
-    <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span>
-  </div>
-  <div class="nav">
-    <button type="button" class="on" data-page="home">⌂ Home</button>
-    <button type="button" data-page="ai">AI Assistant</button>
-    <button type="button" data-page="set">⚙ Settings</button>
-  </div>
-  <div class="panel glass" id="alertPanel"></div>
-
-  <div class="page on" id="page-home">
-    <div class="home-top" id="homeTop">
-    <div class="card glass score-card tile" data-id="score" draggable="true">
-      <div class="grip">⠿ drag · dblclick stretch</div>
-      <h2>Node Performance Overview</h2>
-      <div class="score">
-        <div class="ringwrap">
-          <svg viewBox="0 0 100 100" aria-hidden="true">
-            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="8"/>
-            <circle id="scoreArc" cx="50" cy="50" r="42" fill="none" stroke="#16c60c" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 264"/>
-          </svg>
-          <div class="lab"><span>Node Score</span><b id="scoreVal">—</b><span id="availVal">Availability —</span></div>
-        </div>
-        <div class="exc" id="scoreTag">Collecting…</div>
-      </div>
-    </div>
-    <div class="grid3">
-      <div class="mini glass tile" data-id="state" draggable="true"><div class="ic">🧊</div><div class="k">Node State</div><div class="v" id="stSync">—</div><div class="s" id="stHealth">—</div></div>
-      <div class="mini glass tile" data-id="cons" draggable="true"><div class="ic">⚙</div><div class="k">Consensus</div><div class="v" id="stCons">—</div><div class="s" id="stSrc">source</div></div>
-      <div class="mini glass tile" data-id="peers" draggable="true"><div class="ic">👥</div><div class="k">Peers</div><div class="v" id="stPeers">—</div><div class="s">in / out</div></div>
-    </div>
-    </div>
-    <div class="card glass tile" data-id="res" draggable="true">
-      <div class="grip">⠿ drag</div>
-      <h2>Live metrics (only fields we have)</h2>
-      <div class="res" id="resBox"></div>
-    </div>
-    <div class="home-bot">
-    <div class="card glass tile" data-id="chart" draggable="true">
-      <h2>Availability trend</h2>
-      <div class="chartbox"><svg id="healthSvg" viewBox="0 0 240 72" preserveAspectRatio="none"></svg></div>
-    </div>
-    <div class="card glass info tile" data-id="info" draggable="true">
-      <h2>Detailed Pi Node Information</h2>
-      <div id="s"></div>
-    </div>
-    <div class="card glass log tile" data-id="log" draggable="true">
-      <h2>Activity</h2>
-      <div class="item" id="actLine">Waiting for telemetry…</div>
-    </div>
-    </div>
-    <p class="hint dock">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
-  </div>
-
-  <div class="page" id="page-ai">
-    <div class="card glass">
-      <h2>Pi Node Maintenance Scripts</h2>
-      <div class="scripts" id="abar">
-        <button type="button" data-dl="/actions/CleanRAM.bat">Optimize RAM</button>
-        <button type="button" data-dl="/actions/DnsFlush.bat">Flush DNS</button>
-        <button type="button" data-dl="/actions/Firewall.bat">Firewall</button>
-        <button type="button" data-dl="/actions/NetRepair.bat">Net Repair</button>
-        <button type="button" data-dl="/actions/LanSetup.bat">LAN Setup</button>
-        <button type="button" data-dl="/actions/NodeReset.bat">Reset Node</button>
-        <button type="button" data-dl="/actions/DockerRecover.bat">Repair Docker</button>
-        <button type="button" data-dl="/actions/Maintain.bat">Maintain</button>
-      </div>
-    </div>
-    <div class="card glass">
-      <h2>AI Assistant Chat</h2>
-      <div id="chatbox"></div>
-      <div class="qbar" id="qbar">
-        <button type="button" data-cmd="/help">HELP</button>
-        <button type="button" data-cmd="/status">STATUS</button>
-        <button type="button" data-cmd="/report">REPORT</button>
-        <button type="button" data-cmd="/peers">PEERS</button>
-        <button type="button" data-cmd="/diagnostic">DIAG</button>
-        <button type="button" data-cmd="/analyze">ANALYZE</button>
-        <button type="button" data-cmd="/logs">LOGS</button>
-        <button type="button" data-cmd="/donate">DONATE</button>
-      </div>
-      <p class="hint dock">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
-      <div class="bar">
-        <input id="inp" type="text" placeholder="Ask me anything…" autocomplete="off" maxlength="2000">
-        <button id="send" type="button">➤</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="page" id="page-set">
-    <div class="card glass">
-      <h2>Wallpaper</h2>
-      <p class="hint">Glass cards stay transparent so the background shows through.</p>
-      <div class="bgbar">
-        <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
-        <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
-        <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
-        <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
-      </div>
-    </div>
-    <div class="card glass">
-      <h2>About</h2>
-      <div class="row"><span class="k">App</span><span class="val">SoloHost v2.6.55</span></div>
-      <div class="row"><span class="k">Style</span><span class="val">Windows 10 Fluent · fill window</span></div>
-    </div>
-    <p class="hint dock">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
-  </div>
-  <p class="foot">Telegram for remote status · Docker only via this SoloHost UI</p>
-</div>
-
-<div class="modal" id="dkModal" role="dialog" aria-modal="true">
-  <div class="box">
-    <h3>Optional Docker Access — Terms</h3>
-    <div class="terms" id="termsBox"></div>
-    <div class="footbar">
-      <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read the full terms</label>
-      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms and understand this is my Operator choice on this machine</label>
-      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm — write compose</button>
-      <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<script>
-const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
-
-What this is
-This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.
-
-SoloHost default permissions
-Sandbox: CPU and memory, one localhost port, the app data folder, outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring (Horizon, ports, reports, AI chat).
-
-What you grant if you Confirm
-• The app may overwrite docker-compose.yml in this app folder to mount /var/run/docker.sock read-only.
-• The app may list containers and run limited read/exec commands for node status.
-• A higher privilege level than the default sandbox.
-
-What we do not claim
-• No access to your Pi wallet or keys.
-• No guarantee of host security after you enable elevated access.
-• The publisher does not operate your Docker daemon.
-
-Your responsibility (Operator)
-Under SoloHost Terms you decide permissions on this machine. By confirming you accept:
-1) docker.sock is powerful and may expose Docker on this PC.
-2) Risk of optional diagnostics is yours.
-3) You can disable later and remove the socket volume, then Stop → Start.
-4) Pi Network, SoloHost, and the publisher are not responsible for damage, data loss, or misuse from elevated access you enable.
-
-Purpose of the app
-Provide the best monitoring help within clear limits. Docker access is optional, user-controlled, and never required for core features.
-
-After Confirm
-SoloHost UI: press Stop, then Start the app again so the new compose applies.
-
-Confirm only if you accept these terms in full.`;
-
-const box=document.getElementById('chatbox');
-const termsBox=document.getElementById('termsBox');
-termsBox.textContent=TERMS;
-
-document.querySelectorAll('.nav button').forEach(function(b){
-  b.onclick=function(){
-    document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('on'));
-    b.classList.add('on');
-    document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
-    document.getElementById('page-'+b.getAttribute('data-page')).classList.add('on');
-  };
-});
-
-function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
-
-function setupTermsScroll(){
-  const read=document.getElementById('dkRead');
-  const agree=document.getElementById('dkAgree');
-  const conf=document.getElementById('dkConfirm');
-  function refresh(){conf.disabled=!(read.checked&&agree.checked);}
-  read.onchange=refresh;agree.onchange=refresh;
-  termsBox.onscroll=function(){
-    const el=termsBox;
-    if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){ read.disabled=false; }
-  };
-  setTimeout(function(){
-    if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
-  },400);
+  --bg:#f6f8fb;
+  --card:#ffffff;
+  --border:#e4e7ec;
+  --title:#101828;
+  --text:#344054;
+  --muted:#667085;
+  --blue:#2e90fa;
+  --green:#12b76a;
+  --purple:#7a5af8;
+  --red:#f97066;
 }
 
-function setArc(id,pct,maxDash){
-  const el=document.getElementById(id); if(!el)return;
-  const p=Math.max(0,Math.min(100,Number(pct)||0));
-  el.setAttribute('stroke-dasharray', (p/100*maxDash).toFixed(1)+' '+maxDash);
+body{
+  background:var(--bg) !important;
+  color:var(--text) !important;
+  padding:0 !important;
 }
 
-function loadStatus(){
-  return fetch('/api/status').then(r=>r.json()).then(function(t){
-    const rows=[];
-    const addR=(k,v)=>{if(v!=null&&v!=='')rows.push('<div class="row"><span class="k">'+k+'</span><span class="val">'+String(v)+'</span></div>');};
-    addR('Sync',t.sync);
-    addR('Ledger',t.ledger!=null?Number(t.ledger).toLocaleString('en-US'):null);
-    addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
-    addR('Source',t.source||null);
-    addR('Horizon',t.horizon_version||null);
-    addR('Core',t.core_version||null);
-    addR('Protocol',t.protocol||null);
-    addR('Ingest lag',t.ingest_lag!=null?t.ingest_lag:null);
-    addR('Peers',t.peers!=null?t.peers:((t.peer_in!=null||t.peer_out!=null)?((t.peer_in??0)+' / '+(t.peer_out??0)):null));
-    addR('Health',t.health!=null?t.health+'/100':'');
-    document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
-
-    const health=t.health!=null?Number(t.health):(t.ledger&&t.sync?88:null);
-    document.getElementById('scoreVal').textContent=health!=null?health.toFixed(health%1?2:0)+' / 100':'—';
-    document.getElementById('availVal').textContent=health!=null?('Availability '+health.toFixed(2)+'%'):'Availability —';
-    setArc('scoreArc', health||0, 264);
-    const live=/horizon live|synced|ok/i.test(String(t.sync||''));
-    const catchup=/catch|behind|slow|lag/i.test(String(t.sync||''));
-    document.getElementById('scoreTag').textContent=live?'Excellent':(catchup?'Watching catch-up':'Collecting');
-    document.getElementById('scoreArc').setAttribute('stroke', live?'#16c60c':(catchup?'#ffb900':'#4cc2ff'));
-
-    document.getElementById('stSync').textContent=t.sync||'—';
-    document.getElementById('stHealth').textContent=t.core_verified?'core verified':(t.source||'horizon');
-    document.getElementById('stCons').textContent=(t.fsm||t.verification&&t.verification.consensus)||(t.source||'—');
-    document.getElementById('stSrc').textContent=t.source||'source';
-    const pin=t.peer_in, pout=t.peer_out;
-    document.getElementById('stPeers').textContent=(pin!=null||pout!=null)?((pin??'—')+' / '+(pout??'—')):(t.peers!=null?t.peers:'—');
-
-    const cpu=t.container_cpu!=null?t.container_cpu:(t.cpu!=null?t.cpu:null);
-    const ram=t.container_ram!=null?t.container_ram:(t.ram!=null?t.ram:null);
-    const disk=t.disk!=null?t.disk:null;
-    const ports=t.ports_open!=null?t.ports_open:(t.ports&&typeof t.ports==='object'?Object.keys(t.ports).length:null);
-    const mets=[];
-    function chip(label,val,ok){ mets.push('<div class="met'+(ok?'':' off')+'"><b>'+val+'</b><span>'+label+'</span></div>'); }
-    if(cpu!=null) chip('CPU',Math.round(cpu)+'%',true);
-    if(ram!=null) chip('RAM',Math.round(ram)+'%',true);
-    if(disk!=null) chip('Disk',Math.round(disk)+'%',true);
-    if(t.ledger_age!=null) chip('Ledger age',t.ledger_age+'s',true);
-    if(t.ingest_lag!=null) chip('Ingest lag',String(t.ingest_lag),true);
-    if(ports!=null) chip('Ports',String(ports)+' open',true);
-    if(t.ledger!=null) chip('Ledger',Number(t.ledger).toLocaleString('en-US'),true);
-    if(!mets.length) chip('Metrics','waiting',false);
-    document.getElementById('resBox').innerHTML=mets.join('');
-
-    document.getElementById('actLine').textContent=
-      new Date().toISOString().replace('T',' ').slice(11,19)+' · '+(t.sync||'?')+' · ledger '+(t.ledger!=null?t.ledger:'?');
-    document.getElementById('conn').textContent='● Connected';
-    try{
-      const key='pinode_health_hist';
-      let hist=[];
-      try{ hist=JSON.parse(localStorage.getItem(key)||'[]'); }catch(e){ hist=[]; }
-      if(health!=null){
-        hist.push({t:Date.now(),v:Number(health)});
-        const cut=Date.now()-24*3600*1000;
-        hist=hist.filter(function(p){return p.t>=cut;});
-        if(hist.length>96) hist=hist.slice(-96);
-        localStorage.setItem(key, JSON.stringify(hist));
-      }
-      const svg=document.getElementById('healthSvg');
-      if(svg && hist.length){
-        const w=240,h=72,pad=4;
-        const min=0,max=100;
-        const pts=hist.map(function(p,i){
-          const x=pad+(hist.length===1?w/2:(i/(hist.length-1))*(w-pad*2));
-          const y=h-pad-((p.v-min)/(max-min))*(h-pad*2);
-          return x.toFixed(1)+','+y.toFixed(1);
-        });
-        const last=hist[hist.length-1].v;
-        svg.innerHTML='<polyline fill="none" stroke="#7CFF9A" stroke-width="2" points="'+pts.join(' ')+'"/>'+
-          '<text x="'+(w-4)+'" y="12" text-anchor="end" fill="#9fef9a" font-size="10">'+last.toFixed(1)+'%</text>';
-      }
-    }catch(e){}
-  }).catch(function(){
-    document.getElementById('s').textContent='Status error';
-    document.getElementById('conn').textContent='○ Offline';
-  });
-}
-async function send(){
-  const inp=document.getElementById('inp');let msg=(inp.value||'').trim();if(!msg)return;
-  if(msg.length>2000)msg=msg.slice(0,2000);
-  inp.value='';
-  add('user',msg);add('bot','…');
-  try{
-    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
-    const j=await r.json();
-    box.lastChild.textContent=j.reply||j.error||'No reply';
-    if(j.images&&j.images.length){
-      const wrap=document.createElement('div');
-      wrap.className='msg bot';
-      wrap.style.textAlign='center';
-      j.images.forEach(function(src){
-        const im=document.createElement('img');
-        im.src=src; im.alt='QR'; im.style.maxWidth='46%'; im.style.margin='4px'; im.style.borderRadius='8px';
-        wrap.appendChild(im);
-      });
-      box.appendChild(wrap); box.scrollTop=box.scrollHeight;
-    }
-  }catch(e){box.lastChild.textContent='Chat error';}
+.w{
+  max-width:none !important;
+  width:100% !important;
+  height:100vh !important;
+  padding:16px !important;
 }
 
-function openDockerTerms(){
-  document.getElementById('dkRead').checked=false;
-  document.getElementById('dkAgree').checked=false;
-  document.getElementById('dkRead').disabled=true;
-  document.getElementById('dkAgree').disabled=false;
-  document.getElementById('dkConfirm').disabled=true;
-  document.getElementById('dkModal').classList.add('on');
-  termsBox.scrollTop=0;
-  setupTermsScroll();
+.glass{
+  background:var(--card) !important;
+  border:1px solid var(--border) !important;
+  border-radius:16px !important;
+
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+
+  box-shadow:
+  0 1px 3px rgba(16,24,40,.08),
+  0 4px 12px rgba(16,24,40,.05) !important;
 }
-document.querySelectorAll('.dkTip').forEach(function(el){ el.onclick=openDockerTerms; });
-document.getElementById('dkCancel').onclick=function(){
-  document.getElementById('dkModal').classList.remove('on');
-};
-document.getElementById('dkConfirm').onclick=async function(){
-  if(document.getElementById('dkConfirm').disabled)return;
-  document.getElementById('dkModal').classList.remove('on');
-  add('bot','…');
-  try{
-    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
-    const j=await r.json();
-    if(!j.ok){box.lastChild.textContent=j.error||'Failed';return;}
-    box.lastChild.textContent=j.wrote_host
-      ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: press Stop, then Start the app again.'
-      : (j.hint||'Saved. SoloHost: Stop → Start if compose updated.');
-  }catch(e){box.lastChild.textContent='Network error';}
-};
-document.getElementById('dkAgree').onchange=function(){
-  document.getElementById('dkConfirm').disabled=!(document.getElementById('dkRead').checked&&document.getElementById('dkAgree').checked);
-};
 
-const ACT={
- '/actions/CleanRAM.bat':'Optimize RAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
- '/actions/CleanRam.bat':'Optimize RAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
- '/actions/DnsFlush.bat':'Flush DNS\nWhat: Refresh Windows DNS cache.\nWhen: Peers drop while ports stay open.',
- '/actions/Firewall.bat':'Firewall\nWhat: Open TCP 31401-31410 on Windows Firewall.\nWhen: Local Pi ports stay closed.',
- '/actions/NetRepair.bat':'Net Repair\nWhat: Repair internet while keeping the current LAN IP.\nWhen: Horizon or internet is down for a long time.',
- '/actions/LanSetup.bat':'LAN Setup\nWhat: Lock the current LAN IP as static + open Pi ports.\nWhen: First setup on this PC.',
- '/actions/NodeReset.bat':'Reset Node\nWhat: Restart the Pi container only.\nWhen: The container is stuck and Docker Engine is healthy.',
- '/actions/DockerRecover.bat':'Repair Docker\nWhat: Restart Docker Desktop safely.\nWhen: Docker Engine itself is down.',
- '/actions/Maintain.bat':'Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
-};
-document.getElementById('abar').addEventListener('click',function(e){
-  const b=e.target.closest('button[data-dl]'); if(!b)return;
-  const href=b.getAttribute('data-dl');
-  add('bot', (ACT[href]||'Download repair BAT')+'\n\nSaving: '+href);
-  const a=document.createElement('a'); a.href=href; a.download=''; document.body.appendChild(a); a.click(); a.remove();
-});
-document.getElementById('qbar').addEventListener('click',function(e){
-  const b=e.target.closest('button[data-cmd]');
-  if(!b)return;
-  document.getElementById('inp').value=b.getAttribute('data-cmd');
-  send();
-});
-document.getElementById('send').onclick=send;
-document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+/* HEADER */
 
-const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")',pi:'url("/bg-pi.jpg")'};
-function applyBg(kind, custom){
-  const root=document.documentElement;
-  if(kind==='custom' && custom){ root.style.setProperty('--bg-image','url("'+custom+'")'); }
-  else { root.style.setProperty('--bg-image', BG[kind]||BG.cave); kind = BG[kind]?kind:'cave'; }
-  document.querySelectorAll('.bgbar button').forEach(b=>b.classList.toggle('on', b.getAttribute('data-bg')===kind));
-  try{ localStorage.setItem('pinode_bg', JSON.stringify({kind, custom: kind==='custom'?custom:''})); }catch(e){}
+.top{
+  height:68px !important;
+  padding:12px 20px !important;
 }
-try{
-  const saved=JSON.parse(localStorage.getItem('pinode_bg')||'{}');
-  applyBg(saved.kind||'cave', saved.custom||'');
-}catch(e){ applyBg('cave'); }
-document.getElementById('bgCave').onclick=()=>applyBg('cave');
-document.getElementById('bgClassic').onclick=()=>applyBg('classic');
-document.getElementById('bgPi').onclick=()=>applyBg('pi');
-document.getElementById('bgFile').onchange=function(){
-  const f=this.files&&this.files[0]; if(!f)return;
-  if(f.size>2500000){ add('bot','🌄 Wallpaper too large (max 2.5 MB).'); return; }
-  const r=new FileReader();
-  r.onload=()=>applyBg('custom', r.result);
-  r.readAsDataURL(f);
-};
 
-async function loadAlerts(){
-  try{
-    const j=await fetch('/api/alerts').then(r=>r.json());
-    const n=j.unread||0;
-    const badge=document.getElementById('badge');
-    badge.textContent=n; badge.style.display=n?'inline-block':'none';
-    const pan=document.getElementById('alertPanel');
-    if(!j.items||!j.items.length){pan.innerHTML='🔔 No action alerts.';return;}
-    pan.innerHTML=j.items.map(function(it){
-      return '<div class="item">'+(it.ts||'').replace('T',' ').slice(0,16)+'\n'+(it.text||'')+(it.tip?'\n💡 '+it.tip:'')+(it.scripts?'\n🛠️ '+it.scripts:'')+'</div>';
-    }).join('');
-  }catch(e){}
+.top h1{
+  font-size:20px !important;
+  font-weight:700 !important;
+  color:var(--title) !important;
+  text-shadow:none !important;
 }
-document.getElementById('bell').onclick=async function(){
-  const pan=document.getElementById('alertPanel');
-  pan.classList.toggle('on');
-  if(pan.classList.contains('on')){
-    try{ await fetch('/api/alerts',{method:'POST'}); }catch(e){}
-    document.getElementById('badge').style.display='none';
-    loadAlerts();
-  }
-};
-loadAlerts();setInterval(loadAlerts,20000);
-loadStatus();setInterval(loadStatus,15000);
 
-(function(){
-  let dragEl=null;
-  document.addEventListener('dragstart',function(e){
-    const t=e.target.closest('.tile'); if(!t)return;
-    dragEl=t; e.dataTransfer.effectAllowed='move';
-  });
-  document.addEventListener('dragover',function(e){
-    if(dragEl && e.target.closest('.tile')) e.preventDefault();
-  });
-  document.addEventListener('drop',function(e){
-    const dest=e.target.closest('.tile'); if(!dragEl||!dest||dest===dragEl)return;
-    e.preventDefault();
-    const p=dest.parentNode;
-    if(p!==dragEl.parentNode) return;
-    p.insertBefore(dragEl, dest);
-    dragEl=null;
-  });
-  document.addEventListener('dblclick',function(e){
-    const t=e.target.closest('.tile'); if(!t)return;
-    t.classList.toggle('wide');
-  });
-})();
-</script>
-</body>
-</html>
+.sub{
+  font-size:13px !important;
+  color:var(--muted) !important;
+}
+
+.top img.av{
+  width:46px !important;
+  height:46px !important;
+}
+
+.conn{
+  color:var(--green) !important;
+  font-size:15px !important;
+}
+
+.bell{
+  color:#344054 !important;
+  background:white !important;
+  border:1px solid var(--border) !important;
+}
+
+/* SIDEBAR */
+
+.nav{
+  gap:12px !important;
+}
+
+.nav button{
+  height:52px !important;
+  border-radius:12px !important;
+  background:#fff !important;
+  border:1px solid var(--border) !important;
+  color:#344054 !important;
+  font-size:16px !important;
+  font-weight:500 !important;
+}
+
+.nav button.on{
+  background:#f2f4f7 !important;
+  border-left:4px solid var(--blue) !important;
+  color:#101828 !important;
+}
+
+/* CARDS */
+
+.card{
+  padding:20px !important;
+  border-radius:16px !important;
+}
+
+.card h2{
+  font-size:15px !important;
+  font-weight:600 !important;
+  color:#344054 !important;
+  letter-spacing:0 !important;
+  text-transform:none !important;
+}
+
+/* ===== DASHBOARD TOP ===== */
+
+.home-top{
+  grid-template-columns:40% 20% 20% 20% !important;
+  gap:16px !important;
+}
+
+/* NODE SCORE */
+
+.score-card{
+  height:275px !important;
+}
+
+.ringwrap{
+  width:260px !important;
+  height:260px !important;
+}
+
+.ringwrap .lab b{
+  font-size:52px !important;
+  font-weight:700 !important;
+  color:#101828 !important;
+}
+
+.ringwrap .lab span{
+  font-size:16px !important;
+  color:#667085 !important;
+}
+
+.exc{
+  font-size:16px !important;
+  font-weight:700 !important;
+  color:var(--green) !important;
+}
+
+/* STATE */
+
+.mini{
+  height:275px !important;
+
+  align-items:flex-start !important;
+  justify-content:center !important;
+  text-align:left !important;
+
+  padding:24px !important;
+
+  border-radius:16px !important;
+}
+
+.mini .ic{
+  font-size:48px !important;
+  margin-bottom:18px !important;
+}
+
+.mini .k{
+  color:#667085 !important;
+  font-size:14px !important;
+}
+
+.mini .v{
+  font-size:36px !important;
+  font-weight:700 !important;
+  color:#101828 !important;
+}
+
+.mini .s{
+  font-size:15px !important;
+  color:#667085 !important;
+}
+
+/* SYSTEM RESOURCES */
+
+.res{
+  display:grid !important;
+  grid-template-columns:repeat(4,1fr) !important;
+  gap:20px !important;
+}
+
+.res .met{
+  height:150px !important;
+  border-radius:14px !important;
+
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:center !important;
+  justify-content:center !important;
+
+  background:#fff !important;
+  border:1px solid var(--border) !important;
+}
+
+.res .met b{
+  font-size:42px !important;
+  font-weight:700 !important;
+  color:#101828 !important;
+}
+
+.res .met span{
+  font-size:16px !important;
+  color:#667085 !important;
+}
+
+/* BOTTOM DASHBOARD */
+
+.home-bot{
+  grid-template-columns:42% 28% 30% !important;
+  gap:16px !important;
+}
+
+.home-bot .card{
+  min-height:200px !important;
+}
+
+.chartbox{
+  height:160px !important;
+}
+
+.info .row{
+  height:34px !important;
+  align-items:center !important;
+  font-size:14px !important;
+}
+
+.log .item{
+  font-size:14px !important;
+  line-height:28px !important;
+}
+
+/* AI PAGE */
+
+.scripts{
+  grid-template-columns:1fr 1fr 1fr !important;
+  gap:16px !important;
+}
+
+.scripts button{
+  height:76px !important;
+
+  border-radius:14px !important;
+
+  background:#f8fafc !important;
+
+  border:1px solid var(--border) !important;
+
+  color:#101828 !important;
+
+  font-size:18px !important;
+
+  font-weight:600 !important;
+}
+
+.scripts button:hover{
+  background:#eef6ff !important;
+}
+
+/* CHAT */
+
+#chatbox{
+  height:400px !important;
+
+  background:#fff !important;
+
+  border:1px solid var(--border) !important;
+
+  border-radius:16px !important;
+
+  color:#101828 !important;
+}
+
+.msg.user{
+  background:#eaf3ff !important;
+  color:#101828 !important;
+}
+
+.msg.bot{
+  background:#fff !important;
+
+  color:#101828 !important;
+
+  border:1px solid var(--border) !important;
+}
+
+.bar input{
+  height:56px !important;
+  font-size:16px !important;
+  border-radius:14px !important;
+
+  border:1px solid var(--border) !important;
+
+  background:#fff !important;
+
+  color:#101828 !important;
+}
+
+.bar button{
+  width:56px !important;
+  height:56px !important;
+  border-radius:14px !important;
+}
+
+/* DESKTOP LAYOUT */
+
+@media(min-width:880px){
+
+.w{
+  display:grid !important;
+
+  grid-template-columns:190px 1fr !important;
+
+  grid-template-rows:68px auto 1fr 30px !important;
+
+  gap:16px !important;
+}
+
+.top{
+  grid-column:1/-1;
+}
+
+.nav{
+  grid-column:1;
+  grid-row:2/4;
+
+  flex-direction:column;
+}
+
+.panel{
+  grid-column:2;
+  grid-row:2;
+}
+
+.page.on{
+  grid-column:2;
+  grid-row:3;
+}
+
+.foot{
+  grid-column:1/-1;
+}
+
+}
