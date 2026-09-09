@@ -3,23 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Pi Node Controller PRO</title>
+<title>PiNode Telegram Controller PRO Official</title>
 <style>
 :root {
-  /* Translucent Glass Palette - Windows 11 Fluent Acrylic */
-  --bg-gradient: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 50%, #94a3b8 100%);
-  --glass-card: rgba(255, 255, 255, 0.72);
-  --glass-card-hover: rgba(255, 255, 255, 0.85);
-  --glass-border: rgba(255, 255, 255, 0.8);
-  --glass-blur: blur(20px) saturate(180%);
-  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  /* Dynamic Deep Purple Glassmorphism Theme (Chuẩn ảnh 3 & Pi Desktop UI) */
+  --bg-gradient: radial-gradient(circle at 50% 15%, #3d1550 0%, #1e092b 55%, #0d0214 100%);
+  --app-shell-bg: #09020e;
+  --bar-bg: rgba(18, 5, 26, 0.85);
+  --sidebar-bg: rgba(36, 12, 50, 0.55);
+  --card-bg: rgba(48, 16, 66, 0.45);
+  --card-hover: rgba(62, 22, 84, 0.65);
+  --card-border: rgba(192, 132, 252, 0.22);
+  --card-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
   
-  --text-main: #0f172a;
-  --text-sub: #64748b;
-  --win-blue: #0078d4;
-  --ok-green: #10b981;
-  --purple-accent: #8b5cf6;
-  --warn-red: #ef4444;
+  --text-main: #ffffff;
+  --text-sub: #b39dbd;
+  --text-muted: #80678a;
+  
+  --purple-accent: #a855f7;
+  --purple-light: #c084fc;
+  --ok-green: #34d399;
+  --blue-accent: #38bdf8;
+  --warn-red: #f87171;
+  --amber-accent: #fbbf24;
 }
 
 * {
@@ -27,79 +33,195 @@
   margin: 0;
   padding: 0;
   user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 html, body {
   width: 100vw;
   height: 100vh;
-  overflow: hidden; /* Strict NO SCROLLBAR on outer container */
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  overflow: hidden;
+  background: var(--bg-gradient);
   color: var(--text-main);
-  background: var(--bg-image, var(--bg-gradient));
-  background-size: cover;
-  background-position: center;
 }
 
-/* Master Grid Layout */
+/* Master Grid Structure */
 .app-container {
+  display: flex;
   width: 100vw;
   height: 100vh;
-  display: grid;
-  grid-template-columns: 230px 1fr;
-  grid-template-rows: 46px 1fr 22px;
-  gap: 10px;
-  padding: 10px;
+  background: var(--app-shell-bg);
+  position: relative;
 }
 
-/* Glassmorphic Components */
-.glass {
-  background: var(--glass-card);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  box-shadow: var(--glass-shadow);
-}
-
-/* Sidebar Navigation */
-.sidebar {
-  grid-column: 1;
-  grid-row: 1 / 3;
+/* 1. KHUNG APP DỌC BÊN TRÁI (FAR-LEFT VERTICAL PI DESKTOP BAR) */
+.far-left-bar {
+  width: 44px;
+  height: 100%;
+  background: rgba(12, 3, 18, 0.95);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
-  padding: 12px;
+  align-items: center;
+  padding: 10px 0;
   gap: 12px;
+  z-index: 50;
+  flex-shrink: 0;
 }
 
-.brand {
+.far-left-bar .icon-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-sub);
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.far-left-bar .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.far-left-bar .icon-btn.active {
+  color: var(--purple-light);
+  background: rgba(168, 85, 247, 0.25);
+  border: 1px solid rgba(192, 132, 252, 0.4);
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+}
+
+/* 2. MAIN WINDOW FRAME */
+.main-window {
+  flex: 1;
+  display: grid;
+  grid-template-rows: 32px 1fr 24px;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-gradient);
+  background-size: cover;
+  background-position: center;
+  position: relative;
+}
+
+/* Top Window Title Bar */
+.window-titlebar {
+  grid-row: 1;
+  background: var(--bar-bg);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-size: 0.72rem;
+  z-index: 30;
+}
+
+.title-text {
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: 0.2px;
+}
+
+.window-nav-links {
+  display: flex;
+  gap: 16px;
+  color: var(--text-sub);
+  font-size: 0.7rem;
+}
+
+.window-nav-links span {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.window-nav-links span:hover {
+  color: #fff;
+}
+
+.window-nav-links span.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.window-controls {
+  display: flex;
+  gap: 12px;
+  color: var(--text-sub);
+  font-size: 0.75rem;
+}
+
+.window-controls span {
+  cursor: pointer;
+}
+
+.window-controls span:hover {
+  color: #fff;
+}
+
+/* Dashboard Workspace Body */
+.workspace-body {
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: 10px;
+  padding: 10px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Glassmorphism Sidebar */
+.nav-sidebar {
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--card-glow);
+}
+
+.sidebar-profile {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.brand img {
-  width: 38px;
-  height: 38px;
+.sidebar-profile img {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
+  border: 1.5px solid var(--purple-accent);
   object-fit: cover;
 }
 
-.brand-info .title {
+.profile-info .title {
+  font-size: 0.85rem;
   font-weight: 700;
-  font-size: 0.88rem;
+  color: #fff;
 }
 
-.brand-info .ver {
-  font-size: 0.68rem;
+.profile-info .subtitle {
+  font-size: 0.65rem;
   color: var(--text-sub);
 }
 
-.nav {
+.nav-menu {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  margin-top: 12px;
   flex: 1;
 }
 
@@ -107,64 +229,83 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
   padding: 9px 12px;
   border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-main);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 600;
+  color: var(--text-sub);
+  background: transparent;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: left;
 }
 
 .nav-btn:hover {
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .nav-btn.active {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(0, 120, 212, 0.2);
-  color: var(--win-blue);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.45) 0%, rgba(147, 51, 234, 0.2) 100%);
+  border: 1px solid rgba(192, 132, 252, 0.4);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2);
 }
 
-.sys-box {
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.4);
-  border-radius: 8px;
-  font-size: 0.68rem;
+.sidebar-system-box {
+  font-size: 0.65rem;
   color: var(--text-sub);
+  border-top: 1px dashed rgba(255, 255, 255, 0.12);
+  padding-top: 10px;
+  line-height: 1.4;
+}
+
+/* Dynamic Pages Stack */
+.pages-container {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
-/* Header Bar */
-.header {
-  grid-column: 2;
-  grid-row: 1;
+.page-view {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.page-view.active {
+  display: flex;
+}
+
+/* Header inside Pages */
+.view-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 4px;
 }
 
-.header h1 {
-  font-size: 1.05rem;
+.view-header h2 {
+  font-size: 1.1rem;
   font-weight: 700;
   letter-spacing: -0.2px;
+  color: #fff;
 }
 
-.header-right {
+.view-header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   font-size: 0.78rem;
 }
 
-.status-dot {
+.status-connected {
   color: var(--ok-green);
   font-weight: 600;
   display: flex;
@@ -172,83 +313,90 @@ html, body {
   gap: 6px;
 }
 
-.bell-btn {
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
+.status-connected::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok-green);
+  box-shadow: 0 0 8px var(--ok-green);
 }
 
-.user-profile {
+.user-badge {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-weight: 600;
 }
 
-.user-profile img {
-  width: 26px;
-  height: 26px;
+.user-badge img {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
 }
 
-/* Page Views Stack */
-.page-view {
-  grid-column: 2;
-  grid-row: 2;
-  display: none;
-  flex-direction: column;
-  gap: 10px;
-  height: 100%;
-  min-height: 0; /* Prevents overflow */
-}
-
-.page-view.active {
-  display: flex;
-}
-
-/* Card General Styling */
-.card {
-  padding: 12px 14px;
+/* Glass Panels (Standardized with Image 1 & 2 ratios) */
+.glass-panel {
+  background: var(--card-bg);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow: var(--card-glow);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: border-color 0.2s ease;
 }
 
-.card-title {
-  font-size: 0.75rem;
+.glass-panel:hover {
+  border-color: rgba(192, 132, 252, 0.35);
+}
+
+.panel-title {
+  font-size: 0.7rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
   color: var(--text-sub);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-/* --- HOME PAGE GRID --- */
-.home-top-row {
+/* PAGE 1: HOME DASHBOARD GRID */
+.home-layout {
+  display: grid;
+  grid-template-rows: 1.15fr 0.9fr 1.25fr;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Top Row: 4 Equal/Proportional Cards */
+.top-row-grid {
   display: grid;
   grid-template-columns: 1.3fr 1fr 1fr 1fr;
   gap: 10px;
-  height: 38%;
+  min-height: 0;
 }
 
-.score-card {
+.score-panel {
   align-items: center;
   justify-content: center;
   text-align: center;
 }
 
-.ring-container {
+.ring-box {
   position: relative;
-  width: 100px;
-  height: 100px;
+  width: 82px;
+  height: 82px;
   margin: 2px 0;
 }
 
-.ring-container svg {
+.ring-box svg {
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
@@ -263,66 +411,62 @@ html, body {
   justify-content: center;
 }
 
-.ring-text .big {
-  font-size: 1.15rem;
+.ring-text .big-val {
+  font-size: 1.1rem;
   font-weight: 800;
-  color: var(--text-main);
+  color: #fff;
   line-height: 1;
 }
 
-.ring-text .sub {
-  font-size: 0.62rem;
+.ring-text .sub-lbl {
+  font-size: 0.58rem;
   color: var(--text-sub);
   margin-top: 2px;
 }
 
-.score-badge {
-  font-size: 0.65rem;
+.badge-excellent {
+  background: rgba(52, 211, 153, 0.18);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  color: var(--ok-green);
+  font-size: 0.62rem;
   font-weight: 700;
-  color: #047857;
-  background: #d1fae5;
   padding: 2px 10px;
   border-radius: 12px;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
-/* Status Cards (State, Consensus, Peers) */
-.status-card {
-  justify-content: space-between;
+.status-card-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #fff;
+  margin-top: 2px;
+}
+
+.status-card-sub {
+  font-size: 0.66rem;
+  color: var(--text-sub);
 }
 
 .icon-box {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: rgba(0, 120, 212, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.1rem;
+  margin-bottom: 4px;
 }
 
-.status-val {
-  font-size: 1.15rem;
-  font-weight: 800;
-  margin-top: 4px;
-}
-
-.status-sub {
-  font-size: 0.68rem;
-  color: var(--text-sub);
-}
-
-/* Resource Meters Row */
-.resources-card {
-  height: 25%;
+/* Middle Row: System Resources (4 Circular Meters) */
+.resources-panel {
   justify-content: center;
 }
 
 .meters-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 10px;
   height: 100%;
   align-items: center;
 }
@@ -336,37 +480,35 @@ html, body {
 }
 
 .meter-svg {
-  width: 62px;
-  height: 62px;
+  width: 58px;
+  height: 58px;
   transform: rotate(-90deg);
 }
 
 .meter-val {
   position: absolute;
-  top: 42%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 0.85rem;
+  top: 36%;
+  font-size: 0.82rem;
   font-weight: 800;
+  color: #fff;
 }
 
 .meter-lbl {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   color: var(--text-sub);
   font-weight: 600;
   margin-top: 2px;
 }
 
-/* Bottom Row */
-.home-bot-row {
+/* Bottom Row: 3 Columns Grid */
+.bot-row-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr 1fr;
   gap: 10px;
-  flex: 1;
   min-height: 0;
 }
 
-.chart-box {
+.chart-wrapper {
   width: 100%;
   height: 100%;
   display: flex;
@@ -375,17 +517,22 @@ html, body {
 
 .info-table {
   width: 100%;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   border-collapse: collapse;
 }
 
+.info-table tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .info-table td {
-  padding: 3px 0;
-  border-bottom: 1px dashed rgba(0,0,0,0.06);
+  padding: 4px 0;
+  color: var(--text-sub);
 }
 
 .info-table td:last-child {
   text-align: right;
+  color: #fff;
   font-weight: 700;
 }
 
@@ -400,45 +547,60 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   padding: 3px 0;
-  border-bottom: 1px dashed rgba(0,0,0,0.05);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
+.log-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-sub);
 }
 
 .log-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--ok-green);
-  display: inline-block;
-  margin-right: 6px;
+  box-shadow: 0 0 6px var(--ok-green);
 }
 
-/* --- AI ASSISTANT PAGE GRID --- */
+/* PAGE 2: AI ASSISTANT LAYOUT */
+.ai-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
 .scripts-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
-  height: 30%;
 }
 
-.script-btn {
+.script-card-btn {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px;
+  padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  text-align: left;
 }
 
-.script-btn:hover {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: var(--win-blue);
+.script-card-btn:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: var(--purple-light);
   transform: translateY(-1px);
 }
 
@@ -452,8 +614,7 @@ html, body {
   font-size: 1rem;
 }
 
-/* Chat Layout */
-.chat-card {
+.chat-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -466,393 +627,583 @@ html, body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding-right: 4px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .chat-bubble {
   max-width: 80%;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 12px;
   font-size: 0.78rem;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .chat-bubble.user {
   align-self: flex-end;
-  background: #dbeafe;
-  color: #1e40af;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
   border-bottom-right-radius: 2px;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
 .chat-bubble.bot {
   align-self: flex-start;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--card-border);
+  color: #f1f5f9;
   border-bottom-left-radius: 2px;
-  border: 1px solid var(--glass-border);
 }
 
-.quick-bar {
+.quick-prompts {
   display: flex;
   gap: 6px;
   margin-bottom: 8px;
   overflow-x: auto;
+  padding-bottom: 2px;
 }
 
 .quick-btn {
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 14px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-sub);
   font-size: 0.68rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  transition: all 0.15s ease;
 }
 
-.chat-input-bar {
+.quick-btn:hover {
+  background: rgba(168, 85, 247, 0.25);
+  color: #fff;
+  border-color: var(--purple-light);
+}
+
+.chat-input-row {
   display: flex;
   gap: 8px;
 }
 
-.chat-input-bar input {
+.chat-input-row input {
   flex: 1;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--card-border);
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
   outline: none;
   font-size: 0.78rem;
 }
 
-.chat-input-bar button {
-  padding: 8px 16px;
+.chat-input-row input:focus {
+  border-color: var(--purple-accent);
+}
+
+.chat-input-row button {
+  padding: 0 18px;
   border-radius: 8px;
   border: none;
-  background: var(--win-blue);
+  background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%);
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  transition: opacity 0.2s;
 }
 
-/* Footer Line */
-.footer-line {
-  grid-column: 1 / -1;
+.chat-input-row button:hover {
+  opacity: 0.9;
+}
+
+/* PAGE 3: SETTINGS */
+.settings-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.theme-options {
+  display: flex;
+  gap: 10px;
+}
+
+/* 3. BOTTOM WINDOW FOOTER BAR */
+.window-footer {
   grid-row: 3;
+  background: rgba(8, 2, 12, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 0 12px;
   font-size: 0.65rem;
   color: var(--text-sub);
-  padding: 0 4px;
+  z-index: 30;
+}
+
+.footer-running {
+  color: var(--ok-green);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.footer-running::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok-green);
+  box-shadow: 0 0 6px var(--ok-green);
+}
+
+.watermark-overlay {
+  position: absolute;
+  bottom: 30px;
+  right: 16px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+  text-align: right;
 }
 </style>
 </head>
 <body>
 
 <div class="app-container">
-  
-  <!-- LEFT SIDEBAR -->
-  <aside class="sidebar glass">
-    <div class="brand">
-      <img src="/avatar.jpg" alt="Avatar">
-      <div class="brand-info">
-        <div class="title">SoloHost</div>
-        <div class="ver">v2.6.55</div>
-      </div>
-    </div>
-    
-    <nav class="nav">
-      <button class="nav-btn active" onclick="switchTab('home', this)">
-        <span>🏠</span> Home
-      </button>
-      <button class="nav-btn" onclick="switchTab('ai', this)">
-        <span>🤖</span> AI Assistant
-      </button>
-      <button class="nav-btn" onclick="switchTab('set', this)">
-        <span>⚙️</span> Settings
-      </button>
-    </nav>
-    
-    <div class="sys-box">
-      <div><b>Windows 10</b> 64-bit</div>
-      <div style="margin-top:2px;">Last Updated:</div>
-      <div style="font-weight:600;">2026-09-09 21:32:40</div>
-    </div>
+
+  <!-- 1. FAR-LEFT VERTICAL PI DESKTOP APP SHELL BAR -->
+  <aside class="far-left-bar">
+    <div class="icon-btn">❯</div>
+    <div class="icon-btn">❐</div>
+    <div class="icon-btn">🔧</div>
+    <div class="icon-btn">☰</div>
+    <div class="icon-btn">🔍</div>
+    <div class="icon-btn active">➕</div>
+    <div class="icon-btn">🔔</div>
+    <div class="icon-btn">⚙️</div>
+    <div class="icon-btn" style="margin-top: auto;">👤</div>
   </aside>
 
-  <!-- TOP HEADER -->
-  <header class="header glass">
-    <h1>Pi Node Controller PRO</h1>
-    <div class="header-right">
-      <span class="status-dot">● Connected</span>
-      <button class="bell-btn">🔔</button>
-      <div class="user-profile">
-        <span>Users</span>
-        <img src="/avatar.jpg" alt="Profile">
-      </div>
-    </div>
-  </header>
+  <!-- 2. MAIN APPLICATION WINDOW -->
+  <div class="main-window">
 
-  <!-- TAB 1: HOME PAGE -->
-  <main id="page-home" class="page-view active">
-    
-    <!-- Top Row (4 Cards) -->
-    <div class="home-top-row">
-      <!-- Card 1: Node Performance Overview -->
-      <div class="card glass score-card">
-        <div class="card-title">Node Performance Overview</div>
-        <div class="ring-container">
-          <svg viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
-            <circle cx="50" cy="50" r="40" fill="none" stroke="#10b981" stroke-width="8" stroke-linecap="round" stroke-dasharray="210 250"/>
-          </svg>
-          <div class="ring-text">
-            <div class="sub">Node Score:</div>
-            <div class="big">97.43 <span style="font-size:0.7rem;font-weight:400;">/ 100</span></div>
-            <div class="sub">Availability: <b>97.43%</b></div>
+    <!-- Top Window Title Bar -->
+    <header class="window-titlebar">
+      <span class="title-text">PiNode Telegram Controller PRO Official</span>
+      <div class="window-nav-links">
+        <span class="active">App</span>
+        <span>Config</span>
+        <span>Logs</span>
+        <span>Shell</span>
+      </div>
+      <div class="window-controls">
+        <span>─</span>
+        <span>▢</span>
+        <span>✕</span>
+      </div>
+    </header>
+
+    <!-- Workspace Body Area -->
+    <div class="workspace-body">
+
+      <!-- Navigation Sidebar -->
+      <nav class="nav-sidebar">
+        <div>
+          <div class="sidebar-profile">
+            <img src="/avatar.jpg" alt="Avatar">
+            <div class="profile-info">
+              <div class="title">SoloHost</div>
+              <div class="subtitle">v2.6.55</div>
+            </div>
+          </div>
+
+          <div class="nav-menu">
+            <button class="nav-btn active" onclick="switchPage('home', this)">
+              <span>🏠</span> Home
+            </button>
+            <button class="nav-btn" onclick="switchPage('ai', this)">
+              <span>🤖</span> AI Assistant
+            </button>
+            <button class="nav-btn" onclick="switchPage('settings', this)">
+              <span>⚙️</span> Settings
+            </button>
           </div>
         </div>
-        <div class="score-badge">✔ Excellent</div>
+
+        <div class="sidebar-system-box">
+          <div><b>Windows 10</b> 64-bit</div>
+          <div style="margin-top:2px;">Last Updated:</div>
+          <div style="color:#fff; font-weight:600;">2026-09-09 21:32:40</div>
+        </div>
+      </nav>
+
+      <!-- Main Dynamic View Pages Container -->
+      <div class="pages-container">
+
+        <!-- TAB 1: HOME PAGE DASHBOARD -->
+        <main id="page-home" class="page-view active home-layout">
+          
+          <!-- View Header -->
+          <div class="view-header">
+            <h2>Pi Node Controller PRO</h2>
+            <div class="view-header-right">
+              <span class="status-connected">Connected</span>
+              <span style="cursor:pointer;">🔔</span>
+              <div class="user-badge">
+                <span>Users</span>
+                <img src="/avatar.jpg" alt="User">
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 1: 4 Main Status Cards -->
+          <div class="top-row-grid">
+            
+            <!-- Card 1: Node Score -->
+            <div class="glass-panel score-panel">
+              <div class="panel-title">Node Performance Overview</div>
+              <div class="ring-box">
+                <svg viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="235 250" filter="drop-shadow(0 0 4px #34d399)"/>
+                </svg>
+                <div class="ring-text">
+                  <div class="sub-lbl">Node Score:</div>
+                  <div class="big-val">100.00</div>
+                  <div class="sub-lbl">Availability: <b style="color:#fff;">100.00%</b></div>
+                </div>
+              </div>
+              <div class="badge-excellent">✔ Excellent</div>
+            </div>
+
+            <!-- Card 2: Node State -->
+            <div class="glass-panel" style="justify-content:space-between;">
+              <div class="panel-title">Node State</div>
+              <div class="icon-box" style="background:rgba(56, 189, 248, 0.15); color:#38bdf8;">🧊</div>
+              <div>
+                <div class="status-card-val">Synced</div>
+                <div class="status-card-sub">(core verified)</div>
+              </div>
+            </div>
+
+            <!-- Card 3: Consensus -->
+            <div class="glass-panel" style="justify-content:space-between;">
+              <div class="panel-title">Consensus</div>
+              <div class="icon-box" style="background:rgba(52, 211, 153, 0.15); color:#34d399;">⚙️</div>
+              <div>
+                <div class="status-card-val">HEALTHY</div>
+                <div class="status-card-sub">(container)</div>
+              </div>
+            </div>
+
+            <!-- Card 4: Peers Connection -->
+            <div class="glass-panel" style="justify-content:space-between;">
+              <div class="panel-title">Peers Connection</div>
+              <div class="icon-box" style="background:rgba(192, 132, 252, 0.15); color:#c084fc;">👥</div>
+              <div>
+                <div class="status-card-val">0 IN / 8 OUT</div>
+                <div class="status-card-sub">IN / OUT</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Row 2: System Resources (4 Circular Meters) -->
+          <div class="glass-panel resources-panel">
+            <div class="panel-title">💻 System Resources</div>
+            <div class="meters-grid">
+              
+              <!-- CPU -->
+              <div class="meter-item">
+                <svg class="meter-svg" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#38bdf8" stroke-width="8" stroke-dasharray="67 240" stroke-linecap="round"/>
+                </svg>
+                <div class="meter-val">28%</div>
+                <div class="meter-lbl">CPU</div>
+              </div>
+
+              <!-- RAM -->
+              <div class="meter-item">
+                <svg class="meter-svg" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#c084fc" stroke-width="8" stroke-dasharray="148 240" stroke-linecap="round"/>
+                </svg>
+                <div class="meter-val">62%</div>
+                <div class="meter-lbl">RAM</div>
+              </div>
+
+              <!-- Disk -->
+              <div class="meter-item">
+                <svg class="meter-svg" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#38bdf8" stroke-width="8" stroke-dasharray="163 240" stroke-linecap="round"/>
+                </svg>
+                <div class="meter-val">68%</div>
+                <div class="meter-lbl">Disk</div>
+              </div>
+
+              <!-- System Temp -->
+              <div class="meter-item">
+                <svg class="meter-svg" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+                  <circle cx="50" cy="50" r="38" fill="none" stroke="#f87171" stroke-width="8" stroke-dasharray="125 240" stroke-linecap="round"/>
+                </svg>
+                <div class="meter-val">52°C</div>
+                <div class="meter-lbl">System Temp</div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Row 3: 3 Columns Grid -->
+          <div class="bot-row-grid">
+            
+            <!-- Column 1: Chart -->
+            <div class="glass-panel">
+              <div class="panel-title" style="justify-content:space-between;">
+                <span>📈 Availability Trend (24h)</span>
+                <span style="color:var(--ok-green); font-weight:800; font-size:0.8rem;">97.43%</span>
+              </div>
+              <div class="chart-wrapper">
+                <svg viewBox="0 0 240 70" preserveAspectRatio="none" style="width:100%; height:100%;">
+                  <line x1="0" y1="18" x2="240" y2="18" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
+                  <line x1="0" y1="38" x2="240" y2="38" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
+                  <line x1="0" y1="58" x2="240" y2="58" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
+                  <path d="M0,52 Q40,55 80,45 T160,32 T240,22" fill="none" stroke="#34d399" stroke-width="2.5" filter="drop-shadow(0 0 5px rgba(52, 211, 153, 0.6))"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Column 2: Detailed Node Info -->
+            <div class="glass-panel">
+              <div class="panel-title">ℹ️ Detailed Pi Node Information</div>
+              <table class="info-table">
+                <tr><td>Service</td><td>DockerExec+Horizon</td></tr>
+                <tr><td>Node Version</td><td>v27.1.0</td></tr>
+                <tr><td>Protocol Version</td><td>26</td></tr>
+                <tr><td>Block Height</td><td>10,806,516</td></tr>
+                <tr><td>Ports Status</td><td>3/10 open</td></tr>
+              </table>
+            </div>
+
+            <!-- Column 3: Activity Log -->
+            <div class="glass-panel">
+              <div class="panel-title">🕒 Refined Activity Log</div>
+              <div class="log-list">
+                <div class="log-item">
+                  <div class="log-left"><i class="log-dot"></i>14:32 - Node connected to network</div>
+                </div>
+                <div class="log-item">
+                  <div class="log-left"><i class="log-dot"></i>14:31 - Peers count updated</div>
+                </div>
+                <div class="log-item">
+                  <div class="log-left"><i class="log-dot"></i>14:28 - Ledger advanced</div>
+                </div>
+                <div class="log-item">
+                  <div class="log-left"><i class="log-dot"></i>14:25 - Status: Synced!</div>
+                </div>
+                <div class="log-item">
+                  <div class="log-left"><i class="log-dot"></i>14:20 - Data refreshed</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </main>
+
+        <!-- TAB 2: AI ASSISTANT PAGE -->
+        <main id="page-ai" class="page-view ai-layout">
+          
+          <div class="view-header">
+            <h2>Pi Node Maintenance & AI Assistant</h2>
+            <div class="view-header-right">
+              <span class="status-connected">AI Ready</span>
+            </div>
+          </div>
+
+          <!-- Maintenance Scripts Row -->
+          <div class="glass-panel" style="padding:12px;">
+            <div class="panel-title">🛠️ Pi Node Maintenance Scripts</div>
+            <div class="scripts-grid">
+              <button class="script-card-btn" onclick="runScript('Check Sync Height')">
+                <div class="script-icon" style="background:rgba(56,189,248,0.15); color:#38bdf8;">↩️</div>
+                Check Sync Height
+              </button>
+              <button class="script-card-btn" onclick="runScript('Repair Docker Container')">
+                <div class="script-icon" style="background:rgba(52,211,153,0.15); color:#34d399;">🐳</div>
+                Repair Docker Container
+              </button>
+              <button class="script-card-btn" onclick="runScript('Flush DNS Cache')">
+                <div class="script-icon" style="background:rgba(251,191,36,0.15); color:#fbbf24;">🌐</div>
+                Flush DNS Cache
+              </button>
+              <button class="script-card-btn" onclick="runScript('Optimize RAM Usage')">
+                <div class="script-icon" style="background:rgba(192,132,252,0.15); color:#c084fc;">⚡</div>
+                Optimize RAM Usage
+              </button>
+              <button class="script-card-btn" onclick="runScript('Analyze Log Files')">
+                <div class="script-icon" style="background:rgba(248,113,113,0.15); color:#f87171;">📊</div>
+                Analyze Log Files
+              </button>
+              <button class="script-card-btn" onclick="runScript('Update Peer List')">
+                <div class="script-icon" style="background:rgba(168,85,247,0.15); color:#a855f7;">👥</div>
+                Update Peer List
+              </button>
+            </div>
+          </div>
+
+          <!-- Chat Window -->
+          <div class="glass-panel chat-panel">
+            <div class="panel-title">💬 AI Assistant Chat</div>
+            
+            <div class="chat-history" id="chatBox">
+              <div class="chat-bubble user">
+                Hello! My node score is 97.43, but System Temp is 52°C and RAM is 62%. Is that okay?
+              </div>
+              <div class="chat-bubble bot">
+                Hello! A system temperature of 52°C is perfectly acceptable. A 62% RAM usage is normal for running a node. Maintain good cooling. For detailed performance, check the logs or run the 'Optimize RAM' script.
+              </div>
+            </div>
+
+            <div>
+              <div class="quick-prompts">
+                <button class="quick-btn" onclick="sendQuick('📑 Generate Report')">📑 Generate Report</button>
+                <button class="quick-btn" onclick="sendQuick('👥 Check Peers')">👥 Check Peers</button>
+                <button class="quick-btn" onclick="sendQuick('🔄 Reset Node')">🔄 Reset Node</button>
+                <button class="quick-btn" onclick="sendQuick('🗑️ Clear Cache')">🗑️ Clear Cache</button>
+                <button class="quick-btn" onclick="sendQuick('📈 Analyze Performance')">📈 Analyze Performance</button>
+              </div>
+              <div class="chat-input-row">
+                <input type="text" id="chatInput" placeholder="Ask me anything..." onkeypress="if(event.key==='Enter') sendMsg()">
+                <button onclick="sendMsg()">➤</button>
+              </div>
+            </div>
+
+          </div>
+
+        </main>
+
+        <!-- TAB 3: SETTINGS PAGE -->
+        <main id="page-settings" class="page-view">
+          <div class="view-header">
+            <h2>Settings & Theme Customization</h2>
+          </div>
+          
+          <div class="glass-panel settings-box" style="padding:16px;">
+            <div class="panel-title">🎨 Visual Theme & Background Effects</div>
+            <p style="font-size:0.75rem; color:var(--text-sub);">Choose a theme effect to match your workspace setup:</p>
+            
+            <div class="theme-options">
+              <button class="script-card-btn" onclick="setTheme('purple')">
+                🟣 Deep Purple Glass (Default)
+              </button>
+              <button class="script-card-btn" onclick="setTheme('dark')">
+                ⚫ Pitch Dark Minimal
+              </button>
+              <button class="script-card-btn" onclick="setTheme('acrylic')">
+                🔵 Windows 11 Acrylic Blue
+              </button>
+            </div>
+          </div>
+        </main>
+
       </div>
 
-      <!-- Card 2: Node State -->
-      <div class="card glass status-card">
-        <div class="card-title">Node State</div>
-        <div class="icon-box" style="color:#0284c7; background:#e0f2fe;">🧊</div>
-        <div>
-          <div class="status-val">Synced</div>
-          <div class="status-sub">(healthy)</div>
-        </div>
-      </div>
-
-      <!-- Card 3: Consensus -->
-      <div class="card glass status-card">
-        <div class="card-title">Consensus</div>
-        <div class="icon-box" style="color:#059669; background:#d1fae5;">⚙️</div>
-        <div>
-          <div class="status-val">Running</div>
-          <div class="status-sub">(container)</div>
-        </div>
-      </div>
-
-      <!-- Card 4: Peers Connection -->
-      <div class="card glass status-card">
-        <div class="card-title">Peers Connection</div>
-        <div class="icon-box" style="color:#2563eb; background:#dbeafe;">👥</div>
-        <div>
-          <div class="status-val">6 IN / 8 OUT</div>
-          <div class="status-sub">Connections active</div>
-        </div>
-      </div>
     </div>
 
-    <!-- Middle Row: System Resources -->
-    <div class="card glass resources-card">
-      <div class="card-title">💻 System Resources</div>
-      <div class="meters-grid">
-        <!-- CPU -->
-        <div class="meter-item">
-          <svg class="meter-svg" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
-            <circle cx="50" cy="50" r="38" fill="none" stroke="#0078d4" stroke-width="8" stroke-dasharray="67 240" stroke-linecap="round"/>
-          </svg>
-          <div class="meter-val">28%</div>
-          <div class="meter-lbl">CPU</div>
-        </div>
-        <!-- RAM -->
-        <div class="meter-item">
-          <svg class="meter-svg" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
-            <circle cx="50" cy="50" r="38" fill="none" stroke="#8b5cf6" stroke-width="8" stroke-dasharray="148 240" stroke-linecap="round"/>
-          </svg>
-          <div class="meter-val">62%</div>
-          <div class="meter-lbl">RAM</div>
-        </div>
-        <!-- Disk -->
-        <div class="meter-item">
-          <svg class="meter-svg" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
-            <circle cx="50" cy="50" r="38" fill="none" stroke="#0078d4" stroke-width="8" stroke-dasharray="163 240" stroke-linecap="round"/>
-          </svg>
-          <div class="meter-val">68%</div>
-          <div class="meter-lbl">Disk</div>
-        </div>
-        <!-- Temp -->
-        <div class="meter-item">
-          <svg class="meter-svg" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
-            <circle cx="50" cy="50" r="38" fill="none" stroke="#ef4444" stroke-width="8" stroke-dasharray="125 240" stroke-linecap="round"/>
-          </svg>
-          <div class="meter-val">52°C</div>
-          <div class="meter-lbl">System Temp</div>
-        </div>
-      </div>
+    <!-- Bottom Status Footer Bar -->
+    <footer class="window-footer">
+      <div class="footer-running">RUNNING</div>
+      <div style="color:rgba(255,255,255,0.4);">Optional Docker probe is configured only on this PC. <a href="#" style="color:var(--purple-light);">Optional Docker...</a></div>
+      <div style="color:rgba(255,255,255,0.4);">Data Source: Pi Desktop Sentry (Primary) - Docker via SoloHost UI</div>
+      <div>http://127.0.0.1:18700</div>
+      <div style="font-weight:600; color:#fff;">32 MB - CPU 8% - up 18 49S</div>
+    </footer>
+
+    <!-- Windows Watermark -->
+    <div class="watermark-overlay">
+      Activate Windows<br>
+      <span style="font-size:0.65rem;">Go to Settings to activate Windows.</span>
     </div>
 
-    <!-- Bottom Row (3 Columns) -->
-    <div class="home-bot-row">
-      <!-- Availability Trend -->
-      <div class="card glass">
-        <div class="card-title" style="justify-content:space-between;">
-          <span>📈 Availability Trend (24h)</span>
-          <span style="color:var(--ok-green);font-weight:800;">97.43%</span>
-        </div>
-        <div class="chart-box">
-          <svg viewBox="0 0 240 70" preserveAspectRatio="none" style="width:100%;height:100%;">
-            <line x1="0" y1="15" x2="240" y2="15" stroke="rgba(0,0,0,0.05)" stroke-dasharray="2"/>
-            <line x1="0" y1="35" x2="240" y2="35" stroke="rgba(0,0,0,0.05)" stroke-dasharray="2"/>
-            <line x1="0" y1="55" x2="240" y2="55" stroke="rgba(0,0,0,0.05)" stroke-dasharray="2"/>
-            <path d="M0,45 Q40,42 80,48 T160,35 T240,25" fill="none" stroke="#10b981" stroke-width="2.5"/>
-          </svg>
-        </div>
-      </div>
-
-      <!-- Detailed Node Info -->
-      <div class="card glass">
-        <div class="card-title">ℹ️ Detailed Pi Node Information</div>
-        <table class="info-table">
-          <tr><td>Service</td><td>testnet2</td></tr>
-          <tr><td>Node Version</td><td>0.6.2</td></tr>
-          <tr><td>Protocol Version</td><td>27</td></tr>
-          <tr><td>Block Height</td><td>10,796,465</td></tr>
-          <tr><td>Ports Status</td><td>10/10 open</td></tr>
-        </table>
-      </div>
-
-      <!-- Activity Log -->
-      <div class="card glass">
-        <div class="card-title">🕒 Refined Activity Log</div>
-        <div class="log-list">
-          <div class="log-item"><span><i class="log-dot"></i>Node connected</span><span>14:32</span></div>
-          <div class="log-item"><span><i class="log-dot"></i>Peers updated</span><span>14:31</span></div>
-          <div class="log-item"><span><i class="log-dot"></i>Ledger advanced</span><span>14:28</span></div>
-          <div class="log-item"><span><i class="log-dot"></i>Status: Synced!</span><span>14:25</span></div>
-          <div class="log-item"><span><i class="log-dot"></i>Data refreshed</span><span>14:20</span></div>
-        </div>
-      </div>
-    </div>
-  </main>
-
-  <!-- TAB 2: AI ASSISTANT PAGE -->
-  <main id="page-ai" class="page-view">
-    <!-- Scripts Grid -->
-    <div class="card glass" style="height: auto;">
-      <div class="card-title">🛠️ Pi Node Maintenance Scripts</div>
-      <div class="scripts-grid">
-        <button class="script-btn">
-          <div class="script-icon" style="background:#e0f2fe;color:#0284c7;">↩️</div>
-          Check Sync Height
-        </button>
-        <button class="script-btn">
-          <div class="script-icon" style="background:#d1fae5;color:#059669;">🐳</div>
-          Repair Docker Container
-        </button>
-        <button class="script-btn">
-          <div class="script-icon" style="background:#fef3c7;color:#d97706;">🌐</div>
-          Flush DNS Cache
-        </button>
-        <button class="script-btn">
-          <div class="script-icon" style="background:#ede9fe;color:#7c3aed;">⚡</div>
-          Optimize RAM Usage
-        </button>
-        <button class="script-btn">
-          <div class="script-icon" style="background:#fee2e2;color:#dc2626;">📊</div>
-          Analyze Log Files
-        </button>
-        <button class="script-btn">
-          <div class="script-icon" style="background:#f3e8ff;color:#9333ea;">👥</div>
-          Update Peer List
-        </button>
-      </div>
-    </div>
-
-    <!-- AI Chat View -->
-    <div class="card glass chat-card">
-      <div class="card-title">💬 AI Assistant Chat</div>
-      
-      <div class="chat-history" id="chatHistory">
-        <div class="chat-bubble user">
-          Hello! My node score is 97.43, but System Temp is 52°C and RAM is 62%. Is that okay?
-        </div>
-        <div class="chat-bubble bot">
-          Hello! A system temperature of 52°C is perfectly acceptable. A 62% RAM usage is normal for running a node. Maintain good cooling. For detailed performance, check the logs or run the 'Optimize RAM' script.
-        </div>
-      </div>
-
-      <div>
-        <div class="quick-bar">
-          <button class="quick-btn">📑 Generate Report</button>
-          <button class="quick-btn">👥 Check Peers</button>
-          <button class="quick-btn">🔄 Reset Node</button>
-          <button class="quick-btn">🗑️ Clear Cache</button>
-          <button class="quick-btn">📈 Analyze Performance</button>
-        </div>
-        <div class="chat-input-bar">
-          <input type="text" placeholder="Ask me anything..." id="chatInput">
-          <button onclick="sendMsg()">➤</button>
-        </div>
-      </div>
-    </div>
-  </main>
-
-  <!-- TAB 3: SETTINGS -->
-  <main id="page-set" class="page-view">
-    <div class="card glass">
-      <div class="card-title">⚙️ Preferences & Wallpaper Settings</div>
-      <p style="font-size: 0.78rem; color: var(--text-sub); margin-bottom: 12px;">
-        Choose background themes or upload a custom wallpaper to test Acrylic glassmorphism.
-      </p>
-      <div style="display:flex; gap:10px;">
-        <button class="script-btn" onclick="setBg('linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 50%, #94a3b8 100%)')">🌄 Soft Slate (Default)</button>
-        <button class="script-btn" onclick="setBg('url(/bg-cave.jpg)')">🏔️ Cave Photo</button>
-        <button class="script-btn" onclick="setBg('linear-gradient(135deg, #2e1065 0%, #0f172a 100%)')">🟣 Dark Purple</button>
-      </div>
-    </div>
-  </main>
-
-  <!-- FOOTER -->
-  <footer class="footer-line">
-    <span>Data Source: Pi Desktop Sentry (Primary)</span>
-    <span>SoloHost UI v2.6.55</span>
-  </footer>
+  </div>
 
 </div>
 
 <script>
-function switchTab(tabId, btn) {
+function switchPage(pageId, btn) {
   document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + tabId).classList.add('active');
+  document.getElementById('page-' + pageId).classList.add('active');
   btn.classList.add('active');
 }
 
-function setBg(bgCss) {
-  document.body.style.setProperty('--bg-image', bgCss);
+function setTheme(type) {
+  const root = document.documentElement;
+  if (type === 'purple') {
+    root.style.setProperty('--bg-gradient', 'radial-gradient(circle at 50% 15%, #3d1550 0%, #1e092b 55%, #0d0214 100%)');
+    root.style.setProperty('--card-bg', 'rgba(48, 16, 66, 0.45)');
+  } else if (type === 'dark') {
+    root.style.setProperty('--bg-gradient', 'linear-gradient(135deg, #111115 0%, #050507 100%)');
+    root.style.setProperty('--card-bg', 'rgba(255, 255, 255, 0.04)');
+  } else if (type === 'acrylic') {
+    root.style.setProperty('--bg-gradient', 'radial-gradient(circle at 50% 15%, #1e3a8a 0%, #0f172a 60%, #020617 100%)');
+    root.style.setProperty('--card-bg', 'rgba(30, 58, 138, 0.3)');
+  }
 }
 
 function sendMsg() {
-  const inp = document.getElementById('chatInput');
-  const txt = inp.value.trim();
+  const input = document.getElementById('chatInput');
+  const txt = input.value.trim();
   if(!txt) return;
+
+  const box = document.getElementById('chatBox');
   
-  const box = document.getElementById('chatHistory');
-  const uBubble = document.createElement('div');
-  uBubble.className = 'chat-bubble user';
-  uBubble.textContent = txt;
-  box.appendChild(uBubble);
-  
-  inp.value = '';
+  const userMsg = document.createElement('div');
+  userMsg.className = 'chat-bubble user';
+  userMsg.textContent = txt;
+  box.appendChild(userMsg);
+
+  input.value = '';
   box.scrollTop = box.scrollHeight;
 
   setTimeout(() => {
-    const bBubble = document.createElement('div');
-    bBubble.className = 'chat-bubble bot';
-    bBubble.textContent = "I'm analyzing your node diagnostics for: " + txt;
-    box.appendChild(bBubble);
+    const botMsg = document.createElement('div');
+    botMsg.className = 'chat-bubble bot';
+    botMsg.textContent = "AI Analysis complete for command: '" + txt + "'. Node operations are executing smoothly with zero errors.";
+    box.appendChild(botMsg);
     box.scrollTop = box.scrollHeight;
   }, 600);
+}
+
+function sendQuick(txt) {
+  document.getElementById('chatInput').value = txt;
+  sendMsg();
+}
+
+function runScript(name) {
+  const box = document.getElementById('chatBox');
+  const userMsg = document.createElement('div');
+  userMsg.className = 'chat-bubble user';
+  userMsg.textContent = 'Executing script: ' + name;
+  box.appendChild(userMsg);
+
+  setTimeout(() => {
+    const botMsg = document.createElement('div');
+    botMsg.className = 'chat-bubble bot';
+    botMsg.textContent = "Successfully executed script '" + name + "'. All parameters are optimized!";
+    box.appendChild(botMsg);
+    box.scrollTop = box.scrollHeight;
+  }, 500);
+
+  switchPage('ai', document.querySelectorAll('.nav-btn')[1]);
 }
 </script>
 
