@@ -1,19 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PiNode Telegram Controller PRO Official</title>
 <style>
 :root {
-  /* Dynamic Deep Purple Glassmorphism Theme */
   --bg-gradient: radial-gradient(circle at 50% 15%, #3d1550 0%, #1e092b 55%, #0d0214 100%);
   --app-shell-bg: #09020e;
   --bar-bg: rgba(18, 5, 26, 0.85);
   --sidebar-bg: rgba(36, 12, 50, 0.55);
   --card-bg: rgba(48, 16, 66, 0.45);
   --card-border: rgba(192, 132, 252, 0.22);
-  --card-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+  --card-glow: 0 4px 20px 0 rgba(0, 0, 0, 0.35);
   
   --text-main: #ffffff;
   --text-sub: #b39dbd;
@@ -33,45 +32,48 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* Khóa tuyệt đối thanh cuộn trên toàn bộ Document */
 html, body {
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background: var(--bg-gradient);
   color: var(--text-main);
+  font-size: clamp(10px, 1.1vh, 14px);
 }
 
 .app-container {
   display: flex;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   background: var(--app-shell-bg);
   position: relative;
+  overflow: hidden;
 }
 
 /* 1. FAR-LEFT VERTICAL BAR */
 .far-left-bar {
-  width: 44px;
+  width: clamp(32px, 3vw, 44px);
   height: 100%;
   background: rgba(12, 3, 18, 0.95);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 10px 0;
-  gap: 12px;
+  padding: clamp(4px, 1vh, 10px) 0;
+  gap: clamp(4px, 1.2vh, 12px);
   z-index: 50;
   flex-shrink: 0;
 }
 
 .far-left-bar .icon-btn {
-  width: 30px;
-  height: 30px;
+  width: clamp(22px, 2.5vw, 30px);
+  height: clamp(22px, 2.5vw, 30px);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-sub);
-  font-size: 13px;
+  font-size: 0.85rem;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -86,15 +88,15 @@ html, body {
   color: var(--purple-light);
   background: rgba(168, 85, 247, 0.25);
   border: 1px solid rgba(192, 132, 252, 0.4);
-  box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
 }
 
 /* 2. MAIN WINDOW FRAME */
 .main-window {
   flex: 1;
   display: grid;
-  grid-template-rows: 32px 1fr 24px;
+  grid-template-rows: clamp(24px, 3.5vh, 32px) 1fr clamp(18px, 2.5vh, 24px);
   height: 100%;
+  min-height: 0;
   overflow: hidden;
   background: var(--bg-gradient);
   position: relative;
@@ -108,21 +110,23 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px;
-  font-size: 0.72rem;
+  padding: 0 clamp(8px, 1vw, 14px);
+  font-size: 0.8em;
   z-index: 30;
 }
 
 .title-text {
   font-weight: 600;
   color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .window-nav-links {
   display: flex;
-  gap: 16px;
+  gap: clamp(6px, 1vw, 16px);
   color: var(--text-sub);
-  font-size: 0.7rem;
 }
 
 .window-nav-links span {
@@ -138,18 +142,17 @@ html, body {
 
 .window-controls {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   color: var(--text-sub);
-  font-size: 0.75rem;
 }
 
 /* Dashboard Workspace Body */
 .workspace-body {
   grid-row: 2;
   display: grid;
-  grid-template-columns: 210px 1fr;
-  gap: 10px;
-  padding: 10px;
+  grid-template-columns: clamp(120px, 15vw, 210px) 1fr;
+  gap: clamp(4px, 0.8vh, 10px);
+  padding: clamp(4px, 0.8vh, 10px);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -159,56 +162,57 @@ html, body {
   background: var(--sidebar-bg);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: clamp(6px, 1vh, 12px);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   box-shadow: var(--card-glow);
+  min-height: 0;
 }
 
 .sidebar-profile {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-bottom: 12px;
+  gap: clamp(4px, 0.8vw, 10px);
+  padding-bottom: clamp(4px, 0.8vh, 10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sidebar-profile img {
-  width: 36px;
-  height: 36px;
+  width: clamp(26px, 3vh, 36px);
+  height: clamp(26px, 3vh, 36px);
   border-radius: 50%;
   border: 1.5px solid var(--purple-accent);
   object-fit: cover;
 }
 
 .profile-info .title {
-  font-size: 0.85rem;
+  font-size: 0.9em;
   font-weight: 700;
   color: #fff;
 }
 
 .profile-info .subtitle {
-  font-size: 0.65rem;
+  font-size: 0.75em;
   color: var(--text-sub);
 }
 
 .nav-menu {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 12px;
+  gap: clamp(3px, 0.5vh, 6px);
+  margin-top: clamp(6px, 1vh, 12px);
   flex: 1;
 }
 
 .nav-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border-radius: 8px;
-  font-size: 0.8rem;
+  gap: 8px;
+  padding: clamp(5px, 0.8vh, 9px) clamp(6px, 0.8vw, 12px);
+  border-radius: 6px;
+  font-size: 0.85em;
   font-weight: 600;
   color: var(--text-sub);
   background: transparent;
@@ -217,6 +221,7 @@ html, body {
   transition: all 0.2s ease;
   width: 100%;
   text-align: left;
+  white-space: nowrap;
 }
 
 .nav-btn:hover {
@@ -228,18 +233,17 @@ html, body {
   background: linear-gradient(90deg, rgba(168, 85, 247, 0.45) 0%, rgba(147, 51, 234, 0.2) 100%);
   border: 1px solid rgba(192, 132, 252, 0.4);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2);
 }
 
 .sidebar-system-box {
-  font-size: 0.65rem;
+  font-size: 0.75em;
   color: var(--text-sub);
   border-top: 1px dashed rgba(255, 255, 255, 0.12);
-  padding-top: 10px;
-  line-height: 1.4;
+  padding-top: clamp(4px, 0.8vh, 8px);
+  line-height: 1.3;
 }
 
-/* DYNAMIC PAGES ISOLATION FIX */
+/* DYNAMIC PAGES ISOLATION */
 .pages-container {
   display: flex;
   flex-direction: column;
@@ -249,25 +253,26 @@ html, body {
   position: relative;
 }
 
-/* Lock default state to display: none */
+/* Khóa trạng thái ẩn mặc định */
 .page-view {
   display: none !important;
   height: 100%;
   min-height: 0;
   width: 100%;
+  overflow: hidden;
 }
 
-/* Active tab display modes */
+/* Khi active hiển thị linh hoạt */
 .page-view.active {
   display: flex !important;
   flex-direction: column;
-  gap: 10px;
+  gap: clamp(4px, 0.8vh, 10px);
 }
 
 .page-view.active.home-layout {
   display: grid !important;
-  grid-template-rows: 1.15fr 0.9fr 1.25fr;
-  gap: 10px;
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.95fr) minmax(0, 1.15fr);
+  gap: clamp(4px, 0.8vh, 10px);
 }
 
 /* Header inside Pages */
@@ -275,20 +280,23 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 4px;
+  padding: 0 2px;
 }
 
 .view-header h2 {
-  font-size: 1.1rem;
+  font-size: 1.1em;
   font-weight: 700;
   color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .view-header-right {
   display: flex;
   align-items: center;
-  gap: 14px;
-  font-size: 0.78rem;
+  gap: clamp(6px, 1vw, 14px);
+  font-size: 0.85em;
 }
 
 .status-connected {
@@ -296,16 +304,16 @@ html, body {
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .status-connected::before {
   content: "";
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--ok-green);
-  box-shadow: 0 0 8px var(--ok-green);
+  box-shadow: 0 0 6px var(--ok-green);
 }
 
 .user-badge {
@@ -316,8 +324,8 @@ html, body {
 }
 
 .user-badge img {
-  width: 22px;
-  height: 22px;
+  width: clamp(18px, 2vh, 22px);
+  height: clamp(18px, 2vh, 22px);
   border-radius: 50%;
 }
 
@@ -326,30 +334,32 @@ html, body {
   background: var(--card-bg);
   backdrop-filter: blur(18px) saturate(180%);
   border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: clamp(6px, 0.8vh, 12px) clamp(8px, 1vw, 14px);
   box-shadow: var(--card-glow);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .panel-title {
-  font-size: 0.7rem;
+  font-size: 0.75em;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-sub);
-  margin-bottom: 6px;
+  margin-bottom: clamp(2px, 0.5vh, 6px);
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 /* PAGE 1: HOME GRID */
 .top-row-grid {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
+  gap: clamp(4px, 0.8vh, 10px);
   min-height: 0;
 }
 
@@ -361,8 +371,8 @@ html, body {
 
 .ring-box {
   position: relative;
-  width: 82px;
-  height: 82px;
+  width: clamp(45px, 7.5vh, 75px);
+  height: clamp(45px, 7.5vh, 75px);
 }
 
 .ring-box svg {
@@ -381,13 +391,14 @@ html, body {
 }
 
 .ring-text .big-val {
-  font-size: 1.1rem;
+  font-size: 1.1em;
   font-weight: 800;
   color: #fff;
+  line-height: 1;
 }
 
 .ring-text .sub-lbl {
-  font-size: 0.58rem;
+  font-size: 0.65em;
   color: var(--text-sub);
 }
 
@@ -395,38 +406,41 @@ html, body {
   background: rgba(52, 211, 153, 0.18);
   border: 1px solid rgba(52, 211, 153, 0.4);
   color: var(--ok-green);
-  font-size: 0.62rem;
+  font-size: 0.7em;
   font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  margin-top: 2px;
 }
 
 .status-card-val {
-  font-size: 1.15rem;
+  font-size: 1.1em;
   font-weight: 800;
   color: #fff;
+  white-space: nowrap;
 }
 
 .status-card-sub {
-  font-size: 0.66rem;
+  font-size: 0.75em;
   color: var(--text-sub);
+  white-space: nowrap;
 }
 
 .icon-box {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: clamp(24px, 3vh, 32px);
+  height: clamp(24px, 3vh, 32px);
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
+  font-size: 1em;
 }
 
 /* Meters Grid */
 .meters-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(4px, 0.8vh, 10px);
   height: 100%;
   align-items: center;
 }
@@ -440,30 +454,31 @@ html, body {
 }
 
 .meter-svg {
-  width: 58px;
-  height: 58px;
+  width: clamp(38px, 6vh, 58px);
+  height: clamp(38px, 6vh, 58px);
   transform: rotate(-90deg);
 }
 
 .meter-val {
   position: absolute;
-  top: 36%;
-  font-size: 0.82rem;
+  top: 32%;
+  font-size: 0.85em;
   font-weight: 800;
   color: #fff;
 }
 
 .meter-lbl {
-  font-size: 0.65rem;
+  font-size: 0.75em;
   color: var(--text-sub);
   font-weight: 600;
+  margin-top: 2px;
 }
 
 /* Bottom Grid */
 .bot-row-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: 1.2fr repeat(2, minmax(0, 1fr));
+  gap: clamp(4px, 0.8vh, 10px);
   min-height: 0;
 }
 
@@ -472,11 +487,12 @@ html, body {
   height: 100%;
   display: flex;
   align-items: flex-end;
+  min-height: 0;
 }
 
 .info-table {
   width: 100%;
-  font-size: 0.68rem;
+  font-size: 0.8em;
   border-collapse: collapse;
 }
 
@@ -485,8 +501,9 @@ html, body {
 }
 
 .info-table td {
-  padding: 4px 0;
+  padding: 2px 0;
   color: var(--text-sub);
+  white-space: nowrap;
 }
 
 .info-table td:last-child {
@@ -498,16 +515,18 @@ html, body {
 .log-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  overflow: hidden;
 }
 
 .log-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.66rem;
-  padding: 3px 0;
+  font-size: 0.75em;
+  padding: 2px 0;
   border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
 }
 
 .log-left {
@@ -515,36 +534,42 @@ html, body {
   align-items: center;
   gap: 6px;
   color: var(--text-sub);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .log-dot {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: var(--ok-green);
+  flex-shrink: 0;
 }
 
 /* PAGE 2: AI ASSISTANT */
 .scripts-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(4px, 0.8vh, 10px);
 }
 
 .script-card-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: clamp(6px, 1vh, 10px);
+  border-radius: 8px;
   border: 1px solid var(--card-border);
   background: rgba(255, 255, 255, 0.05);
   color: #fff;
-  font-size: 0.78rem;
+  font-size: 0.85em;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .script-card-btn:hover {
@@ -553,13 +578,14 @@ html, body {
 }
 
 .script-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: clamp(22px, 3vh, 30px);
+  height: clamp(22px, 3vh, 30px);
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
+  font-size: 0.9em;
+  flex-shrink: 0;
 }
 
 .chat-panel {
@@ -575,17 +601,17 @@ html, body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   padding-right: 4px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .chat-bubble {
-  max-width: 80%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 0.78rem;
-  line-height: 1.45;
+  max-width: 85%;
+  padding: clamp(6px, 0.8vh, 10px) clamp(8px, 1vw, 12px);
+  border-radius: 10px;
+  font-size: 0.85em;
+  line-height: 1.35;
 }
 
 .chat-bubble.user {
@@ -606,46 +632,41 @@ html, body {
 .quick-prompts {
   display: flex;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   overflow-x: auto;
 }
 
 .quick-btn {
-  padding: 5px 12px;
-  border-radius: 14px;
+  padding: 4px 10px;
+  border-radius: 12px;
   border: 1px solid var(--card-border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-sub);
-  font-size: 0.68rem;
+  font-size: 0.75em;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.quick-btn:hover {
-  background: rgba(168, 85, 247, 0.25);
-  color: #fff;
-}
-
 .chat-input-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .chat-input-row input {
   flex: 1;
-  padding: 10px 14px;
-  border-radius: 8px;
+  padding: clamp(6px, 1vh, 9px) 12px;
+  border-radius: 6px;
   border: 1px solid var(--card-border);
   background: rgba(0, 0, 0, 0.3);
   color: #fff;
   outline: none;
-  font-size: 0.78rem;
+  font-size: 0.85em;
 }
 
 .chat-input-row button {
-  padding: 0 18px;
-  border-radius: 8px;
+  padding: 0 clamp(12px, 1.5vw, 18px);
+  border-radius: 6px;
   border: none;
   background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%);
   color: #fff;
@@ -657,12 +678,13 @@ html, body {
 .settings-box {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .theme-options {
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* FOOTER */
@@ -673,10 +695,12 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
-  font-size: 0.65rem;
+  padding: 0 10px;
+  font-size: 0.7em;
   color: var(--text-sub);
   z-index: 30;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .footer-running {
@@ -684,25 +708,100 @@ html, body {
   font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .footer-running::before {
   content: "";
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--ok-green);
 }
 
 .watermark-overlay {
   position: absolute;
-  bottom: 30px;
-  right: 16px;
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.15);
+  bottom: 26px;
+  right: 12px;
+  font-size: 0.7em;
+  color: rgba(255, 255, 255, 0.12);
   pointer-events: none;
   text-align: right;
+}
+
+/* =========================================================
+   RESPONSIVE LAYOUT MATRIX (Mọi màn hình không cuộn)
+   ========================================================= */
+
+/* Tablet & Màn hình nhỏ (< 768px) */
+@media (max-width: 768px) {
+  .far-left-bar {
+    display: none; /* Thu gọn thanh icon xa nhất */
+  }
+  .workspace-body {
+    grid-template-columns: clamp(90px, 18vw, 140px) 1fr;
+    gap: 6px;
+    padding: 6px;
+  }
+  .sidebar-profile .subtitle,
+  .sidebar-system-box,
+  .window-nav-links {
+    display: none; /* Giảm tải thông tin không quan trọng */
+  }
+  .top-row-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .bot-row-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .bot-row-grid .glass-panel:last-child {
+    display: none; /* Thay thế khối log phụ trên tablet */
+  }
+}
+
+/* Mobile Portrait (< 480px) */
+@media (max-width: 480px) {
+  .workspace-body {
+    grid-template-columns: clamp(40px, 12vw, 50px) 1fr;
+    padding: 4px;
+    gap: 4px;
+  }
+  .nav-sidebar {
+    padding: 6px 2px;
+  }
+  .sidebar-profile {
+    justify-content: center;
+    padding-bottom: 6px;
+  }
+  .profile-info {
+    display: none;
+  }
+  .nav-btn {
+    padding: 8px 0;
+    justify-content: center;
+  }
+  .nav-btn span:last-child {
+    display: none; /* Sidebar rút gọn thành icon duy nhất */
+  }
+  .top-row-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .meters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .bot-row-grid {
+    grid-template-columns: 1fr;
+  }
+  .bot-row-grid .glass-panel:nth-child(2) {
+    display: none; /* Ẩn bảng chi tiết nhỏ trên mobile */
+  }
+  .scripts-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .window-footer div:nth-child(2),
+  .window-footer div:nth-child(3) {
+    display: none;
+  }
 }
 </style>
 </head>
@@ -758,13 +857,13 @@ html, body {
 
           <div class="nav-menu">
             <button class="nav-btn active" onclick="switchPage('home', this)">
-              <span>🏠</span> Home
+              <span>🏠</span> <span>Home</span>
             </button>
             <button class="nav-btn" onclick="switchPage('ai', this)">
-              <span>🤖</span> AI Assistant
+              <span>🤖</span> <span>AI Assistant</span>
             </button>
             <button class="nav-btn" onclick="switchPage('settings', this)">
-              <span>⚙️</span> Settings
+              <span>⚙️</span> <span>Settings</span>
             </button>
           </div>
         </div>
@@ -772,7 +871,7 @@ html, body {
         <div class="sidebar-system-box">
           <div><b>Windows 10</b> 64-bit</div>
           <div style="margin-top:2px;">Last Updated:</div>
-          <div style="color:#fff; font-weight:600;">2026-09-09 21:32:40</div>
+          <div style="color:#fff; font-weight:600;">2026-09-09</div>
         </div>
       </nav>
 
@@ -796,16 +895,15 @@ html, body {
           <!-- Row 1 -->
           <div class="top-row-grid">
             <div class="glass-panel score-panel">
-              <div class="panel-title">Node Performance Overview</div>
+              <div class="panel-title">Node Score</div>
               <div class="ring-box">
                 <svg viewBox="0 0 100 100">
                   <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
                   <circle cx="50" cy="50" r="40" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="235 250"/>
                 </svg>
                 <div class="ring-text">
-                  <div class="sub-lbl">Node Score:</div>
                   <div class="big-val">100.00</div>
-                  <div class="sub-lbl">Availability: <b style="color:#fff;">100.00%</b></div>
+                  <div class="sub-lbl">Uptime 100%</div>
                 </div>
               </div>
               <div class="badge-excellent">✔ Excellent</div>
@@ -830,11 +928,11 @@ html, body {
             </div>
 
             <div class="glass-panel" style="justify-content:space-between;">
-              <div class="panel-title">Peers Connection</div>
+              <div class="panel-title">Peers</div>
               <div class="icon-box" style="background:rgba(192, 132, 252, 0.15); color:#c084fc;">👥</div>
               <div>
                 <div class="status-card-val">0 IN / 8 OUT</div>
-                <div class="status-card-sub">IN / OUT</div>
+                <div class="status-card-sub">Connection</div>
               </div>
             </div>
           </div>
@@ -873,7 +971,7 @@ html, body {
                   <circle cx="50" cy="50" r="38" fill="none" stroke="#f87171" stroke-width="8" stroke-dasharray="125 240" stroke-linecap="round"/>
                 </svg>
                 <div class="meter-val">52°C</div>
-                <div class="meter-lbl">System Temp</div>
+                <div class="meter-lbl">Temp</div>
               </div>
             </div>
           </div>
@@ -882,8 +980,8 @@ html, body {
           <div class="bot-row-grid">
             <div class="glass-panel">
               <div class="panel-title" style="justify-content:space-between;">
-                <span>📈 Availability Trend (24h)</span>
-                <span style="color:var(--ok-green); font-weight:800; font-size:0.8rem;">97.43%</span>
+                <span>📈 Availability (24h)</span>
+                <span style="color:var(--ok-green); font-weight:800;">97.43%</span>
               </div>
               <div class="chart-wrapper">
                 <svg viewBox="0 0 240 70" preserveAspectRatio="none" style="width:100%; height:100%;">
@@ -896,24 +994,23 @@ html, body {
             </div>
 
             <div class="glass-panel">
-              <div class="panel-title">ℹ️ Detailed Pi Node Information</div>
+              <div class="panel-title">ℹ️ Node Details</div>
               <table class="info-table">
-                <tr><td>Service</td><td>DockerExec+Horizon</td></tr>
-                <tr><td>Node Version</td><td>v27.1.0</td></tr>
-                <tr><td>Protocol Version</td><td>26</td></tr>
-                <tr><td>Block Height</td><td>10,806,516</td></tr>
-                <tr><td>Ports Status</td><td>3/10 open</td></tr>
+                <tr><td>Service</td><td>DockerExec</td></tr>
+                <tr><td>Node Ver</td><td>v27.1.0</td></tr>
+                <tr><td>Protocol</td><td>26</td></tr>
+                <tr><td>Block</td><td>10,806,516</td></tr>
+                <tr><td>Ports</td><td>3/10 open</td></tr>
               </table>
             </div>
 
             <div class="glass-panel">
-              <div class="panel-title">🕒 Refined Activity Log</div>
+              <div class="panel-title">🕒 Activity Log</div>
               <div class="log-list">
                 <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:32 - Node connected</div></div>
                 <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:31 - Peers updated</div></div>
                 <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:28 - Ledger advanced</div></div>
-                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:25 - Status: Synced!</div></div>
-                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:20 - Refreshed</div></div>
+                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:25 - Synced!</div></div>
               </div>
             </div>
           </div>
@@ -922,38 +1019,38 @@ html, body {
         <!-- PAGE 2: AI ASSISTANT -->
         <main id="page-ai" class="page-view">
           <div class="view-header">
-            <h2>Pi Node Maintenance & AI Assistant</h2>
+            <h2>Pi Node AI Assistant</h2>
             <div class="view-header-right">
               <span class="status-connected">AI Ready</span>
             </div>
           </div>
 
-          <div class="glass-panel" style="padding:12px;">
-            <div class="panel-title">🛠️ Pi Node Maintenance Scripts</div>
+          <div class="glass-panel">
+            <div class="panel-title">🛠️ Quick Maintenance Scripts</div>
             <div class="scripts-grid">
               <button class="script-card-btn" onclick="runScript('Check Sync Height')">
                 <div class="script-icon" style="background:rgba(56,189,248,0.15); color:#38bdf8;">↩️</div>
-                Check Sync Height
+                Check Sync
               </button>
               <button class="script-card-btn" onclick="runScript('Repair Docker Container')">
                 <div class="script-icon" style="background:rgba(52,211,153,0.15); color:#34d399;">🐳</div>
-                Repair Docker Container
+                Repair Docker
               </button>
               <button class="script-card-btn" onclick="runScript('Flush DNS Cache')">
                 <div class="script-icon" style="background:rgba(251,191,36,0.15); color:#fbbf24;">🌐</div>
-                Flush DNS Cache
+                Flush DNS
               </button>
               <button class="script-card-btn" onclick="runScript('Optimize RAM Usage')">
                 <div class="script-icon" style="background:rgba(192,132,252,0.15); color:#c084fc;">⚡</div>
-                Optimize RAM Usage
+                Optimize RAM
               </button>
               <button class="script-card-btn" onclick="runScript('Analyze Log Files')">
                 <div class="script-icon" style="background:rgba(248,113,113,0.15); color:#f87171;">📊</div>
-                Analyze Log Files
+                Analyze Logs
               </button>
               <button class="script-card-btn" onclick="runScript('Update Peer List')">
                 <div class="script-icon" style="background:rgba(168,85,247,0.15); color:#a855f7;">👥</div>
-                Update Peer List
+                Update Peers
               </button>
             </div>
           </div>
@@ -963,22 +1060,22 @@ html, body {
             
             <div class="chat-history" id="chatBox">
               <div class="chat-bubble user">
-                Hello! My node score is 97.43, but System Temp is 52°C and RAM is 62%. Is that okay?
+                Node Score 100, Temp 52°C, RAM 62%. Is everything okay?
               </div>
               <div class="chat-bubble bot">
-                Hello! A system temperature of 52°C is perfectly acceptable. A 62% RAM usage is normal for running a node.
+                System parameters look completely normal. Uptime is optimal.
               </div>
             </div>
 
             <div>
               <div class="quick-prompts">
-                <button class="quick-btn" onclick="sendQuick('📑 Generate Report')">📑 Generate Report</button>
-                <button class="quick-btn" onclick="sendQuick('👥 Check Peers')">👥 Check Peers</button>
-                <button class="quick-btn" onclick="sendQuick('🔄 Reset Node')">🔄 Reset Node</button>
-                <button class="quick-btn" onclick="sendQuick('🗑️ Clear Cache')">🗑️ Clear Cache</button>
+                <button class="quick-btn" onclick="sendQuick('📑 Generate Report')">📑 Report</button>
+                <button class="quick-btn" onclick="sendQuick('👥 Check Peers')">👥 Peers</button>
+                <button class="quick-btn" onclick="sendQuick('🔄 Reset Node')">🔄 Reset</button>
+                <button class="quick-btn" onclick="sendQuick('🗑️ Clear Cache')">🗑️ Cache</button>
               </div>
               <div class="chat-input-row">
-                <input type="text" id="chatInput" placeholder="Ask me anything..." onkeypress="if(event.key==='Enter') sendMsg()">
+                <input type="text" id="chatInput" placeholder="Ask AI..." onkeypress="if(event.key==='Enter') sendMsg()">
                 <button onclick="sendMsg()">➤</button>
               </div>
             </div>
@@ -988,11 +1085,11 @@ html, body {
         <!-- PAGE 3: SETTINGS -->
         <main id="page-settings" class="page-view">
           <div class="view-header">
-            <h2>Settings & Theme Customization</h2>
+            <h2>Settings & Themes</h2>
           </div>
           
-          <div class="glass-panel settings-box" style="padding:16px;">
-            <div class="panel-title">🎨 Visual Theme Settings</div>
+          <div class="glass-panel settings-box">
+            <div class="panel-title">🎨 Select Theme</div>
             <div class="theme-options">
               <button class="script-card-btn" onclick="setTheme('purple')">
                 🟣 Deep Purple Glass
@@ -1014,16 +1111,15 @@ html, body {
     <!-- Footer Bar -->
     <footer class="window-footer">
       <div class="footer-running">RUNNING</div>
-      <div style="color:rgba(255,255,255,0.4);">Optional Docker probe is configured only on this PC.</div>
-      <div style="color:rgba(255,255,255,0.4);">Data Source: Pi Desktop Sentry</div>
-      <div>http://127.0.0.1:18700</div>
-      <div style="font-weight:600; color:#fff;">32 MB - CPU 8% - up 18 49S</div>
+      <div>Docker Probe Configured</div>
+      <div>Pi Desktop Sentry</div>
+      <div>127.0.0.1:18700</div>
+      <div style="font-weight:600; color:#fff;">32 MB - CPU 8%</div>
     </footer>
 
     <!-- Watermark -->
     <div class="watermark-overlay">
-      Activate Windows<br>
-      <span style="font-size:0.65rem;">Go to Settings to activate Windows.</span>
+      Activate Windows
     </div>
 
   </div>
@@ -1032,12 +1128,9 @@ html, body {
 
 <script>
 function switchPage(pageId, btn) {
-  // Remove active from all pages
   document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
-  // Remove active from all sidebar buttons
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   
-  // Activate target page and button
   document.getElementById('page-' + pageId).classList.add('active');
   btn.classList.add('active');
 }
@@ -1073,10 +1166,10 @@ function sendMsg() {
   setTimeout(() => {
     const botMsg = document.createElement('div');
     botMsg.className = 'chat-bubble bot';
-    botMsg.textContent = "AI Analysis complete for command: '" + txt + "'. System running normally.";
+    botMsg.textContent = "AI Command Executed: '" + txt + "'. System running normally.";
     box.appendChild(botMsg);
     box.scrollTop = box.scrollHeight;
-  }, 500);
+  }, 400);
 }
 
 function sendQuick(txt) {
@@ -1097,10 +1190,10 @@ function runScript(name) {
   setTimeout(() => {
     const botMsg = document.createElement('div');
     botMsg.className = 'chat-bubble bot';
-    botMsg.textContent = "Successfully executed script '" + name + "'. All parameters optimized!";
+    botMsg.textContent = "Script '" + name + "' finished with status 200 OK.";
     box.appendChild(botMsg);
     box.scrollTop = box.scrollHeight;
-  }, 400);
+  }, 300);
 }
 </script>
 
