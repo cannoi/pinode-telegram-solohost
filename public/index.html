@@ -45,7 +45,6 @@ body {
   padding: 12px;
 }
 
-/* RESPONSIVE WRAPPER CONTAINER */
 .w {
   width: 100%;
   max-width: 1100px;
@@ -54,7 +53,6 @@ body {
   gap: 12px;
 }
 
-/* GLASS PANEL BASE STYLE */
 .glass {
   background: var(--p);
   border: 1px solid var(--bd);
@@ -64,7 +62,6 @@ body {
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
 }
 
-/* TOP HEADER BAR */
 .top {
   display: flex;
   align-items: center;
@@ -144,7 +141,6 @@ body {
   font-weight: 800;
 }
 
-/* NAVIGATION TABS */
 .nav {
   display: flex;
   gap: 8px;
@@ -168,7 +164,6 @@ body {
   border-color: var(--acc);
 }
 
-/* PAGES CONTAINER */
 .page {
   display: none;
   flex-direction: column;
@@ -179,7 +174,6 @@ body {
   display: flex;
 }
 
-/* CARDS COMMON */
 .card {
   padding: 16px;
   display: flex;
@@ -195,7 +189,6 @@ body {
   font-weight: 800;
 }
 
-/* WEATHER HERO OVERVIEW CARD */
 .hero-weather-card {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -210,7 +203,7 @@ body {
 }
 
 .weather-icon-large {
-  font-size: 3.8rem;
+  font-size: 3.5rem;
   line-height: 1;
 }
 
@@ -290,7 +283,6 @@ body {
 .sub-detail-row .lbl { color: var(--m); }
 .sub-detail-row .val { font-weight: 700; }
 
-/* MINI METRICS GRID */
 .grid3 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -311,7 +303,6 @@ body {
 .mini .v { font-size: 0.92rem; font-weight: 800; }
 .mini .s { font-size: 0.65rem; color: var(--m); }
 
-/* LIVE HARDWARE METRICS (RESBOX METRIC CARDS) */
 .res {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -333,7 +324,6 @@ body {
 .res .met span { font-size: 0.68rem; color: var(--m); }
 .res .met.off { opacity: 0.5; }
 
-/* CHART BOX */
 .chartbox {
   height: 80px;
   width: 100%;
@@ -345,7 +335,6 @@ body {
   display: block;
 }
 
-/* DETAILS & LOGS */
 .info .row, .log .item {
   display: flex;
   justify-content: space-between;
@@ -357,7 +346,6 @@ body {
 .k { color: var(--m); }
 .val { font-weight: 700; }
 
-/* SCRIPTS AND CHAT PAGE */
 .scripts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -483,7 +471,6 @@ body {
   font: inherit;
 }
 
-/* MODAL DOCKER TERMS */
 .modal {
   display: none;
   position: fixed;
@@ -556,7 +543,6 @@ body {
 .tile { cursor: grab; }
 .tile .grip { font-size: 0.62rem; color: var(--m); margin-bottom: 4px; user-select: none; }
 
-/* DESKTOP RESPONSIVE LAYOUT */
 @media (min-width: 880px) {
   .w {
     display: grid;
@@ -606,7 +592,7 @@ body {
 
   <!-- NAVIGATION TABS -->
   <div class="nav">
-    <button type="button" class="on" data-page="home">🌤️ Node Forecast</button>
+    <button type="button" class="on" data-page="home">⚡ Node Status</button>
     <button type="button" data-page="ai">🤖 AI & Maintenance</button>
     <button type="button" data-page="set">⚙️ Settings</button>
   </div>
@@ -614,13 +600,13 @@ body {
   <!-- ALERTS PANEL -->
   <div class="panel glass" id="alertPanel"></div>
 
-  <!-- PAGE 1: HOME / WEATHER FORECAST -->
+  <!-- PAGE 1: HOME / NODE STATUS -->
   <div class="page on" id="page-home">
     
-    <!-- HERO WEATHER CARD -->
+    <!-- HERO STATUS CARD -->
     <div class="card glass hero-weather-card tile" data-id="score" draggable="true">
       <div class="hero-main">
-        <div class="weather-icon-large" id="weatherIcon">☀️</div>
+        <div class="weather-icon-large" id="weatherIcon">⚡</div>
         <div class="ringwrap">
           <svg viewBox="0 0 100 100" aria-hidden="true">
             <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="8"/>
@@ -657,7 +643,7 @@ body {
       </div>
     </div>
 
-    <!-- MINI WEATHER SUMMARY METRICS -->
+    <!-- MINI SUMMARY METRICS -->
     <div class="grid3">
       <div class="mini glass tile" data-id="state" draggable="true">
         <div class="ic">🧊</div>
@@ -679,14 +665,14 @@ body {
       </div>
     </div>
 
-    <!-- LIVE ATMOSPHERIC/HARDWARE METRICS -->
+    <!-- LIVE HARDWARE METRICS -->
     <div class="card glass tile" data-id="res" draggable="true">
       <div class="grip">⠿ Live Hardware Metrics</div>
       <h2>System Pressure & Telemetry</h2>
       <div class="res" id="resBox"></div>
     </div>
 
-    <!-- TWO COLUMN LAYOUT FOR TREND & LOGS ON DESKTOP -->
+    <!-- TWO COLUMN LAYOUT FOR TREND & LOGS -->
     <div class="home-two-col">
       <div class="card glass tile" data-id="chart" draggable="true">
         <h2>24-Hour Availability Trend</h2>
@@ -762,7 +748,7 @@ body {
     <div class="card glass">
       <h2>System Information</h2>
       <div class="sub-detail-row"><span class="lbl">Application:</span><span class="val">SoloHost Pro v2.6.55</span></div>
-      <div class="sub-detail-row"><span class="lbl">UI Style:</span><span class="val">Windows 10 Glassmorphism (Weather Style)</span></div>
+      <div class="sub-detail-row"><span class="lbl">UI Style:</span><span class="val">Windows 10 Glassmorphism</span></div>
       <div class="sub-detail-row"><span class="lbl">Responsive Layout:</span><span class="val">Adaptive Multi-Device View</span></div>
     </div>
   </div>
@@ -809,7 +795,6 @@ const box = document.getElementById('chatbox');
 const termsBox = document.getElementById('termsBox');
 termsBox.textContent = TERMS;
 
-// Navigation handling
 document.querySelectorAll('.nav button').forEach(function(b) {
   b.onclick = function() {
     document.querySelectorAll('.nav button').forEach(x => x.classList.remove('on'));
@@ -851,7 +836,6 @@ function setArc(id, pct, maxDash) {
   el.setAttribute('stroke-dasharray', (p / 100 * maxDash).toFixed(1) + ' ' + maxDash);
 }
 
-// Main API Telemetry Function
 function loadStatus() {
   return fetch('/api/status').then(r => r.json()).then(function(t) {
     const rows = [];
@@ -878,20 +862,19 @@ function loadStatus() {
     const live = /horizon live|synced|ok/i.test(String(t.sync || ''));
     const catchup = /catch|behind|slow|lag/i.test(String(t.sync || ''));
     
-    // Dynamic Weather Icon and Condition Text
     const weatherIcon = document.getElementById('weatherIcon');
     if (live) {
-      document.getElementById('scoreTag').textContent = 'Sunny & Optimal Sync';
+      document.getElementById('scoreTag').textContent = 'Optimal Sync';
       document.getElementById('scoreArc').setAttribute('stroke', '#34d399');
-      if (weatherIcon) weatherIcon.textContent = '☀️';
+      if (weatherIcon) weatherIcon.textContent = '⚡';
     } else if (catchup) {
-      document.getElementById('scoreTag').textContent = 'Overcast / Catching Up';
+      document.getElementById('scoreTag').textContent = 'Catching Up';
       document.getElementById('scoreArc').setAttribute('stroke', '#fbbf24');
-      if (weatherIcon) weatherIcon.textContent = '🌤️';
+      if (weatherIcon) weatherIcon.textContent = '🔄';
     } else {
-      document.getElementById('scoreTag').textContent = 'Stormy / Connection Issues';
+      document.getElementById('scoreTag').textContent = 'Connection Issues';
       document.getElementById('scoreArc').setAttribute('stroke', '#f87171');
-      if (weatherIcon) weatherIcon.textContent = '🌧️';
+      if (weatherIcon) weatherIcon.textContent = '⚠️';
     }
 
     document.getElementById('stSync').textContent = t.sync || '—';
@@ -902,7 +885,6 @@ function loadStatus() {
     const pin = t.peer_in, pout = t.peer_out;
     document.getElementById('stPeers').textContent = (pin != null || pout != null) ? ((pin ?? '—') + ' in / ' + (pout ?? '—') + ' out') : (t.peers != null ? t.peers : '—');
 
-    // Hardware Telemetry Metric Cards
     const cpu = t.container_cpu != null ? t.container_cpu : (t.cpu != null ? t.cpu : null);
     const ram = t.container_ram != null ? t.container_ram : (t.ram != null ? t.ram : null);
     const disk = t.disk != null ? t.disk : null;
@@ -926,7 +908,6 @@ function loadStatus() {
       new Date().toISOString().replace('T', ' ').slice(11, 19) + ' • Status: ' + (t.sync || '?') + ' • Ledger: ' + (t.ledger != null ? t.ledger : '?');
     document.getElementById('conn').textContent = '● Connected';
 
-    // Availability Graph
     try {
       const key = 'pinode_health_hist';
       let hist = [];
@@ -958,7 +939,6 @@ function loadStatus() {
   });
 }
 
-// AI Chat function
 async function send() {
   const inp = document.getElementById('inp');
   let msg = (inp.value || '').trim();
@@ -976,7 +956,6 @@ async function send() {
   }
 }
 
-// Docker Modal controls
 function openDockerTerms() {
   document.getElementById('dkRead').checked = false;
   document.getElementById('dkAgree').checked = false;
@@ -1006,7 +985,6 @@ document.getElementById('dkConfirm').onclick = async function() {
   }
 };
 
-// Script download triggers
 const ACT = {
   '/actions/CleanRAM.bat': 'Optimize RAM\nFrees unused memory.',
   '/actions/DnsFlush.bat': 'Flush DNS\nRefreshes Windows DNS cache.',
@@ -1041,7 +1019,6 @@ document.getElementById('qbar').addEventListener('click', function(e) {
 document.getElementById('send').onclick = send;
 document.getElementById('inp').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 
-// Wallpaper styling switcher
 const BG = { cave: 'url("/bg-cave.jpg")', classic: 'url("/bg-classic.jpg")', pi: 'url("/bg-pi.jpg")' };
 function applyBg(kind, custom) {
   const root = document.documentElement;
@@ -1072,7 +1049,6 @@ document.getElementById('bgFile').onchange = function() {
   r.readAsDataURL(f);
 };
 
-// Alerts handler
 async function loadAlerts() {
   try {
     const j = await fetch('/api/alerts').then(r => r.json());
