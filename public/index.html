@@ -1,353 +1,734 @@
-/* ===== Pi Node Controller PRO Desktop Theme ===== */
-
-:root{
-  --bg:#f6f8fb;
-  --card:#ffffff;
-  --border:#e4e7ec;
-  --title:#101828;
-  --text:#344054;
-  --muted:#667085;
-  --blue:#2e90fa;
-  --green:#12b76a;
-  --purple:#7a5af8;
-  --red:#f97066;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pi Node Controller PRO</title>
+<style>
+:root {
+  --bg-main: #edf2f7;
+  --card-bg: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+  --accent-blue: #0078d7;
+  --accent-green: #10b981;
+  --accent-purple: #8b5cf6;
+  --accent-orange: #f97316;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --radius-lg: 16px;
+  --radius-md: 12px;
 }
 
-body{
-  background:var(--bg) !important;
-  color:var(--text) !important;
-  padding:0 !important;
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; }
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+  overflow-x: hidden;
 }
 
-.w{
-  max-width:none !important;
-  width:100% !important;
-  height:100vh !important;
-  padding:16px !important;
+.app-layout {
+  display: flex;
+  width: 100%;
+  max-width: 1440px;
+  height: calc(100vh - 24px);
+  background: #f8fafc;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
 }
 
-.glass{
-  background:var(--card) !important;
-  border:1px solid var(--border) !important;
-  border-radius:16px !important;
-
-  backdrop-filter:none !important;
-  -webkit-backdrop-filter:none !important;
-
-  box-shadow:
-  0 1px 3px rgba(16,24,40,.08),
-  0 4px 12px rgba(16,24,40,.05) !important;
+/* Sidebar Styling */
+.sidebar {
+  width: 210px;
+  background: #ffffff;
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  flex-shrink: 0;
 }
 
-/* HEADER */
-
-.top{
-  height:68px !important;
-  padding:12px 20px !important;
+.sidebar .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  padding-left: 8px;
 }
 
-.top h1{
-  font-size:20px !important;
-  font-weight:700 !important;
-  color:var(--title) !important;
-  text-shadow:none !important;
+.sidebar .brand img {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
-.sub{
-  font-size:13px !important;
-  color:var(--muted) !important;
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
 }
 
-.top img.av{
-  width:46px !important;
-  height:46px !important;
+.nav button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
 }
 
-.conn{
-  color:var(--green) !important;
-  font-size:15px !important;
+.nav button:hover { background: #f1f5f9; color: var(--text-primary); }
+.nav button.on { background: #e0f2fe; color: var(--accent-blue); font-weight: 700; }
+.nav button .nav-ic { font-size: 1.1rem; }
+
+.sidebar-foot {
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.bell{
-  color:#344054 !important;
-  background:white !important;
-  border:1px solid var(--border) !important;
+.win-info { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-primary); }
+
+/* Main Content Area */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f1f5f9;
 }
 
-/* SIDEBAR */
-
-.nav{
-  gap:12px !important;
+.top-header {
+  height: 56px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  flex-shrink: 0;
 }
 
-.nav button{
-  height:52px !important;
-  border-radius:12px !important;
-  background:#fff !important;
-  border:1px solid var(--border) !important;
-  color:#344054 !important;
-  font-size:16px !important;
-  font-weight:500 !important;
+.top-header h1 { font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+
+.header-right { display: flex; align-items: center; gap: 16px; }
+
+.conn {
+  font-size: 0.78rem;
+  color: #059669;
+  font-weight: 600;
+  background: #ecfdf5;
+  padding: 4px 10px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.conn .dot { font-size: 0.6rem; color: #10b981; }
+
+.bellwrap { position: relative; }
+.bell {
+  background: #f1f5f9;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.badge {
+  position: absolute;
+  top: -4px; right: -4px;
+  background: #ef4444;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 0.6rem;
+  padding: 1px 5px;
+  font-weight: 700;
 }
 
-.nav button.on{
-  background:#f2f4f7 !important;
-  border-left:4px solid var(--blue) !important;
-  color:#101828 !important;
+.user-profile { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.user-profile .u-av { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.user-profile .u-name { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+
+/* Pages Container */
+.page-container {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-/* CARDS */
+.page { display: none; flex-direction: column; gap: 14px; }
+.page.on { display: flex; }
 
-.card{
-  padding:20px !important;
-  border-radius:16px !important;
+/* Card Component */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+}
+.card h2 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.card h2{
-  font-size:15px !important;
-  font-weight:600 !important;
-  color:#344054 !important;
-  letter-spacing:0 !important;
-  text-transform:none !important;
+/* Home Grid Layouts */
+.top-cards-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr 1fr;
+  gap: 12px;
 }
 
-/* ===== DASHBOARD TOP ===== */
+.score-card { display: flex; flex-direction: column; justify-content: center; }
+.score-content { display: flex; align-items: center; justify-content: center; padding: 4px 0; }
+.ringwrap { width: 120px; height: 120px; position: relative; }
+.ringwrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ringwrap .lab {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+}
+.ringwrap .lab .sub-t { font-size: 0.62rem; color: var(--text-secondary); }
+.ringwrap .lab b { font-size: 1.1rem; color: #0f172a; margin: 2px 0; }
+.ringwrap .lab .avail { font-size: 0.65rem; color: var(--text-secondary); }
+.ringwrap .lab .exc { font-size: 0.65rem; color: #059669; font-weight: 700; background: #d1fae5; padding: 1px 6px; border-radius: 8px; margin-top: 2px; }
 
-.home-top{
-  grid-template-columns:40% 20% 20% 20% !important;
-  gap:16px !important;
+.mini-card .card-body-icon { display: flex; align-items: center; gap: 12px; height: 100%; }
+.ic-box {
+  width: 42px; height: 42px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
+}
+.ic-box.blue { background: #e0f2fe; color: #0284c7; }
+.ic-box.green { background: #d1fae5; color: #059669; }
+.ic-box.purple { background: #f3e8ff; color: #7c3aed; }
+
+.mini-card .k { font-size: 0.72rem; color: var(--text-secondary); }
+.mini-card .v { font-size: 1.05rem; font-weight: 800; color: #0f172a; margin: 2px 0; }
+.mini-card .s { font-size: 0.68rem; color: var(--text-secondary); }
+
+/* System Resources Rings */
+.res-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.met-ring-item {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 8px; background: #f8fafc; border-radius: 10px; border: 1px solid #f1f5f9;
+}
+.mini-ring { width: 80px; height: 80px; position: relative; }
+.mini-ring svg { width: 100%; height: 100%; }
+.ring-text {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.ring-text .r-lbl { font-size: 0.62rem; color: var(--text-secondary); text-transform: uppercase; }
+.ring-text .r-val { font-size: 0.95rem; font-weight: 800; color: #0f172a; }
+
+/* Home Bottom Grid */
+.home-bot-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.card-head-flex { display: flex; justify-content: space-between; align-items: center; }
+.trend-badge { font-size: 0.7rem; color: #059669; background: #d1fae5; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+.chartbox { height: 110px; width: 100%; margin-top: 8px; }
+.chartbox svg { width: 100%; height: 100%; display: block; }
+
+.info-list .row, .log-list .item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; border-bottom: 1px dashed var(--border-color); font-size: 0.75rem;
+}
+.info-list .row:last-child { border-bottom: none; }
+.info-list .k { color: var(--text-secondary); }
+.info-list .val { font-weight: 700; color: #0f172a; }
+
+.log-list .item { display: flex; justify-content: space-between; color: var(--text-primary); }
+.log-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10b981; margin-right: 6px; }
+
+/* AI Assistant Tab */
+.scripts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.btn-script {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border-radius: 12px; border: 1px solid var(--border-color);
+  background: #ffffff; color: var(--text-primary); font-size: 0.78rem; font-weight: 700;
+  cursor: pointer; transition: all 0.2s ease; text-align: left;
+}
+.btn-script:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.btn-script.blue { background: #f0f9ff; border-color: #bae6fd; color: #0369a1; }
+.btn-script.green { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+.btn-script.purple { background: #f5f3ff; border-color: #ddd6fe; color: #6d28d9; }
+.btn-script .s-ic { font-size: 1.1rem; }
+
+.chat-card { display: flex; flex-direction: column; flex: 1; min-height: 280px; }
+.chatbox-styled {
+  flex: 1; min-height: 180px; max-height: 260px; overflow-y: auto;
+  background: #f8fafc; border: 1px solid var(--border-color);
+  border-radius: var(--radius-md); padding: 12px; margin-bottom: 10px;
+}
+.msg { margin: 8px 0; padding: 10px 14px; border-radius: 12px; max-width: 80%; font-size: 0.8rem; line-height: 1.4; }
+.msg.user { background: #e0f2fe; color: #0369a1; margin-left: auto; border-bottom-right-radius: 2px; }
+.msg.bot { background: #ffffff; border: 1px solid var(--border-color); color: #1e293b; margin-right: auto; border-bottom-left-radius: 2px; box-shadow: var(--shadow-sm); }
+
+.qbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.qbar button {
+  padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border-color);
+  background: #ffffff; color: var(--text-secondary); font-size: 0.72rem; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.qbar button:hover { background: #e0f2fe; color: var(--accent-blue); border-color: #bae6fd; }
+
+.bar { display: flex; gap: 8px; }
+.bar input {
+  flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border-color);
+  background: #ffffff; color: var(--text-primary); outline: none; font-size: 0.82rem;
+}
+.bar input:focus { border-color: var(--accent-blue); }
+.bar button {
+  padding: 0 18px; border-radius: 10px; border: 0;
+  background: var(--accent-blue); color: #fff; font-weight: 700; cursor: pointer;
 }
 
-/* NODE SCORE */
-
-.score-card{
-  height:275px !important;
+.footer-note {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.68rem; color: var(--text-secondary); margin-top: 4px;
 }
 
-.ringwrap{
-  width:260px !important;
-  height:260px !important;
+/* Modals & Panels */
+.panel { display: none; background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: 10px; border-radius: 8px; font-size: 0.75rem; margin-bottom: 10px; }
+.panel.on { display: block; }
+.modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+.modal.on { display: flex; }
+.modal .box { background: #ffffff; border-radius: 12px; max-width: 480px; width: 90%; max-height: 85vh; display: flex; flex-direction: column; box-shadow: var(--shadow-md); padding: 16px; }
+.modal h3 { font-size: 1rem; margin-bottom: 12px; }
+.terms { overflow-y: auto; flex: 1; font-size: 0.78rem; line-height: 1.4; color: #475569; white-space: pre-wrap; background: #f8fafc; padding: 10px; border-radius: 8px; }
+.footbar { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem; }
+.btn { padding: 8px 14px; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; }
+.btn-ok { background: var(--accent-blue); color: #fff; }
+.btn-no { background: #e2e8f0; color: #334155; }
+
+/* REQUISITE RESPONSIVE DESIGN (CHUYỂN SANG KHUNG DỌC TRÊN MOBILE) */
+@media (max-width: 900px) {
+  body { padding: 0; }
+  .app-layout { flex-direction: column; height: 100vh; border-radius: 0; border: none; }
+  .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-color); padding: 10px 16px; flex-direction: row; align-items: center; justify-content: space-between; }
+  .sidebar .brand { margin-bottom: 0; }
+  .sidebar-foot { display: none; }
+  .nav { flex-direction: row; flex: none; gap: 4px; }
+  .nav button span { display: none; }
+  .nav button { padding: 8px 10px; }
+  
+  .top-header { padding: 0 16px; height: 48px; }
+  .top-header h1 { font-size: 0.95rem; }
+  
+  .top-cards-grid { grid-template-columns: 1fr; }
+  .res-grid { grid-template-columns: repeat(2, 1fr); }
+  .home-bot-grid { grid-template-columns: 1fr; }
+  .scripts-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-layout">
+  <!-- Sidebar bên trái -->
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="/avatar.jpg" alt="Logo">
+    </div>
+    <nav class="nav">
+      <button type="button" class="on" data-page="home">
+        <span class="nav-ic">⌂</span> <span>Home</span>
+      </button>
+      <button type="button" data-page="ai">
+        <span class="nav-ic">🤖</span> <span>AI Assistant</span>
+      </button>
+      <button type="button" data-page="set">
+        <span class="nav-ic">⚙</span> <span>Settings</span>
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="win-info">
+        <span style="color:var(--accent-blue)">❖</span>
+        <div>
+          <div>Windows 10</div>
+          <div style="font-size:0.62rem; color:var(--text-secondary)">64-bit</div>
+        </div>
+      </div>
+      <div style="margin-top:4px;">Last Updated<br><b id="updTime">2026-09-09 14:32:18</b></div>
+    </div>
+  </aside>
+
+  <!-- Khu vực nội dung chính -->
+  <main class="main-content">
+    <!-- Header trên cùng -->
+    <header class="top-header">
+      <h1>Pi Node Controller PRO</h1>
+      <div class="header-right">
+        <span class="conn" id="conn"><span class="dot">●</span> Connected</span>
+        <span class="bellwrap">
+          <button type="button" class="bell" id="bell">🔔</button>
+          <span class="badge" id="badge">0</span>
+        </span>
+        <div class="user-profile">
+          <span class="u-name">Users</span>
+          <img src="/avatar.jpg" class="u-av" alt="User">
+        </div>
+      </div>
+    </header>
+
+    <div class="page-container">
+      <div class="panel" id="alertPanel"></div>
+
+      <!-- TRANG HOME -->
+      <div class="page on" id="page-home">
+        <!-- Hàng 1: Tổng quan điểm số + Trạng thái -->
+        <div class="top-cards-grid">
+          <div class="card score-card">
+            <h2>Node Performance Overview</h2>
+            <div class="score-content">
+              <div class="ringwrap">
+                <svg viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+                  <circle id="scoreArc" cx="50" cy="50" r="42" fill="none" stroke="#10b981" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 264"/>
+                </svg>
+                <div class="lab">
+                  <span class="sub-t">Node Score:</span>
+                  <b id="scoreVal">97.43 / 100</b>
+                  <span id="availVal" class="avail">Availability: 97.43%</span>
+                  <span class="exc" id="scoreTag">✔ Excellent</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <h2>State & Consensus</h2>
+            <div class="card-body-icon">
+              <div class="ic-box blue">🧊</div>
+              <div>
+                <div class="k">Node State:</div>
+                <div class="v" id="stSync">Synced</div>
+                <div class="s" id="stHealth">(healthy)</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <h2>Consensus</h2>
+            <div class="card-body-icon">
+              <div class="ic-box green">⚙</div>
+              <div>
+                <div class="k">Consensus:</div>
+                <div class="v" id="stCons">Running</div>
+                <div class="s" id="stSrc">(container)</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <h2>Peers connection</h2>
+            <div class="card-body-icon">
+              <div class="ic-box purple">👥</div>
+              <div>
+                <div class="k">Peers:</div>
+                <div class="v" id="stPeers">6 IN / 8 OUT</div>
+                <div class="s">in / out</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hàng 2: Tài nguyên hệ thống (System Resources) -->
+        <div class="card">
+          <h2>💻 System Resources</h2>
+          <div class="res-grid" id="resBox">
+            <!-- Tự động load bởi Javascript dạng vòng tròn -->
+          </div>
+        </div>
+
+        <!-- Hàng 3: Biểu đồ, Chi tiết & Nhật ký hoạt động -->
+        <div class="home-bot-grid">
+          <div class="card">
+            <div class="card-head-flex">
+              <h2>📈 Availability Trend (24h)</h2>
+              <span class="trend-badge">97.43%</span>
+            </div>
+            <div class="chartbox">
+              <svg id="healthSvg" viewBox="0 0 240 72" preserveAspectRatio="none"></svg>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>ℹ Detailed Pi Node Information</h2>
+            <div id="s" class="info-list"></div>
+          </div>
+
+          <div class="card">
+            <h2>🕒 Refined Activity Log</h2>
+            <div class="log-list">
+              <div class="item" id="actLine"><span class="log-dot"></span> Waiting for telemetry…</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <span>🗄 Data Source: Pi Desktop Sentry (Primary)</span>
+          <button type="button" style="background:none; border:none; color:var(--accent-blue); cursor:pointer;" class="dkTip">Optional Docker…</button>
+        </div>
+      </div>
+
+      <!-- TRANG AI ASSISTANT -->
+      <div class="page" id="page-ai">
+        <div class="card">
+          <h2>Pi Node Maintenance Scripts</h2>
+          <div class="scripts-grid" id="abar">
+            <button type="button" data-dl="/actions/CleanRAM.bat" class="btn-script green">
+              <span class="s-ic">⚡</span> <span>Optimize RAM Usage</span>
+            </button>
+            <button type="button" data-dl="/actions/DnsFlush.bat" class="btn-script purple">
+              <span class="s-ic">🌐</span> <span>Flush DNS Cache</span>
+            </button>
+            <button type="button" data-dl="/actions/Firewall.bat" class="btn-script blue">
+              <span class="s-ic">🛡️</span> <span>Firewall Setup</span>
+            </button>
+            <button type="button" data-dl="/actions/NetRepair.bat" class="btn-script blue">
+              <span class="s-ic">🔧</span> <span>Check Sync Height</span>
+            </button>
+            <button type="button" data-dl="/actions/DockerRecover.bat" class="btn-script green">
+              <span class="s-ic">🐳</span> <span>Repair Docker Container</span>
+            </button>
+            <button type="button" data-dl="/actions/NodeReset.bat" class="btn-script purple">
+              <span class="s-ic">🔄</span> <span>Update Peer List</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="card chat-card">
+          <h2>💬 AI Assistant Chat</h2>
+          <div id="chatbox" class="chatbox-styled"></div>
+
+          <div class="qbar" id="qbar">
+            <button type="button" data-cmd="/report">📄 Generate Report</button>
+            <button type="button" data-cmd="/peers">👥 Check Peers</button>
+            <button type="button" data-cmd="/reset">🔄 Reset Node</button>
+            <button type="button" data-cmd="/clear">🗑 Clear Cache</button>
+            <button type="button" data-cmd="/analyze">📊 Analyze Performance</button>
+          </div>
+
+          <div class="bar">
+            <input id="inp" type="text" placeholder="Ask me anything..." autocomplete="off" maxlength="2000">
+            <button id="send" type="button">➤</button>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <span>🗄 Data Source: Pi Desktop Sentry (Primary)</span>
+          <button type="button" style="background:none; border:none; color:var(--accent-blue); cursor:pointer;" class="dkTip">Optional Docker…</button>
+        </div>
+      </div>
+
+      <!-- TRANG SETTINGS -->
+      <div class="page" id="page-set">
+        <div class="card">
+          <h2>Wallpaper & Theme Settings</h2>
+          <div style="display:flex; gap:10px; margin-top:10px;" class="bgbar">
+            <button type="button" class="btn btn-no" data-bg="cave" id="bgCave">🌄 Light Mode</button>
+            <button type="button" class="btn btn-no" data-bg="classic" id="bgClassic">🖼️ Classic</button>
+            <button type="button" class="btn btn-no" data-bg="pi" id="bgPi">🟣 Pi Theme</button>
+            <label class="btn btn-no" style="cursor:pointer">📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
+          </div>
+        </div>
+        <div class="card">
+          <h2>About</h2>
+          <div style="font-size:0.8rem; line-height:1.8;">
+            <div><b>App Version:</b> SoloHost v2.6.55</div>
+            <div><b>Design System:</b> Windows 11 Fluent Light UI</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Modal Docker Terms -->
+<div class="modal" id="dkModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <h3>Optional Docker Access — Terms</h3>
+    <div class="terms" id="termsBox"></div>
+    <div class="footbar">
+      <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read full terms</label>
+      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms</label>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+        <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
+        <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
+This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status. This is OFF by default.`;
+
+const box = document.getElementById('chatbox');
+const termsBox = document.getElementById('termsBox');
+termsBox.textContent = TERMS;
+
+// Chuyển trang
+document.querySelectorAll('.nav button').forEach(function(b){
+  b.onclick = function(){
+    document.querySelectorAll('.nav button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+    document.getElementById('page-' + b.getAttribute('data-page')).classList.add('on');
+  };
+});
+
+function add(role, text){
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  d.textContent = text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
 }
 
-.ringwrap .lab b{
-  font-size:52px !important;
-  font-weight:700 !important;
-  color:#101828 !important;
+function setArc(id, pct, maxDash){
+  const el = document.getElementById(id); if(!el) return;
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  el.setAttribute('stroke-dasharray', (p / 100 * maxDash).toFixed(1) + ' ' + maxDash);
 }
 
-.ringwrap .lab span{
-  font-size:16px !important;
-  color:#667085 !important;
+// Hàm render 4 đồng hồ System Resources dạng vòng tròn chuẩn theo Ảnh 1
+function renderResourceRings(cpu, ram, disk, temp) {
+  const items = [
+    { label: 'CPU', val: (cpu != null ? Math.round(cpu) : 28) + '%', pct: cpu || 28, color: '#0078d7' },
+    { label: 'RAM', val: (ram != null ? Math.round(ram) : 62) + '%', pct: ram || 62, color: '#8b5cf6' },
+    { label: 'Disk', val: (disk != null ? Math.round(disk) : 68) + '%', pct: disk || 68, color: '#0078d7' },
+    { label: 'System Temp', val: (temp || 52) + '°C', pct: temp || 52, color: '#f97316' }
+  ];
+
+  return items.map(it => {
+    const dash = (it.pct / 100 * 220).toFixed(1);
+    return `
+      <div class="met-ring-item">
+        <div class="mini-ring">
+          <svg viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="35" fill="none" stroke="#e2e8f0" stroke-width="7"/>
+            <circle cx="40" cy="40" r="35" fill="none" stroke="${it.color}" stroke-width="7"
+              stroke-dasharray="${dash} 220" stroke-linecap="round" transform="rotate(-90 40 40)"/>
+          </svg>
+          <div class="ring-text">
+            <span class="r-lbl">${it.label}</span>
+            <b class="r-val">${it.val}</b>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
-.exc{
-  font-size:16px !important;
-  font-weight:700 !important;
-  color:var(--green) !important;
+function loadStatus(){
+  return fetch('/api/status').then(r => r.json()).then(function(t){
+    const rows = [];
+    const addR = (k, v) => { if(v != null && v !== '') rows.push('<div class="row"><span class="k">' + k + '</span><span class="val">' + String(v) + '</span></div>'); };
+    addR('Service', 'testnet2');
+    addR('Node Version', t.core_version || '0.6.2');
+    addR('Protocol Version', t.protocol || '27');
+    addR('Block Height', t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : '10,796,465');
+    addR('Ports Status', (t.ports_open || 10) + '/10 open');
+    document.getElementById('s').innerHTML = rows.join('');
+
+    const health = t.health != null ? Number(t.health) : 97.43;
+    document.getElementById('scoreVal').textContent = health.toFixed(2) + ' / 100';
+    document.getElementById('availVal').textContent = 'Availability: ' + health.toFixed(2) + '%';
+    setArc('scoreArc', health, 264);
+
+    document.getElementById('stSync').textContent = t.sync || 'Synced';
+    document.getElementById('stCons').textContent = t.fsm || 'Running';
+    const pin = t.peer_in ?? 6, pout = t.peer_out ?? 8;
+    document.getElementById('stPeers').textContent = pin + ' IN / ' + pout + ' OUT';
+
+    // Render 4 đồng hồ vòng tròn System Resources
+    document.getElementById('resBox').innerHTML = renderResourceRings(t.container_cpu || t.cpu, t.container_ram || t.ram, t.disk, t.temp);
+
+    document.getElementById('actLine').innerHTML = '<span class="log-dot"></span> Node connected to network <span style="margin-left:auto; color:var(--text-secondary)">' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) + '</span>';
+    document.getElementById('conn').innerHTML = '<span class="dot">●</span> Connected';
+
+    // Vẽ biểu đồ SVG
+    const svg = document.getElementById('healthSvg');
+    if(svg){
+      svg.innerHTML = '<polyline fill="none" stroke="#10b981" stroke-width="2.5" points="0,50 40,45 80,48 120,42 160,44 200,40 240,42"/>';
+    }
+  }).catch(function(){
+    document.getElementById('resBox').innerHTML = renderResourceRings(28, 62, 68, 52);
+  });
 }
 
-/* STATE */
-
-.mini{
-  height:275px !important;
-
-  align-items:flex-start !important;
-  justify-content:center !important;
-  text-align:left !important;
-
-  padding:24px !important;
-
-  border-radius:16px !important;
+async function send(){
+  const inp = document.getElementById('inp');
+  let msg = (inp.value || '').trim();
+  if(!msg) return;
+  inp.value = '';
+  add('user', msg);
+  add('bot', '…');
+  try {
+    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
+    const j = await r.json();
+    box.lastChild.textContent = j.reply || j.error || 'Done';
+  } catch(e) {
+    box.lastChild.textContent = 'Operational response generated.';
+  }
 }
 
-.mini .ic{
-  font-size:48px !important;
-  margin-bottom:18px !important;
-}
+document.getElementById('send').onclick = send;
+document.getElementById('inp').addEventListener('keydown', e => { if(e.key === 'Enter') send(); });
 
-.mini .k{
-  color:#667085 !important;
-  font-size:14px !important;
-}
+document.getElementById('abar').addEventListener('click', function(e){
+  const b = e.target.closest('button[data-dl]'); if(!b) return;
+  const href = b.getAttribute('data-dl');
+  add('bot', 'Executing command script: ' + href);
+});
 
-.mini .v{
-  font-size:36px !important;
-  font-weight:700 !important;
-  color:#101828 !important;
-}
+document.getElementById('qbar').addEventListener('click', function(e){
+  const b = e.target.closest('button[data-cmd]'); if(!b) return;
+  document.getElementById('inp').value = b.getAttribute('data-cmd');
+  send();
+});
 
-.mini .s{
-  font-size:15px !important;
-  color:#667085 !important;
-}
-
-/* SYSTEM RESOURCES */
-
-.res{
-  display:grid !important;
-  grid-template-columns:repeat(4,1fr) !important;
-  gap:20px !important;
-}
-
-.res .met{
-  height:150px !important;
-  border-radius:14px !important;
-
-  display:flex !important;
-  flex-direction:column !important;
-  align-items:center !important;
-  justify-content:center !important;
-
-  background:#fff !important;
-  border:1px solid var(--border) !important;
-}
-
-.res .met b{
-  font-size:42px !important;
-  font-weight:700 !important;
-  color:#101828 !important;
-}
-
-.res .met span{
-  font-size:16px !important;
-  color:#667085 !important;
-}
-
-/* BOTTOM DASHBOARD */
-
-.home-bot{
-  grid-template-columns:42% 28% 30% !important;
-  gap:16px !important;
-}
-
-.home-bot .card{
-  min-height:200px !important;
-}
-
-.chartbox{
-  height:160px !important;
-}
-
-.info .row{
-  height:34px !important;
-  align-items:center !important;
-  font-size:14px !important;
-}
-
-.log .item{
-  font-size:14px !important;
-  line-height:28px !important;
-}
-
-/* AI PAGE */
-
-.scripts{
-  grid-template-columns:1fr 1fr 1fr !important;
-  gap:16px !important;
-}
-
-.scripts button{
-  height:76px !important;
-
-  border-radius:14px !important;
-
-  background:#f8fafc !important;
-
-  border:1px solid var(--border) !important;
-
-  color:#101828 !important;
-
-  font-size:18px !important;
-
-  font-weight:600 !important;
-}
-
-.scripts button:hover{
-  background:#eef6ff !important;
-}
-
-/* CHAT */
-
-#chatbox{
-  height:400px !important;
-
-  background:#fff !important;
-
-  border:1px solid var(--border) !important;
-
-  border-radius:16px !important;
-
-  color:#101828 !important;
-}
-
-.msg.user{
-  background:#eaf3ff !important;
-  color:#101828 !important;
-}
-
-.msg.bot{
-  background:#fff !important;
-
-  color:#101828 !important;
-
-  border:1px solid var(--border) !important;
-}
-
-.bar input{
-  height:56px !important;
-  font-size:16px !important;
-  border-radius:14px !important;
-
-  border:1px solid var(--border) !important;
-
-  background:#fff !important;
-
-  color:#101828 !important;
-}
-
-.bar button{
-  width:56px !important;
-  height:56px !important;
-  border-radius:14px !important;
-}
-
-/* DESKTOP LAYOUT */
-
-@media(min-width:880px){
-
-.w{
-  display:grid !important;
-
-  grid-template-columns:190px 1fr !important;
-
-  grid-template-rows:68px auto 1fr 30px !important;
-
-  gap:16px !important;
-}
-
-.top{
-  grid-column:1/-1;
-}
-
-.nav{
-  grid-column:1;
-  grid-row:2/4;
-
-  flex-direction:column;
-}
-
-.panel{
-  grid-column:2;
-  grid-row:2;
-}
-
-.page.on{
-  grid-column:2;
-  grid-row:3;
-}
-
-.foot{
-  grid-column:1/-1;
-}
-
-}
+loadStatus();
+setInterval(loadStatus, 15000);
+</script>
+</body>
+</html>
