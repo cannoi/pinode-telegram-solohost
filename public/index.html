@@ -92,7 +92,7 @@ body{padding:8px;align-items:stretch}
 .top{margin:0;flex:0 0 auto}
 .nav{margin:0;flex:0 0 auto}
 .panel{margin:0;flex:0 0 auto;max-height:22vh}
-.page{flex:1 1 auto;min-height:0;overflow:hidden;display:none;flex-direction:column;gap:6px}
+.page{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;flex-direction:column;gap:6px}
 .page.on{display:flex}
 .card{margin:0;padding:8px 10px;min-height:0;display:flex;flex-direction:column}
 .card h2{margin-bottom:4px}
@@ -103,11 +103,30 @@ body{padding:8px;align-items:stretch}
 .res .met b{display:block;font-size:.95rem}
 .res .met span{font-size:.58rem;color:var(--m)}
 .res .met.off{opacity:.45}
+/* System Resources — auto-fit gauges, centered, sized to content like the reference dashboard */
+.gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;justify-items:center;align-items:start}
+.gauges .g{display:flex;flex-direction:column;align-items:center;min-width:0;width:100%}
+.gauges .dot{width:min(72px,18vw);height:min(72px,18vw);position:relative}
+.gauges .dot svg{width:100%;height:100%;display:block}
+.gauges .dot span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;white-space:nowrap}
+.gauges .n{text-align:center;font-size:.58rem;color:var(--m);margin-top:3px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.gauges .empty{grid-column:1/-1;text-align:center;font-size:.68rem;color:var(--m);padding:8px 0}
+@media (max-width:360px){.gauges{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:8px}}
+/* Node health trend chart */
+.trendwrap{width:100%;height:min(120px,18vh);position:relative;flex:1;min-height:60px}
+.trendwrap svg{width:100%;height:100%;display:block}
+.trend-badge{position:absolute;top:0;right:0;font-size:.6rem;font-weight:700;color:#9fef9a;background:rgba(22,198,12,.16);border:1px solid rgba(22,198,12,.4);border-radius:8px;padding:1px 7px}
 .home-top{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;flex:0 0 auto}
 .home-top .score-card{grid-column:1/-1}
 .grid3{display:contents}
+/* Icon + short-label tiles (State / Consensus / Peers): center content, don't force full width */
+.grid3 .mini{min-width:0;justify-self:stretch}
+.mini .k,.mini .v,.mini .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.mini .v{font-size:.82rem;font-weight:800}
 .home-bot{display:grid;grid-template-columns:1fr;gap:6px;flex:1;min-height:0}
-.home-bot .card{overflow:auto}
+/* Text-heavy cards: show full content, no inner scrollbars — the page itself scrolls if needed */
+.home-bot .card{overflow:visible;min-height:0}
+.home-bot .info .row,.home-bot .log .item{white-space:normal;word-break:break-word}
 #chatbox{flex:1;min-height:80px;height:auto}
 .page#page-ai .card:last-child{flex:1;min-height:0}
 .foot{margin:0;flex:0 0 auto}
@@ -130,6 +149,7 @@ body{padding:8px;align-items:stretch}
   .home-bot{grid-template-columns:1.2fr .8fr;flex:1}
   .scripts{grid-template-columns:1fr 1fr 1fr}
   .ringwrap{width:min(150px,22vh);height:min(150px,22vh)}
+  .gauges .dot{width:min(84px,9vw);height:min(84px,9vw)}
 }
 </style>
 </head>
@@ -175,8 +195,16 @@ body{padding:8px;align-items:stretch}
     </div>
     <div class="card glass tile" data-id="res" draggable="true">
       <div class="grip">⠿ drag</div>
-      <h2>Live metrics (only fields we have)</h2>
-      <div class="res" id="resBox"></div>
+      <h2>System Resources</h2>
+      <div class="gauges" id="resBox"></div>
+    </div>
+    <div class="card glass tile" data-id="trend" draggable="true">
+      <div class="grip">⠿ drag</div>
+      <h2>Node Health Trend (24h)</h2>
+      <div class="trendwrap">
+        <span class="trend-badge" id="trendBadge"></span>
+        <svg id="trendSvg" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </div>
     </div>
     <div class="home-bot">
     <div class="card glass info tile" data-id="info" draggable="true">
@@ -330,6 +358,71 @@ function setArc(id,pct,maxDash){
   el.setAttribute('stroke-dasharray', (p/100*maxDash).toFixed(1)+' '+maxDash);
 }
 
+// ---- System Resources gauges (icon-free ring, auto-sized to fit content) ----
+function gaugeColor(kind,val){
+  if(val==null)return '#4cc2ff';
+  if(kind==='temp') return val>=78?'#e81123':(val>=65?'#ffb900':'#16c60c');
+  return val>=90?'#e81123':(val>=75?'#ffb900':'#16c60c');
+}
+function ringSVG(pct,color){
+  const p=Math.max(0,Math.min(100,pct));
+  const dash=(p/100*220).toFixed(1);
+  return '<svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="35" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="7"/>'+
+    '<circle cx="40" cy="40" r="35" fill="none" stroke="'+color+'" stroke-width="7" stroke-linecap="round" stroke-dasharray="'+dash+' 220" transform="rotate(-90 40 40)"/></svg>';
+}
+function renderGauges(items){
+  const out=[];
+  items.forEach(function(it){
+    if(it.val==null)return;
+    const pct=it.kind==='temp'?Math.min(100,it.val):it.val;
+    const color=gaugeColor(it.kind,it.val);
+    out.push('<div class="g"><div class="dot">'+ringSVG(pct,color)+'<span>'+Math.round(it.val)+(it.unit||'')+'</span></div><div class="n">'+it.label+'</div></div>');
+  });
+  return out.length?out.join(''):'<div class="empty">Waiting for system metrics…</div>';
+}
+
+// ---- Node Health Trend (24h) — sampled client-side from each /api/status poll ----
+function pushScoreHistory(score){
+  let hist=[];
+  try{ hist=JSON.parse(localStorage.getItem('pinode_score_hist')||'[]'); }catch(e){ hist=[]; }
+  if(score!=null && !isNaN(score)){
+    const now=Date.now();
+    hist.push([now,score]);
+    const cutoff=now-24*3600*1000;
+    hist=hist.filter(function(p){ return p[0]>=cutoff; });
+    try{ localStorage.setItem('pinode_score_hist', JSON.stringify(hist)); }catch(e){}
+  }
+  return hist;
+}
+function renderTrend(hist){
+  const svg=document.getElementById('trendSvg');
+  const badge=document.getElementById('trendBadge');
+  if(!svg)return;
+  if(!hist||hist.length<2){
+    svg.innerHTML='<text x="150" y="54" text-anchor="middle" fill="rgba(255,255,255,.55)" font-size="10">Collecting trend data…</text>';
+    if(badge)badge.textContent='';
+    return;
+  }
+  const W=300,H=100,pad=6;
+  const vals=hist.map(function(p){ return p[1]; });
+  let min=Math.min.apply(null,vals), max=Math.max.apply(null,vals);
+  if(min===max){ min-=1; max+=1; }
+  const t0=hist[0][0], t1=hist[hist.length-1][0];
+  const span=Math.max(1,t1-t0);
+  const pts=hist.map(function(p){
+    const x=pad+((p[0]-t0)/span)*(W-2*pad);
+    const y=H-pad-((p[1]-min)/(max-min))*(H-2*pad);
+    return x.toFixed(1)+','+y.toFixed(1);
+  });
+  const line=pts.join(' ');
+  const x0=pts[0].split(',')[0], xN=pts[pts.length-1].split(',')[0];
+  const area=x0+','+(H-pad)+' '+line+' '+xN+','+(H-pad);
+  svg.innerHTML=
+    '<polyline points="'+area+'" fill="rgba(22,198,12,.18)" stroke="none"/>'+
+    '<polyline points="'+line+'" fill="none" stroke="#16c60c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
+  if(badge)badge.textContent=vals[vals.length-1].toFixed(2)+'%';
+}
+
 function loadStatus(){
   return fetch('/api/status').then(r=>r.json()).then(function(t){
     const rows=[];
@@ -343,6 +436,8 @@ function loadStatus(){
     addR('Protocol',t.protocol||null);
     addR('Ingest lag',t.ingest_lag!=null?t.ingest_lag:null);
     addR('Peers',t.peers!=null?t.peers:((t.peer_in!=null||t.peer_out!=null)?((t.peer_in??0)+' / '+(t.peer_out??0)):null));
+    const portsCount=t.ports_open!=null?t.ports_open:(t.ports&&typeof t.ports==='object'?Object.keys(t.ports).length:null);
+    addR('Ports',portsCount!=null?portsCount+' open':null);
     addR('Health',t.health!=null?t.health+'/100':'');
     document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
 
@@ -365,18 +460,16 @@ function loadStatus(){
     const cpu=t.container_cpu!=null?t.container_cpu:(t.cpu!=null?t.cpu:null);
     const ram=t.container_ram!=null?t.container_ram:(t.ram!=null?t.ram:null);
     const disk=t.disk!=null?t.disk:null;
-    const ports=t.ports_open!=null?t.ports_open:(t.ports&&typeof t.ports==='object'?Object.keys(t.ports).length:null);
-    const mets=[];
-    function chip(label,val,ok){ mets.push('<div class="met'+(ok?'':' off')+'"><b>'+val+'</b><span>'+label+'</span></div>'); }
-    if(cpu!=null) chip('CPU',Math.round(cpu)+'%',true);
-    if(ram!=null) chip('RAM',Math.round(ram)+'%',true);
-    if(disk!=null) chip('Disk',Math.round(disk)+'%',true);
-    if(t.ledger_age!=null) chip('Ledger age',t.ledger_age+'s',true);
-    if(t.ingest_lag!=null) chip('Ingest lag',String(t.ingest_lag),true);
-    if(ports!=null) chip('Ports',String(ports)+' open',true);
-    if(t.ledger!=null) chip('Ledger',Number(t.ledger).toLocaleString('en-US'),true);
-    if(!mets.length) chip('Metrics','waiting',false);
-    document.getElementById('resBox').innerHTML=mets.join('');
+    const sysTemp=t.temp!=null?Number(t.temp):null;
+    document.getElementById('resBox').innerHTML=renderGauges([
+      {label:'CPU',val:cpu!=null?Number(cpu):null,unit:'%',kind:'pct'},
+      {label:'RAM',val:ram!=null?Number(ram):null,unit:'%',kind:'pct'},
+      {label:'Disk',val:disk!=null?Number(disk):null,unit:'%',kind:'pct'},
+      {label:'System Temp',val:sysTemp,unit:'°C',kind:'temp'}
+    ]);
+
+    const scoreHist=pushScoreHistory(health!=null?Number(health):null);
+    renderTrend(scoreHist);
 
     document.getElementById('actLine').textContent=
       new Date().toISOString().replace('T',' ').slice(11,19)+' · '+(t.sync||'?')+' · ledger '+(t.ledger!=null?t.ledger:'?');
