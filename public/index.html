@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Pi Node Controller - Weather Station Edition</title>
+<title>Pi Node Controller PRO</title>
 <style>
 :root {
   --p: rgba(16, 22, 34, 0.58);
@@ -578,7 +578,7 @@ body {
       <img class="av" src="/avatar.jpg" alt="Avatar">
       <div>
         <h1>Pi Node Controller PRO</h1>
-        <div class="sub">SoloHost Weather Station · v2.6.55</div>
+        <div class="sub">SoloHost · v2.6.56</div>
       </div>
     </div>
     <div class="top-right">
@@ -654,13 +654,13 @@ body {
       <div class="mini glass tile" data-id="cons" draggable="true">
         <div class="ic">🌐</div>
         <div class="k">Port Status</div>
-        <div class="v">10/10 Open</div>
+        <div class="v" id="stPorts">—</div>
         <div class="s">Network Gateway</div>
       </div>
       <div class="mini glass tile" data-id="peers" draggable="true">
         <div class="ic">👥</div>
         <div class="k">Peer Traffic</div>
-        <div class="v">In / Out</div>
+        <div class="v" id="stPeerMini">—</div>
         <div class="s">P2P Mesh Connections</div>
       </div>
     </div>
@@ -693,7 +693,7 @@ body {
       <div id="s"></div>
     </div>
 
-    <p class="sub">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker Terms…</button></p>
+    <p class="sub">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
   </div>
 
   <!-- PAGE 2: AI ASSISTANT & SCRIPTS -->
@@ -747,10 +747,11 @@ body {
 
     <div class="card glass">
       <h2>System Information</h2>
-      <div class="sub-detail-row"><span class="lbl">Application:</span><span class="val">SoloHost Pro v2.6.55</span></div>
+      <div class="sub-detail-row"><span class="lbl">Application:</span><span class="val">SoloHost Pro v2.6.56</span></div>
       <div class="sub-detail-row"><span class="lbl">UI Style:</span><span class="val">Windows 10 Glassmorphism</span></div>
       <div class="sub-detail-row"><span class="lbl">Responsive Layout:</span><span class="val">Adaptive Multi-Device View</span></div>
     </div>
+    <p class="sub">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
   </div>
 
   <p class="foot">Telegram remote status support • Docker diagnostics via SoloHost UI</p>
@@ -884,6 +885,15 @@ function loadStatus() {
     
     const pin = t.peer_in, pout = t.peer_out;
     document.getElementById('stPeers').textContent = (pin != null || pout != null) ? ((pin ?? '—') + ' in / ' + (pout ?? '—') + ' out') : (t.peers != null ? t.peers : '—');
+    const peerMini = document.getElementById('stPeerMini');
+    if (peerMini) peerMini.textContent = document.getElementById('stPeers').textContent;
+    const portEl = document.getElementById('stPorts');
+    if (portEl) {
+      const po = t.ports_open != null ? t.ports_open : null;
+      const pa = t.ports_all_open != null ? t.ports_all_open : null;
+      if (po != null) portEl.textContent = String(po) + (t.ports && typeof t.ports === 'object' ? ('/' + Object.keys(t.ports).length) : '') + ' open';
+      else portEl.textContent = '—';
+    }
 
     const cpu = t.container_cpu != null ? t.container_cpu : (t.cpu != null ? t.cpu : null);
     const ram = t.container_ram != null ? t.container_ram : (t.ram != null ? t.ram : null);
@@ -951,6 +961,17 @@ async function send() {
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
     const j = await r.json();
     box.lastChild.textContent = j.reply || j.error || 'No reply';
+    if (j.images && j.images.length) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg bot';
+      wrap.style.textAlign = 'center';
+      j.images.forEach(function(src) {
+        const im = document.createElement('img');
+        im.src = src; im.alt = 'QR'; im.style.maxWidth = '46%'; im.style.margin = '4px'; im.style.borderRadius = '8px';
+        wrap.appendChild(im);
+      });
+      box.appendChild(wrap); box.scrollTop = box.scrollHeight;
+    }
   } catch (e) {
     box.lastChild.textContent = 'Chat error';
   }

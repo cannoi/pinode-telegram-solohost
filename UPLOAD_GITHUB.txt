@@ -2,7 +2,7 @@ UPLOAD TO GITHUB (required for image build)
 ==========================================
 1. Open https://github.com/cannoi/pinode-telegram-solohost
 2. Extract THIS zip at the REPO ROOT (same folder as README).
-   Do NOT keep a nested folder like github-SoloHost-v2.6.55/
+   Do NOT keep a nested folder like github-SoloHost-v2.6.56/
 3. Required at repo root:
    Dockerfile
    loader.js
@@ -13,4 +13,4 @@ UPLOAD TO GITHUB (required for image build)
 4. Commit to main.
 5. Actions -> "Build and publish SoloHost image"
 6. Image:
-   ghcr.io/cannoi/pinode-telegram-solohost:v2.6.55
+   ghcr.io/cannoi/pinode-telegram-solohost:v2.6.56
