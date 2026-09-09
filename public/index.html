@@ -87,6 +87,33 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
 .btn-ok{background:var(--win);color:#fff}
 .btn-no{background:rgba(255,255,255,.18);color:#fff}
 .sub{font-size:.68rem;color:var(--m);margin-top:2px}
+.home-top,.home-bot{display:contents}
+
+/* Landscape / wide window — Fluent two-pane like the mockups */
+@media (min-width: 880px){
+  body{padding:12px;align-items:stretch}
+  .w{max-width:1200px;display:grid;grid-template-columns:188px 1fr;grid-template-rows:auto auto 1fr auto;gap:10px;align-items:start}
+  .top{grid-column:1/-1;margin:0}
+  .nav{grid-column:1;grid-row:2/4;flex-direction:column;margin:0;padding:10px;align-self:stretch;min-height:420px}
+  .nav button{flex:0 0 auto;text-align:left;padding:12px 10px;font-size:.8rem}
+  .panel{grid-column:2;grid-row:2;margin:0}
+  .page.on{grid-column:2;grid-row:3;margin:0}
+  .foot{grid-column:1/-1}
+  .home-top{display:grid;grid-template-columns:1.15fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+  .home-top .card{margin:0;grid-column:1}
+  .home-top .grid3{display:contents}
+  .home-top .mini{margin:0}
+  .res{grid-template-columns:repeat(4,1fr)}
+  .home-bot{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .home-bot .card{margin:0}
+  .scripts{grid-template-columns:1fr 1fr 1fr}
+  #chatbox{height:280px}
+  .ringwrap{width:168px;height:168px}
+}
+@media (max-width:879px){
+  .w{max-width:440px}
+  .res{grid-template-columns:1fr 1fr}
+}
 </style>
 </head>
 <body>
@@ -95,7 +122,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
     <img class="av" src="/avatar.jpg" alt="">
     <div style="flex:1">
       <h1>Pi Node Controller PRO</h1>
-      <div class="sub">SoloHost · v2.6.52</div>
+      <div class="sub">SoloHost · v2.6.53</div>
     </div>
     <span class="conn" id="conn">● Connected</span>
     <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span>
@@ -108,6 +135,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
   <div class="panel glass" id="alertPanel"></div>
 
   <div class="page on" id="page-home">
+    <div class="home-top">
     <div class="card glass">
       <h2>Node Performance Overview</h2>
       <div class="score">
@@ -126,6 +154,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
       <div class="mini glass"><div class="ic">⚙</div><div class="k">Consensus</div><div class="v" id="stCons">—</div><div class="s" id="stSrc">source</div></div>
       <div class="mini glass"><div class="ic">👥</div><div class="k">Peers</div><div class="v" id="stPeers">—</div><div class="s">in / out</div></div>
     </div>
+    </div>
     <div class="card glass">
       <h2>System Resources</h2>
       <div class="res">
@@ -135,6 +164,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
         <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="ageArc" cx="18" cy="18" r="14" fill="none" stroke="#ff8a4c" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="ageVal">—</span></div><div class="n">Ledger age</div></div>
       </div>
     </div>
+    <div class="home-bot">
     <div class="card glass info">
       <h2>Detailed Pi Node Information</h2>
       <div id="s"></div>
@@ -142,6 +172,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
     <div class="card glass log">
       <h2>Activity</h2>
       <div class="item" id="actLine">Waiting for telemetry…</div>
+    </div>
     </div>
   </div>
 
@@ -193,7 +224,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
     </div>
     <div class="card glass">
       <h2>About</h2>
-      <div class="row"><span class="k">App</span><span class="val">SoloHost v2.6.52</span></div>
+      <div class="row"><span class="k">App</span><span class="val">SoloHost v2.6.53</span></div>
       <div class="row"><span class="k">Style</span><span class="val">Windows 10 Fluent · portrait</span></div>
     </div>
   </div>
