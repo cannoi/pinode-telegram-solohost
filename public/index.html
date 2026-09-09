@@ -6,26 +6,23 @@
 <title>PiNode Telegram Controller PRO Official</title>
 <style>
 :root {
-  /* Dynamic Deep Purple Glassmorphism Theme (Chuẩn ảnh 3 & Pi Desktop UI) */
+  /* Dynamic Deep Purple Glassmorphism Theme */
   --bg-gradient: radial-gradient(circle at 50% 15%, #3d1550 0%, #1e092b 55%, #0d0214 100%);
   --app-shell-bg: #09020e;
   --bar-bg: rgba(18, 5, 26, 0.85);
   --sidebar-bg: rgba(36, 12, 50, 0.55);
   --card-bg: rgba(48, 16, 66, 0.45);
-  --card-hover: rgba(62, 22, 84, 0.65);
   --card-border: rgba(192, 132, 252, 0.22);
   --card-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
   
   --text-main: #ffffff;
   --text-sub: #b39dbd;
-  --text-muted: #80678a;
   
   --purple-accent: #a855f7;
   --purple-light: #c084fc;
   --ok-green: #34d399;
   --blue-accent: #38bdf8;
   --warn-red: #f87171;
-  --amber-accent: #fbbf24;
 }
 
 * {
@@ -44,7 +41,6 @@ html, body {
   color: var(--text-main);
 }
 
-/* Master Grid Structure */
 .app-container {
   display: flex;
   width: 100vw;
@@ -53,7 +49,7 @@ html, body {
   position: relative;
 }
 
-/* 1. KHUNG APP DỌC BÊN TRÁI (FAR-LEFT VERTICAL PI DESKTOP BAR) */
+/* 1. FAR-LEFT VERTICAL BAR */
 .far-left-bar {
   width: 44px;
   height: 100%;
@@ -101,12 +97,9 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: var(--bg-gradient);
-  background-size: cover;
-  background-position: center;
   position: relative;
 }
 
-/* Top Window Title Bar */
 .window-titlebar {
   grid-row: 1;
   background: var(--bar-bg);
@@ -123,7 +116,6 @@ html, body {
 .title-text {
   font-weight: 600;
   color: #f1f5f9;
-  letter-spacing: 0.2px;
 }
 
 .window-nav-links {
@@ -137,11 +129,6 @@ html, body {
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
-  transition: all 0.15s;
-}
-
-.window-nav-links span:hover {
-  color: #fff;
 }
 
 .window-nav-links span.active {
@@ -156,14 +143,6 @@ html, body {
   font-size: 0.75rem;
 }
 
-.window-controls span {
-  cursor: pointer;
-}
-
-.window-controls span:hover {
-  color: #fff;
-}
-
 /* Dashboard Workspace Body */
 .workspace-body {
   grid-row: 2;
@@ -176,11 +155,9 @@ html, body {
   overflow: hidden;
 }
 
-/* Glassmorphism Sidebar */
 .nav-sidebar {
   background: var(--sidebar-bg);
   backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 12px;
@@ -262,25 +239,35 @@ html, body {
   line-height: 1.4;
 }
 
-/* Dynamic Pages Stack */
+/* DYNAMIC PAGES ISOLATION FIX */
 .pages-container {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
+/* Lock default state to display: none */
 .page-view {
-  display: none;
-  flex-direction: column;
-  gap: 10px;
+  display: none !important;
   height: 100%;
   min-height: 0;
+  width: 100%;
 }
 
+/* Active tab display modes */
 .page-view.active {
-  display: flex;
+  display: flex !important;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.page-view.active.home-layout {
+  display: grid !important;
+  grid-template-rows: 1.15fr 0.9fr 1.25fr;
+  gap: 10px;
 }
 
 /* Header inside Pages */
@@ -294,7 +281,6 @@ html, body {
 .view-header h2 {
   font-size: 1.1rem;
   font-weight: 700;
-  letter-spacing: -0.2px;
   color: #fff;
 }
 
@@ -335,11 +321,10 @@ html, body {
   border-radius: 50%;
 }
 
-/* Glass Panels (Standardized with Image 1 & 2 ratios) */
+/* Glass Panels */
 .glass-panel {
   background: var(--card-bg);
   backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 10px 14px;
@@ -347,18 +332,12 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  transition: border-color 0.2s ease;
-}
-
-.glass-panel:hover {
-  border-color: rgba(192, 132, 252, 0.35);
 }
 
 .panel-title {
   font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
   color: var(--text-sub);
   margin-bottom: 6px;
   display: flex;
@@ -366,16 +345,7 @@ html, body {
   gap: 6px;
 }
 
-/* PAGE 1: HOME DASHBOARD GRID */
-.home-layout {
-  display: grid;
-  grid-template-rows: 1.15fr 0.9fr 1.25fr;
-  gap: 10px;
-  height: 100%;
-  min-height: 0;
-}
-
-/* Top Row: 4 Equal/Proportional Cards */
+/* PAGE 1: HOME GRID */
 .top-row-grid {
   display: grid;
   grid-template-columns: 1.3fr 1fr 1fr 1fr;
@@ -393,7 +363,6 @@ html, body {
   position: relative;
   width: 82px;
   height: 82px;
-  margin: 2px 0;
 }
 
 .ring-box svg {
@@ -415,13 +384,11 @@ html, body {
   font-size: 1.1rem;
   font-weight: 800;
   color: #fff;
-  line-height: 1;
 }
 
 .ring-text .sub-lbl {
   font-size: 0.58rem;
   color: var(--text-sub);
-  margin-top: 2px;
 }
 
 .badge-excellent {
@@ -432,14 +399,12 @@ html, body {
   font-weight: 700;
   padding: 2px 10px;
   border-radius: 12px;
-  margin-top: 2px;
 }
 
 .status-card-val {
   font-size: 1.15rem;
   font-weight: 800;
   color: #fff;
-  margin-top: 2px;
 }
 
 .status-card-sub {
@@ -455,14 +420,9 @@ html, body {
   align-items: center;
   justify-content: center;
   font-size: 1.1rem;
-  margin-bottom: 4px;
 }
 
-/* Middle Row: System Resources (4 Circular Meters) */
-.resources-panel {
-  justify-content: center;
-}
-
+/* Meters Grid */
 .meters-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -497,10 +457,9 @@ html, body {
   font-size: 0.65rem;
   color: var(--text-sub);
   font-weight: 600;
-  margin-top: 2px;
 }
 
-/* Bottom Row: 3 Columns Grid */
+/* Bottom Grid */
 .bot-row-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr 1fr;
@@ -540,7 +499,6 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  overflow: hidden;
 }
 
 .log-item {
@@ -564,18 +522,9 @@ html, body {
   height: 5px;
   border-radius: 50%;
   background: var(--ok-green);
-  box-shadow: 0 0 6px var(--ok-green);
 }
 
-/* PAGE 2: AI ASSISTANT LAYOUT */
-.ai-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  height: 100%;
-  min-height: 0;
-}
-
+/* PAGE 2: AI ASSISTANT */
 .scripts-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -601,7 +550,6 @@ html, body {
 .script-card-btn:hover {
   background: rgba(168, 85, 247, 0.2);
   border-color: var(--purple-light);
-  transform: translateY(-1px);
 }
 
 .script-icon {
@@ -645,7 +593,6 @@ html, body {
   background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   color: #fff;
   border-bottom-right-radius: 2px;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
 .chat-bubble.bot {
@@ -661,7 +608,6 @@ html, body {
   gap: 6px;
   margin-bottom: 8px;
   overflow-x: auto;
-  padding-bottom: 2px;
 }
 
 .quick-btn {
@@ -674,13 +620,11 @@ html, body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
 }
 
 .quick-btn:hover {
   background: rgba(168, 85, 247, 0.25);
   color: #fff;
-  border-color: var(--purple-light);
 }
 
 .chat-input-row {
@@ -699,10 +643,6 @@ html, body {
   font-size: 0.78rem;
 }
 
-.chat-input-row input:focus {
-  border-color: var(--purple-accent);
-}
-
 .chat-input-row button {
   padding: 0 18px;
   border-radius: 8px;
@@ -711,11 +651,6 @@ html, body {
   color: #fff;
   font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.chat-input-row button:hover {
-  opacity: 0.9;
 }
 
 /* PAGE 3: SETTINGS */
@@ -730,7 +665,7 @@ html, body {
   gap: 10px;
 }
 
-/* 3. BOTTOM WINDOW FOOTER BAR */
+/* FOOTER */
 .window-footer {
   grid-row: 3;
   background: rgba(8, 2, 12, 0.95);
@@ -758,7 +693,6 @@ html, body {
   height: 6px;
   border-radius: 50%;
   background: var(--ok-green);
-  box-shadow: 0 0 6px var(--ok-green);
 }
 
 .watermark-overlay {
@@ -776,7 +710,7 @@ html, body {
 
 <div class="app-container">
 
-  <!-- 1. FAR-LEFT VERTICAL PI DESKTOP APP SHELL BAR -->
+  <!-- FAR-LEFT BAR -->
   <aside class="far-left-bar">
     <div class="icon-btn">❯</div>
     <div class="icon-btn">❐</div>
@@ -789,10 +723,10 @@ html, body {
     <div class="icon-btn" style="margin-top: auto;">👤</div>
   </aside>
 
-  <!-- 2. MAIN APPLICATION WINDOW -->
+  <!-- MAIN WINDOW -->
   <div class="main-window">
 
-    <!-- Top Window Title Bar -->
+    <!-- Titlebar -->
     <header class="window-titlebar">
       <span class="title-text">PiNode Telegram Controller PRO Official</span>
       <div class="window-nav-links">
@@ -808,7 +742,7 @@ html, body {
       </div>
     </header>
 
-    <!-- Workspace Body Area -->
+    <!-- Workspace Body -->
     <div class="workspace-body">
 
       <!-- Navigation Sidebar -->
@@ -842,13 +776,11 @@ html, body {
         </div>
       </nav>
 
-      <!-- Main Dynamic View Pages Container -->
+      <!-- Pages Container -->
       <div class="pages-container">
 
-        <!-- TAB 1: HOME PAGE DASHBOARD -->
+        <!-- PAGE 1: HOME -->
         <main id="page-home" class="page-view active home-layout">
-          
-          <!-- View Header -->
           <div class="view-header">
             <h2>Pi Node Controller PRO</h2>
             <div class="view-header-right">
@@ -861,16 +793,14 @@ html, body {
             </div>
           </div>
 
-          <!-- Row 1: 4 Main Status Cards -->
+          <!-- Row 1 -->
           <div class="top-row-grid">
-            
-            <!-- Card 1: Node Score -->
             <div class="glass-panel score-panel">
               <div class="panel-title">Node Performance Overview</div>
               <div class="ring-box">
                 <svg viewBox="0 0 100 100">
                   <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
-                  <circle cx="50" cy="50" r="40" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="235 250" filter="drop-shadow(0 0 4px #34d399)"/>
+                  <circle cx="50" cy="50" r="40" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="235 250"/>
                 </svg>
                 <div class="ring-text">
                   <div class="sub-lbl">Node Score:</div>
@@ -881,7 +811,6 @@ html, body {
               <div class="badge-excellent">✔ Excellent</div>
             </div>
 
-            <!-- Card 2: Node State -->
             <div class="glass-panel" style="justify-content:space-between;">
               <div class="panel-title">Node State</div>
               <div class="icon-box" style="background:rgba(56, 189, 248, 0.15); color:#38bdf8;">🧊</div>
@@ -891,7 +820,6 @@ html, body {
               </div>
             </div>
 
-            <!-- Card 3: Consensus -->
             <div class="glass-panel" style="justify-content:space-between;">
               <div class="panel-title">Consensus</div>
               <div class="icon-box" style="background:rgba(52, 211, 153, 0.15); color:#34d399;">⚙️</div>
@@ -901,7 +829,6 @@ html, body {
               </div>
             </div>
 
-            <!-- Card 4: Peers Connection -->
             <div class="glass-panel" style="justify-content:space-between;">
               <div class="panel-title">Peers Connection</div>
               <div class="icon-box" style="background:rgba(192, 132, 252, 0.15); color:#c084fc;">👥</div>
@@ -910,15 +837,12 @@ html, body {
                 <div class="status-card-sub">IN / OUT</div>
               </div>
             </div>
-
           </div>
 
-          <!-- Row 2: System Resources (4 Circular Meters) -->
-          <div class="glass-panel resources-panel">
+          <!-- Row 2 -->
+          <div class="glass-panel" style="justify-content:center;">
             <div class="panel-title">💻 System Resources</div>
             <div class="meters-grid">
-              
-              <!-- CPU -->
               <div class="meter-item">
                 <svg class="meter-svg" viewBox="0 0 100 100">
                   <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
@@ -927,8 +851,6 @@ html, body {
                 <div class="meter-val">28%</div>
                 <div class="meter-lbl">CPU</div>
               </div>
-
-              <!-- RAM -->
               <div class="meter-item">
                 <svg class="meter-svg" viewBox="0 0 100 100">
                   <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
@@ -937,8 +859,6 @@ html, body {
                 <div class="meter-val">62%</div>
                 <div class="meter-lbl">RAM</div>
               </div>
-
-              <!-- Disk -->
               <div class="meter-item">
                 <svg class="meter-svg" viewBox="0 0 100 100">
                   <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
@@ -947,8 +867,6 @@ html, body {
                 <div class="meter-val">68%</div>
                 <div class="meter-lbl">Disk</div>
               </div>
-
-              <!-- System Temp -->
               <div class="meter-item">
                 <svg class="meter-svg" viewBox="0 0 100 100">
                   <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
@@ -957,14 +875,11 @@ html, body {
                 <div class="meter-val">52°C</div>
                 <div class="meter-lbl">System Temp</div>
               </div>
-
             </div>
           </div>
 
-          <!-- Row 3: 3 Columns Grid -->
+          <!-- Row 3 -->
           <div class="bot-row-grid">
-            
-            <!-- Column 1: Chart -->
             <div class="glass-panel">
               <div class="panel-title" style="justify-content:space-between;">
                 <span>📈 Availability Trend (24h)</span>
@@ -975,12 +890,11 @@ html, body {
                   <line x1="0" y1="18" x2="240" y2="18" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
                   <line x1="0" y1="38" x2="240" y2="38" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
                   <line x1="0" y1="58" x2="240" y2="58" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2"/>
-                  <path d="M0,52 Q40,55 80,45 T160,32 T240,22" fill="none" stroke="#34d399" stroke-width="2.5" filter="drop-shadow(0 0 5px rgba(52, 211, 153, 0.6))"/>
+                  <path d="M0,52 Q40,55 80,45 T160,32 T240,22" fill="none" stroke="#34d399" stroke-width="2.5"/>
                 </svg>
               </div>
             </div>
 
-            <!-- Column 2: Detailed Node Info -->
             <div class="glass-panel">
               <div class="panel-title">ℹ️ Detailed Pi Node Information</div>
               <table class="info-table">
@@ -992,35 +906,21 @@ html, body {
               </table>
             </div>
 
-            <!-- Column 3: Activity Log -->
             <div class="glass-panel">
               <div class="panel-title">🕒 Refined Activity Log</div>
               <div class="log-list">
-                <div class="log-item">
-                  <div class="log-left"><i class="log-dot"></i>14:32 - Node connected to network</div>
-                </div>
-                <div class="log-item">
-                  <div class="log-left"><i class="log-dot"></i>14:31 - Peers count updated</div>
-                </div>
-                <div class="log-item">
-                  <div class="log-left"><i class="log-dot"></i>14:28 - Ledger advanced</div>
-                </div>
-                <div class="log-item">
-                  <div class="log-left"><i class="log-dot"></i>14:25 - Status: Synced!</div>
-                </div>
-                <div class="log-item">
-                  <div class="log-left"><i class="log-dot"></i>14:20 - Data refreshed</div>
-                </div>
+                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:32 - Node connected</div></div>
+                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:31 - Peers updated</div></div>
+                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:28 - Ledger advanced</div></div>
+                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:25 - Status: Synced!</div></div>
+                <div class="log-item"><div class="log-left"><i class="log-dot"></i>14:20 - Refreshed</div></div>
               </div>
             </div>
-
           </div>
-
         </main>
 
-        <!-- TAB 2: AI ASSISTANT PAGE -->
-        <main id="page-ai" class="page-view ai-layout">
-          
+        <!-- PAGE 2: AI ASSISTANT -->
+        <main id="page-ai" class="page-view">
           <div class="view-header">
             <h2>Pi Node Maintenance & AI Assistant</h2>
             <div class="view-header-right">
@@ -1028,7 +928,6 @@ html, body {
             </div>
           </div>
 
-          <!-- Maintenance Scripts Row -->
           <div class="glass-panel" style="padding:12px;">
             <div class="panel-title">🛠️ Pi Node Maintenance Scripts</div>
             <div class="scripts-grid">
@@ -1059,7 +958,6 @@ html, body {
             </div>
           </div>
 
-          <!-- Chat Window -->
           <div class="glass-panel chat-panel">
             <div class="panel-title">💬 AI Assistant Chat</div>
             
@@ -1068,7 +966,7 @@ html, body {
                 Hello! My node score is 97.43, but System Temp is 52°C and RAM is 62%. Is that okay?
               </div>
               <div class="chat-bubble bot">
-                Hello! A system temperature of 52°C is perfectly acceptable. A 62% RAM usage is normal for running a node. Maintain good cooling. For detailed performance, check the logs or run the 'Optimize RAM' script.
+                Hello! A system temperature of 52°C is perfectly acceptable. A 62% RAM usage is normal for running a node.
               </div>
             </div>
 
@@ -1078,37 +976,32 @@ html, body {
                 <button class="quick-btn" onclick="sendQuick('👥 Check Peers')">👥 Check Peers</button>
                 <button class="quick-btn" onclick="sendQuick('🔄 Reset Node')">🔄 Reset Node</button>
                 <button class="quick-btn" onclick="sendQuick('🗑️ Clear Cache')">🗑️ Clear Cache</button>
-                <button class="quick-btn" onclick="sendQuick('📈 Analyze Performance')">📈 Analyze Performance</button>
               </div>
               <div class="chat-input-row">
                 <input type="text" id="chatInput" placeholder="Ask me anything..." onkeypress="if(event.key==='Enter') sendMsg()">
                 <button onclick="sendMsg()">➤</button>
               </div>
             </div>
-
           </div>
-
         </main>
 
-        <!-- TAB 3: SETTINGS PAGE -->
+        <!-- PAGE 3: SETTINGS -->
         <main id="page-settings" class="page-view">
           <div class="view-header">
             <h2>Settings & Theme Customization</h2>
           </div>
           
           <div class="glass-panel settings-box" style="padding:16px;">
-            <div class="panel-title">🎨 Visual Theme & Background Effects</div>
-            <p style="font-size:0.75rem; color:var(--text-sub);">Choose a theme effect to match your workspace setup:</p>
-            
+            <div class="panel-title">🎨 Visual Theme Settings</div>
             <div class="theme-options">
               <button class="script-card-btn" onclick="setTheme('purple')">
-                🟣 Deep Purple Glass (Default)
+                🟣 Deep Purple Glass
               </button>
               <button class="script-card-btn" onclick="setTheme('dark')">
                 ⚫ Pitch Dark Minimal
               </button>
               <button class="script-card-btn" onclick="setTheme('acrylic')">
-                🔵 Windows 11 Acrylic Blue
+                🔵 Windows 11 Acrylic
               </button>
             </div>
           </div>
@@ -1118,16 +1011,16 @@ html, body {
 
     </div>
 
-    <!-- Bottom Status Footer Bar -->
+    <!-- Footer Bar -->
     <footer class="window-footer">
       <div class="footer-running">RUNNING</div>
-      <div style="color:rgba(255,255,255,0.4);">Optional Docker probe is configured only on this PC. <a href="#" style="color:var(--purple-light);">Optional Docker...</a></div>
-      <div style="color:rgba(255,255,255,0.4);">Data Source: Pi Desktop Sentry (Primary) - Docker via SoloHost UI</div>
+      <div style="color:rgba(255,255,255,0.4);">Optional Docker probe is configured only on this PC.</div>
+      <div style="color:rgba(255,255,255,0.4);">Data Source: Pi Desktop Sentry</div>
       <div>http://127.0.0.1:18700</div>
       <div style="font-weight:600; color:#fff;">32 MB - CPU 8% - up 18 49S</div>
     </footer>
 
-    <!-- Windows Watermark -->
+    <!-- Watermark -->
     <div class="watermark-overlay">
       Activate Windows<br>
       <span style="font-size:0.65rem;">Go to Settings to activate Windows.</span>
@@ -1139,8 +1032,12 @@ html, body {
 
 <script>
 function switchPage(pageId, btn) {
+  // Remove active from all pages
   document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
+  // Remove active from all sidebar buttons
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  
+  // Activate target page and button
   document.getElementById('page-' + pageId).classList.add('active');
   btn.classList.add('active');
 }
@@ -1165,7 +1062,6 @@ function sendMsg() {
   if(!txt) return;
 
   const box = document.getElementById('chatBox');
-  
   const userMsg = document.createElement('div');
   userMsg.className = 'chat-bubble user';
   userMsg.textContent = txt;
@@ -1177,10 +1073,10 @@ function sendMsg() {
   setTimeout(() => {
     const botMsg = document.createElement('div');
     botMsg.className = 'chat-bubble bot';
-    botMsg.textContent = "AI Analysis complete for command: '" + txt + "'. Node operations are executing smoothly with zero errors.";
+    botMsg.textContent = "AI Analysis complete for command: '" + txt + "'. System running normally.";
     box.appendChild(botMsg);
     box.scrollTop = box.scrollHeight;
-  }, 600);
+  }, 500);
 }
 
 function sendQuick(txt) {
@@ -1189,6 +1085,9 @@ function sendQuick(txt) {
 }
 
 function runScript(name) {
+  const aiNavBtn = document.querySelectorAll('.nav-btn')[1];
+  switchPage('ai', aiNavBtn);
+
   const box = document.getElementById('chatBox');
   const userMsg = document.createElement('div');
   userMsg.className = 'chat-bubble user';
@@ -1198,12 +1097,10 @@ function runScript(name) {
   setTimeout(() => {
     const botMsg = document.createElement('div');
     botMsg.className = 'chat-bubble bot';
-    botMsg.textContent = "Successfully executed script '" + name + "'. All parameters are optimized!";
+    botMsg.textContent = "Successfully executed script '" + name + "'. All parameters optimized!";
     box.appendChild(botMsg);
     box.scrollTop = box.scrollHeight;
-  }, 500);
-
-  switchPage('ai', document.querySelectorAll('.nav-btn')[1]);
+  }, 400);
 }
 </script>
 
