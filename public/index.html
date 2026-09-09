@@ -1,770 +1,768 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pi Node Controller PRO</title>
 <style>
 :root {
-  --p: rgba(255, 255, 255, 0.12);
-  --p2: rgba(255, 255, 255, 0.20);
-  --bd: rgba(255, 255, 255, 0.28);
-  --t: #f4f7fb;
-  --m: #a0aec0;
-  --win: #0078d7;
-  --acc: #4cc2ff;
-  --ok: #16c60c;
-  --warn: #ffb900;
-  --bad: #e81123;
-  --glass: blur(24px) saturate(170%);
+  --bg-main: #f0f4f9;
+  --bg-card: #ffffff;
+  --bg-sidebar: #f8fafc;
+  --border-color: #e2e8f0;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --accent-blue: #0284c7;
+  --accent-green: #10b981;
+  --accent-purple: #8b5cf6;
+  --accent-rose: #f43f5e;
+  --accent-amber: #f59e0b;
+  --active-light: #e0f2fe;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-
-html, body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  color: var(--t);
-  background-color: #1b140c;
-  background-image: linear-gradient(180deg, rgba(12,22,38,.45), rgba(8,12,20,.65)), var(--bg-image, url("/bg-cave.jpg"));
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; user-select: none; }
 
 body {
+  background-color: #0d1117;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 8px;
+  min-height: 100vh;
+  padding: 12px;
+  color: var(--text-main);
 }
 
-.w {
-  width: 100%;
-  max-width: 420px;
-  height: 100vh;
-  max-height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  justify-content: space-between;
-}
-
-.glass {
-  background: var(--p);
-  border: 1px solid var(--bd);
-  border-radius: 16px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
-}
-
-/* Header Top */
-.top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  flex: 0 0 auto;
-}
-
-.top h1 {
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-}
-
-.top-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.conn {
-  font-size: 0.65rem;
-  color: #9fef9a;
-  font-weight: 700;
-  background: rgba(22, 198, 12, 0.18);
-  padding: 3px 8px;
+/* App Window Frame */
+.window {
+  width: 1280px;
+  height: 820px;
+  background-color: var(--bg-main);
   border-radius: 12px;
-  border: 1px solid rgba(22, 198, 12, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.bellwrap { position: relative; display: flex; align-items: center; }
-.bell {
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: #fff;
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
+/* Window Titlebar */
+.titlebar {
+  height: 32px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  justify-content: space-between;
+  padding: 0 12px;
   font-size: 0.75rem;
+  color: var(--text-muted);
 }
-.badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: var(--bad);
-  color: #fff;
-  border-radius: 10px;
-  font-size: 0.55rem;
-  font-weight: bold;
-  padding: 1px 5px;
-  display: none;
-}
+.titlebar .brand { display: flex; align-items: center; gap: 6px; font-weight: 600; color: #334155; }
+.titlebar .win-controls { display: flex; gap: 12px; }
+.titlebar .win-btn { cursor: pointer; opacity: 0.7; }
+.titlebar .win-btn:hover { opacity: 1; }
 
-.top img.av {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1.5px solid var(--acc);
-}
-
-/* Navigation */
-.nav {
+/* Main App Body */
+.app-body {
   display: flex;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-.nav button {
   flex: 1;
-  padding: 6px 4px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 600;
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-}
-.nav button.on {
-  background: rgba(0, 120, 215, 0.45);
-  border-color: var(--acc);
-  box-shadow: 0 2px 8px rgba(0,120,215,0.3);
-}
-
-/* Page views */
-.page {
-  display: none;
-  flex: 1 1 auto;
-  min-height: 0;
-  flex-direction: column;
-  gap: 8px;
   overflow: hidden;
 }
-.page.on { display: flex; }
 
-.card {
-  padding: 10px 12px;
+/* Sidebar */
+.sidebar {
+  width: 220px;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  position: relative;
-}
-.card h2 {
-  font-size: 0.68rem;
-  color: #d1d5db;
-  text-transform: capitalize;
-  letter-spacing: 0.3px;
-  margin-bottom: 6px;
-  font-weight: 700;
+  padding: 16px 12px;
+  justify-content: space-between;
 }
 
-/* Overview Score Card */
-.score-card {
-  flex: 1.2 1 auto;
-  min-height: 0;
+.user-profile-top {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 0 4px;
 }
-.score-card h2 { align-self: flex-start; }
+.user-avatar-lg {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent-blue);
+}
 
-.ringwrap {
-  width: min(130px, 22vh);
-  height: min(130px, 22vh);
-  position: relative;
-  margin: auto;
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
 }
-.ringwrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ringwrap .lab {
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+.nav-item:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: var(--text-main);
+}
+.nav-item.active {
+  background-color: var(--active-light);
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+.nav-item svg { width: 18px; height: 18px; fill: currentColor; }
+
+.sidebar-bottom {
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.os-info { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; color: #334155; }
+.last-updated { display: flex; align-items: center; justify-content: space-between; }
+.refresh-btn { cursor: pointer; stroke: var(--text-muted); transition: transform 0.3s; }
+.refresh-btn:hover { transform: rotate(180deg); }
+
+/* Content Area */
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header Bar */
+.header-bar {
+  height: 56px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: transparent;
+}
+.header-title { font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+.header-right { display: flex; align-items: center; gap: 16px; font-size: 0.82rem; }
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-green);
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--accent-green); }
+.header-icon-btn { cursor: pointer; color: var(--text-muted); position: relative; }
+.user-menu { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
+.user-avatar-sm { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+
+/* Main Views */
+.view-panel {
+  flex: 1;
+  padding: 0 24px 16px 24px;
+  overflow-y: auto;
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+}
+.view-panel.active { display: flex; }
+
+/* Cards & Grid Styling */
+.card {
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+.card-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* PAGE 1: HOME DASHBOARD LAYOUT */
+.top-cards-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+/* Score Ring Card */
+.score-card { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.ring-container { position: relative; width: 110px; height: 110px; margin: 4px 0; }
+.ring-container svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-center {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
 }
-.ringwrap .lab span { font-size: 0.55rem; color: var(--m); }
-.ringwrap .lab b { font-size: 1.15rem; font-weight: 800; margin: 2px 0; }
-.exc {
-  font-size: 0.62rem;
-  color: #9fef9a;
-  font-weight: 700;
-  background: rgba(22, 198, 12, 0.15);
-  padding: 2px 8px;
+.score-val { font-size: 1.1rem; font-weight: 800; color: #0f172a; }
+.score-sub { font-size: 0.68rem; color: var(--text-muted); }
+.badge-exc {
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(22, 198, 12, 0.3);
-  margin-top: 2px;
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
-/* Vertical Status Cards */
-.row-card {
-  flex: 1 1 auto;
-  min-height: 0;
+/* Metric Info Cards */
+.info-card-content { display: flex; flex-direction: column; gap: 8px; }
+.icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  margin-bottom: 8px;
 }
-.row-card .card-body {
+.icon-blue { background: #e0f2fe; color: #0284c7; }
+.icon-green { background: #dcfce7; color: #16a34a; }
+.icon-purple { background: #f3e8ff; color: #9333ea; }
+.info-val { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
+.info-sub { font-size: 0.72rem; color: var(--text-muted); }
+
+/* Resources Grid */
+.resources-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  text-align: center;
+  padding: 12px 0;
+}
+.res-gauge { position: relative; width: 85px; height: 85px; margin: 0 auto; }
+.res-gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.res-val { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.95rem; }
+
+/* Bottom Row Grid */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 14px;
+}
+
+/* Line Chart SVG Area */
+.chart-container { position: relative; width: 100%; height: 110px; margin-top: 10px; }
+.chart-container svg { width: 100%; height: 100%; }
+.chart-badge { position: absolute; top: 0; right: 0; font-size: 0.72rem; font-weight: 700; color: var(--accent-green); background: #dcfce7; padding: 2px 6px; border-radius: 4px; }
+
+/* Tables & Logs */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.data-table td { padding: 5px 0; }
+.data-table td:last-child { text-align: right; font-weight: 600; color: #0f172a; }
+.data-table td:first-child { color: var(--text-muted); }
+
+.log-list { display: flex; flex-direction: column; gap: 8px; font-size: 0.72rem; }
+.log-item { display: flex; align-items: center; justify-content: space-between; }
+.log-left { display: flex; align-items: center; gap: 6px; color: #334155; }
+.log-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); }
+.log-time { color: var(--text-muted); }
+
+/* Bottom Data Source Footer */
+.footer-note {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+/* PAGE 2: AI ASSISTANT LAYOUT */
+.scripts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.script-btn {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.icon-box {
-  width: 38px;
-  height: 38px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 12px 14px;
   border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+.script-btn:hover { border-color: var(--accent-blue); background: #f8fafc; transform: translateY(-1px); }
+.script-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
   flex-shrink: 0;
 }
-.icon-blue { background: rgba(76, 194, 255, 0.22); border: 1px solid rgba(76, 194, 255, 0.4); }
-.icon-green { background: rgba(22, 198, 12, 0.22); border: 1px solid rgba(22, 198, 12, 0.4); }
-.icon-purple { background: rgba(180, 120, 255, 0.22); border: 1px solid rgba(180, 120, 255, 0.4); }
+.script-title { font-size: 0.8rem; font-weight: 600; color: #1e293b; }
 
-.card-info { display: flex; flex-direction: column; justify-content: center; }
-.card-info .k { font-size: 0.62rem; color: var(--m); font-weight: 600; }
-.card-info .v { font-size: 0.95rem; font-weight: 800; color: #fff; margin: 1px 0; }
-.card-info .s { font-size: 0.58rem; color: var(--m); }
-
-/* Compact secondary details panel */
-.details-bar {
-  flex: 0 0 auto;
+/* AI Chat Container */
+.chat-card {
+  flex: 1;
   display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 320px;
 }
-.res { display: flex; gap: 4px; width: 100%; }
-.res .met {
-  flex: 1;
-  text-align: center;
-  padding: 4px;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-}
-.res .met b { display: block; font-size: 0.72rem; }
-.res .met span { font-size: 0.52rem; color: var(--m); }
-
-/* Hidden container for index_2 script compatibility */
-.hidden-bindings { display: none !important; }
-
-/* AI Assistant & Settings styles */
-.scripts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.scripts button {
-  padding: 8px 6px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,.25);
-  background: rgba(255,255,255,.10);
-  color: #fff;
-  font-size: 0.65rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-#chatbox {
-  flex: 1;
-  min-height: 100px;
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   overflow-y: auto;
-  background: rgba(0,0,0,.2);
-  border-radius: 10px;
-  padding: 8px;
-  font-size: 0.72rem;
+  padding-right: 8px;
+  max-height: 240px;
 }
-.msg { margin: 4px 0; padding: 6px 8px; border-radius: 8px; max-width: 90%; font-size: 0.7rem; }
-.msg.user { background: rgba(0,120,215,.4); margin-left: auto; text-align: right; }
-.msg.bot { background: rgba(255,255,255,.15); }
-.bar { display: flex; gap: 6px; }
-.bar input {
+.chat-bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  display: flex;
+  gap: 10px;
+}
+.chat-bubble.user {
+  align-self: flex-end;
+  background-color: #dbeafe;
+  color: #1e40af;
+  border-bottom-right-radius: 2px;
+}
+.chat-bubble.bot {
+  align-self: flex-start;
+  background-color: #f1f5f9;
+  color: #334155;
+  border-bottom-left-radius: 2px;
+}
+.chat-avatar { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+
+.chat-controls { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 4px 12px;
+}
+.chat-input {
   flex: 1;
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,.3);
-  background: rgba(0,0,0,.2);
-  color: #fff;
-  font-size: 0.72rem;
+  border: none;
+  background: transparent;
+  padding: 8px 0;
+  font-size: 0.82rem;
   outline: none;
+  color: var(--text-main);
 }
-.bar button {
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 0;
-  background: var(--win);
-  color: #fff;
-  font-weight: bold;
-}
-.qbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.qbar button {
-  padding: 4px 6px;
+.send-btn { background: none; border: none; color: var(--accent-blue); cursor: pointer; display: flex; align-items: center; }
+
+.chips-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 5px 10px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,.2);
-  background: rgba(255,255,255,.1);
-  color: #fff;
-  font-size: 0.6rem;
-}
-.bgbar { display: flex; gap: 6px; margin-top: 6px; }
-.bgbar button, .bgbar label {
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,.25);
-  background: rgba(255,255,255,.1);
-  color: #fff;
-  font-size: 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
 }
-
-/* Modal & Footer */
-.panel { display: none; padding: 8px; font-size: 0.7rem; max-height: 120px; overflow-y: auto; }
-.panel.on { display: block; }
-.foot { text-align: center; font-size: 0.58rem; color: var(--m); flex: 0 0 auto; padding: 2px 0; }
-.hint { font-size: 0.6rem; color: var(--m); margin-top: 4px; }
-.link { color: var(--acc); background: none; border: 0; font: inherit; cursor: pointer; text-decoration: underline; }
-
-.modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; align-items: center; justify-content: center; padding: 12px; backdrop-filter: blur(8px); }
-.modal.on { display: flex; }
-.modal .box { background: rgba(20, 28, 40, 0.85); border: 1px solid rgba(255,255,255,0.3); border-radius: 12px; max-width: 380px; width: 100%; max-height: 85vh; display: flex; flex-direction: column; }
-.modal h3 { padding: 10px; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.2); }
-.terms { padding: 10px; overflow-y: auto; flex: 1; font-size: 0.7rem; line-height: 1.4; white-space: pre-wrap; }
-.modal .footbar { padding: 10px; border-top: 1px solid rgba(255,255,255,0.2); display: flex; flex-direction: column; gap: 6px; }
-.btn { padding: 8px; border-radius: 6px; border: 0; font-weight: bold; cursor: pointer; font-size: 0.7rem; }
-.btn-ok { background: var(--win); color: #fff; }
-.btn-no { background: rgba(255,255,255,0.2); color: #fff; }
+.chip-btn:hover { background: var(--bg-main); color: var(--text-main); }
 </style>
 </head>
 <body>
 
-<div class="w">
-  <!-- Top Navigation Bar -->
-  <div class="top glass">
-    <h1>Pi Node Controller PRO</h1>
-    <div class="top-right">
-      <span class="conn" id="conn">● Connected</span>
-      <span class="bellwrap">
-        <button type="button" class="bell" id="bell">🔔</button>
-        <span class="badge" id="badge">0</span>
-      </span>
-      <img class="av" src="/avatar.jpg" alt="Avatar">
+<div class="window">
+  <!-- Titlebar -->
+  <div class="titlebar">
+    <div class="brand">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      Windos
+    </div>
+    <div class="win-controls">
+      <span class="win-btn">━</span>
+      <span class="win-btn">❏</span>
+      <span class="win-btn">✕</span>
     </div>
   </div>
 
-  <div class="nav">
-    <button type="button" class="on" data-page="home">⌂ Home</button>
-    <button type="button" data-page="ai">AI Assistant</button>
-    <button type="button" data-page="set">⚙ Settings</button>
-  </div>
+  <div class="app-body">
+    <!-- Left Sidebar -->
+    <div class="sidebar">
+      <div>
+        <div class="user-profile-top">
+          <img src="https://picsum.photos/id/64/100/100" class="user-avatar-lg" alt="User Avatar">
+        </div>
 
-  <div class="panel glass" id="alertPanel"></div>
+        <nav class="nav-menu">
+          <button class="nav-item active" data-tab="home">
+            <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+            Home
+          </button>
+          <button class="nav-item" data-tab="ai">
+            <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 0-.9-3.8 8.5 8.5 0 0 0-7.6-4.7 8.38 8.38 0 0 0-3.8.9L3 2.5l1.4 5.7a8.38 8.38 0 0 0-.9 3.8 8.5 8.5 0 0 0 4.7 7.6 8.38 8.38 0 0 0 3.8.9h.5l5.7 1.4-1.4-5.7a8.38 8.38 0 0 0 .9-3.8z"/></svg>
+            AI Assistant
+          </button>
+          <button class="nav-item" data-tab="settings">
+            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+            Settings
+          </button>
+        </nav>
+      </div>
 
-  <!-- Page Home -->
-  <div class="page on" id="page-home">
-    <!-- Card 1: Performance Overview -->
-    <div class="card glass score-card tile" data-id="score">
-      <h2>Node Performance Overview</h2>
-      <div class="score">
-        <div class="ringwrap">
-          <svg viewBox="0 0 100 100" aria-hidden="true">
-            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="8"/>
-            <circle id="scoreArc" cx="50" cy="50" r="42" fill="none" stroke="#16c60c" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 264"/>
-          </svg>
-          <div class="lab">
-            <span>Node Score</span>
-            <b id="scoreVal">100.00 / 100</b>
-            <span id="availVal">Availability 100.00%</span>
+      <div class="sidebar-bottom">
+        <div class="os-info">
+          <svg width="14" height="14" viewBox="0 0 88 88" fill="currentColor"><path d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.52l.029 34.437L0 75.48V46.075zm4.432-39.17L88 0v41.512l-47.898.379zm47.898 43.513L88 88l-47.898-6.713V46.685z"/></svg>
+          Windows 10 <span style="font-weight: normal; color: var(--text-muted)">64-bit</span>
+        </div>
+        <div class="last-updated">
+          <div>
+            <div>Last Updated</div>
+            <strong style="color: #334155;">2025-09-07 14:32:18</strong>
+          </div>
+          <svg class="refresh-btn" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="content-area">
+      <!-- Top Header -->
+      <div class="header-bar">
+        <div class="header-title">Pi Node Controller PRO</div>
+        <div class="header-right">
+          <div class="status-pill"><span class="status-dot"></span> Connected</div>
+          <div class="header-icon-btn">🔔</div>
+          <div class="user-menu">
+            Users
+            <img src="https://picsum.photos/id/64/100/100" class="user-avatar-sm" alt="Small Avatar">
+            <small>▼</small>
           </div>
         </div>
-        <div class="exc" id="scoreTag">✓ Excellent</div>
       </div>
-    </div>
 
-    <!-- Card 2: State & Consensus -->
-    <div class="card glass row-card tile" data-id="state">
-      <h2>State & Consensus</h2>
-      <div class="card-body">
-        <div class="icon-box icon-blue">🧊</div>
-        <div class="card-info">
-          <div class="k">Node State:</div>
-          <div class="v" id="stSync">Synced</div>
-          <div class="s" id="stHealth">(healthy)</div>
+      <!-- PAGE 1: HOME TAB -->
+      <div class="view-panel active" id="view-home">
+        <!-- Top Cards Grid -->
+        <div class="top-cards-grid">
+          <!-- Score Card -->
+          <div class="card score-card">
+            <div class="card-title" style="align-self: flex-start;">Node Performance Overview</div>
+            <div class="ring-container">
+              <svg viewBox="0 0 36 36">
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e2e8f0" stroke-width="3" />
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" stroke-width="3" stroke-dasharray="97.43, 100" stroke-linecap="round" />
+              </svg>
+              <div class="ring-center">
+                <span class="score-sub">Node Score:</span>
+                <span class="score-val">97.43 <small style="font-size: 0.7rem; font-weight: normal;">/ 100</small></span>
+                <span class="score-sub">Availability:</span>
+                <strong style="font-size: 0.72rem; color: #0f172a;">97.43%</strong>
+              </div>
+            </div>
+            <div class="badge-exc">✓ Excellent</div>
+          </div>
+
+          <!-- State Card -->
+          <div class="card info-card-content">
+            <div class="card-title">State & Consensus</div>
+            <div class="icon-box icon-blue">🧊</div>
+            <div class="info-sub">Node State:</div>
+            <div class="info-val">Synced</div>
+            <div class="info-sub">(healthy)</div>
+          </div>
+
+          <!-- Consensus Card -->
+          <div class="card info-card-content">
+            <div class="card-title" style="opacity:0;">Consensus</div>
+            <div class="icon-box icon-green">⚙</div>
+            <div class="info-sub">Consensus:</div>
+            <div class="info-val">Running</div>
+            <div class="info-sub">(container)</div>
+          </div>
+
+          <!-- Peers Card -->
+          <div class="card info-card-content">
+            <div class="card-title">Peers connection</div>
+            <div class="icon-box icon-purple">👥</div>
+            <div class="info-sub">Peers:</div>
+            <div class="info-val">6 IN / 8 OUT</div>
+          </div>
+        </div>
+
+        <!-- System Resources Card -->
+        <div class="card">
+          <div class="card-title">🖥️ System Resources</div>
+          <div class="resources-grid">
+            <!-- CPU -->
+            <div>
+              <div class="res-gauge">
+                <svg viewBox="0 0 36 36">
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e0f2fe" stroke-width="3.5" />
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#0284c7" stroke-width="3.5" stroke-dasharray="28, 100" stroke-linecap="round" />
+                </svg>
+                <div class="res-val"><span style="font-size: 0.65rem; color: var(--text-muted); position: absolute; top: 16px;">CPU</span><br>28%</div>
+              </div>
+            </div>
+            <!-- RAM -->
+            <div>
+              <div class="res-gauge">
+                <svg viewBox="0 0 36 36">
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f3e8ff" stroke-width="3.5" />
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#8b5cf6" stroke-width="3.5" stroke-dasharray="62, 100" stroke-linecap="round" />
+                </svg>
+                <div class="res-val"><span style="font-size: 0.65rem; color: var(--text-muted); position: absolute; top: 16px;">RAM</span><br>62%</div>
+              </div>
+            </div>
+            <!-- Disk -->
+            <div>
+              <div class="res-gauge">
+                <svg viewBox="0 0 36 36">
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e0f2fe" stroke-width="3.5" />
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#0369a1" stroke-width="3.5" stroke-dasharray="68, 100" stroke-linecap="round" />
+                </svg>
+                <div class="res-val"><span style="font-size: 0.65rem; color: var(--text-muted); position: absolute; top: 16px;">Disk</span><br>68%</div>
+              </div>
+            </div>
+            <!-- Temp -->
+            <div>
+              <div class="res-gauge">
+                <svg viewBox="0 0 36 36">
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#ffe4e6" stroke-width="3.5" />
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f43f5e" stroke-width="3.5" stroke-dasharray="52, 100" stroke-linecap="round" />
+                </svg>
+                <div class="res-val"><span style="font-size: 0.6rem; color: var(--text-muted); position: absolute; top: 14px;">System Temp</span><br>52°C</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Grid -->
+        <div class="bottom-grid">
+          <!-- Availability Trend -->
+          <div class="card" style="position:relative;">
+            <div class="card-title">📈 Availability Trend (24h)</div>
+            <span class="chart-badge">97.43%</span>
+            <div class="chart-container">
+              <svg viewBox="0 0 300 80" preserveAspectRatio="none">
+                <polyline points="0,30 50,22 100,25 150,18 200,20 250,15 300,16" fill="none" stroke="#10b981" stroke-width="2"/>
+                <polygon points="0,30 50,22 100,25 150,18 200,20 250,15 300,16 300,80 0,80" fill="rgba(16, 185, 129, 0.08)"/>
+              </svg>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.65rem; color:var(--text-muted); margin-top:4px;">
+              <span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span>
+            </div>
+          </div>
+
+          <!-- Detailed Info Table -->
+          <div class="card">
+            <div class="card-title">ℹ️ Detailed Pi Node Information</div>
+            <table class="data-table">
+              <tr><td>Service</td><td>testnet2</td></tr>
+              <tr><td>Node Version</td><td>0.6.2</td></tr>
+              <tr><td>Protocol Version</td><td>27</td></tr>
+              <tr><td>Block Height</td><td>10,796,465</td></tr>
+              <tr><td>Ports Status</td><td>10/10 open</td></tr>
+            </table>
+          </div>
+
+          <!-- Refined Activity Log -->
+          <div class="card">
+            <div class="card-title">🕒 Refined Activity Log</div>
+            <div class="log-list">
+              <div class="log-item"><div class="log-left"><span class="log-dot"></span>Node connected to network</div><span class="log-time">14:32</span></div>
+              <div class="log-item"><div class="log-left"><span class="log-dot"></span>Peers count updated</div><span class="log-time">14:31</span></div>
+              <div class="log-item"><div class="log-left"><span class="log-dot"></span>Ledger advanced</div><span class="log-time">14:28</span></div>
+              <div class="log-item"><div class="log-left"><span class="log-dot"></span>Status: Synced!</div><span class="log-time">14:25</span></div>
+              <div class="log-item"><div class="log-left"><span class="log-dot"></span>Data refreshed</div><span class="log-time">14:20</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3 4-3 9-3 9 1.34 9 3z"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          Data Source: Pi Desktop Sentry (Primary)
         </div>
       </div>
-    </div>
 
-    <!-- Card 3: Consensus -->
-    <div class="card glass row-card tile" data-id="cons">
-      <h2>Consensus</h2>
-      <div class="card-body">
-        <div class="icon-box icon-green">⚙</div>
-        <div class="card-info">
-          <div class="k">Consensus:</div>
-          <div class="v" id="stCons">HEALTHY</div>
-          <div class="s" id="stSrc">(container)</div>
+      <!-- PAGE 2: AI ASSISTANT TAB -->
+      <div class="view-panel" id="view-ai">
+        <!-- Scripts Grid -->
+        <div class="card">
+          <div class="card-title">Pi Node Maintenance Scripts</div>
+          <div class="scripts-grid">
+            <button class="script-btn">
+              <div class="script-icon icon-blue">↙|</div>
+              <div class="script-title">Check Sync Height</div>
+            </button>
+            <button class="script-btn">
+              <div class="script-icon icon-green">🐳</div>
+              <div class="script-title">Repair Docker Container</div>
+            </button>
+            <button class="script-btn">
+              <div class="script-icon icon-purple">🌐</div>
+              <div class="script-title">Flush DNS Cache</div>
+            </button>
+            <button class="script-btn">
+              <div class="script-icon icon-green">⚡</div>
+              <div class="script-title">Optimize RAM Usage</div>
+            </button>
+            <button class="script-btn">
+              <div class="script-icon icon-blue">🔍</div>
+              <div class="script-title">Analyze Log Files</div>
+            </button>
+            <button class="script-btn">
+              <div class="script-icon icon-purple">🔄</div>
+              <div class="script-title">Update Peer List</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- AI Assistant Chat Container -->
+        <div class="card chat-card">
+          <div class="card-title">🗨️ AI Assistant Chat</div>
+          
+          <div class="chat-messages" id="chatBox">
+            <div class="chat-bubble user">
+              <span>Hello! My node score is 97.43, but 🌡️ System Temp is 52°C and RAM is 62%. Is that okay?</span>
+              <img src="https://picsum.photos/id/64/100/100" class="chat-avatar" alt="User Avatar">
+            </div>
+            <div class="chat-bubble bot">
+              <div class="chat-avatar" style="background:var(--accent-blue); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold; font-size:0.65rem;">AI</div>
+              <span>Hello! A system temperature of 52°C is perfectly acceptable. A 62% RAM usage is normal for running a node. Maintain good cooling. For detailed performance, check the logs or run the 'Optimize RAM' script.</span>
+            </div>
+          </div>
+
+          <div class="chat-controls">
+            <div class="input-wrapper">
+              <input type="text" class="chat-input" id="chatInput" placeholder="Ask me anything...">
+              <button class="send-btn" id="sendBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+
+            <div class="chips-row">
+              <button class="chip-btn">📄 Generate Report</button>
+              <button class="chip-btn">👥 Check Peers</button>
+              <button class="chip-btn">🔄 Reset Node</button>
+              <button class="chip-btn">🗑️ Clear Cache</button>
+              <button class="chip-btn">📈 Analyze Performance</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3 4-3 9-3 9 1.34 9 3z"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          Data Source: Pi Desktop Sentry (Primary)
         </div>
       </div>
-    </div>
 
-    <!-- Card 4: Peers connection -->
-    <div class="card glass row-card tile" data-id="peers">
-      <h2>Peers connection</h2>
-      <div class="card-body">
-        <div class="icon-box icon-purple">👥</div>
-        <div class="card-info">
-          <div class="k">Peers:</div>
-          <div class="v" id="stPeers">0 IN / 8 OUT</div>
-          <div class="s">in / out</div>
+      <!-- PAGE 3: SETTINGS TAB -->
+      <div class="view-panel" id="view-settings">
+        <div class="card">
+          <div class="card-title">⚙️ General Settings</div>
+          <p style="font-size: 0.8rem; color: var(--text-muted);">Cấu hình hệ thống điều khiển Pi Node Controller PRO.</p>
         </div>
       </div>
-    </div>
 
-    <!-- Live metrics strip -->
-    <div class="details-bar">
-      <div class="res" id="resBox"></div>
-    </div>
-
-    <!-- Hidden compatibility container for index script objects -->
-    <div class="hidden-bindings">
-      <div id="homeTop"></div>
-      <svg id="healthSvg"></svg>
-      <div id="s"></div>
-      <div id="actLine"></div>
-    </div>
-
-    <p class="hint">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
-  </div>
-
-  <!-- Page AI Assistant -->
-  <div class="page" id="page-ai">
-    <div class="card glass">
-      <h2>Pi Node Maintenance Scripts</h2>
-      <div class="scripts" id="abar">
-        <button type="button" data-dl="/actions/CleanRAM.bat">Optimize RAM</button>
-        <button type="button" data-dl="/actions/DnsFlush.bat">Flush DNS</button>
-        <button type="button" data-dl="/actions/Firewall.bat">Firewall</button>
-        <button type="button" data-dl="/actions/NetRepair.bat">Net Repair</button>
-        <button type="button" data-dl="/actions/LanSetup.bat">LAN Setup</button>
-        <button type="button" data-dl="/actions/NodeReset.bat">Reset Node</button>
-        <button type="button" data-dl="/actions/DockerRecover.bat">Repair Docker</button>
-        <button type="button" data-dl="/actions/Maintain.bat">Maintain</button>
-      </div>
-    </div>
-    <div class="card glass" style="flex:1;">
-      <h2>AI Assistant Chat</h2>
-      <div id="chatbox"></div>
-      <div class="qbar" id="qbar">
-        <button type="button" data-cmd="/help">HELP</button>
-        <button type="button" data-cmd="/status">STATUS</button>
-        <button type="button" data-cmd="/report">REPORT</button>
-        <button type="button" data-cmd="/peers">PEERS</button>
-        <button type="button" data-cmd="/diagnostic">DIAG</button>
-        <button type="button" data-cmd="/analyze">ANALYZE</button>
-      </div>
-      <div class="bar">
-        <input id="inp" type="text" placeholder="Ask me anything…" autocomplete="off" maxlength="2000">
-        <button id="send" type="button">➤</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Page Settings -->
-  <div class="page" id="page-set">
-    <div class="card glass">
-      <h2>Wallpaper</h2>
-      <div class="bgbar">
-        <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
-        <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
-        <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
-        <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
-      </div>
-    </div>
-    <div class="card glass">
-      <h2>About</h2>
-      <p class="hint">SoloHost v2.6.55 · Windows 10 Fluent</p>
-    </div>
-  </div>
-
-  <p class="foot">Telegram for remote status · Docker only via SoloHost UI</p>
-</div>
-
-<!-- Modal Terms -->
-<div class="modal" id="dkModal" role="dialog" aria-modal="true">
-  <div class="box">
-    <h3>Optional Docker Access — Terms</h3>
-    <div class="terms" id="termsBox"></div>
-    <div class="footbar">
-      <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read terms</label>
-      <label><input type="checkbox" id="dkAgree" disabled> I accept terms for elevated access</label>
-      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm</button>
-      <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
     </div>
   </div>
 </div>
 
 <script>
-const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
+// Switch Tabs JS
+const navItems = document.querySelectorAll('.nav-item');
+const viewPanels = document.querySelectorAll('.view-panel');
 
-What this is
-This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status. This is OFF by default.
+navItems.forEach(item => {
+  item.addEventListener('click', () => {
+    const targetTab = item.getAttribute('data-tab');
 
-SoloHost default permissions
-Sandbox: CPU and memory, one localhost port, outbound network. docker.sock is NOT required for normal monitoring.
+    navItems.forEach(i => i.classList.remove('active'));
+    viewPanels.forEach(p => p.classList.remove('active'));
 
-What you grant if you Confirm
-• Mount /var/run/docker.sock read-only.
-• List containers and run limited diagnostic commands.
-
-Confirm only if you accept these terms in full.`;
-
-const box=document.getElementById('chatbox');
-const termsBox=document.getElementById('termsBox');
-termsBox.textContent=TERMS;
-
-document.querySelectorAll('.nav button').forEach(function(b){
-  b.onclick=function(){
-    document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('on'));
-    b.classList.add('on');
-    document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
-    document.getElementById('page-'+b.getAttribute('data-page')).classList.add('on');
-  };
-});
-
-function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
-
-function setupTermsScroll(){
-  const read=document.getElementById('dkRead');
-  const agree=document.getElementById('dkAgree');
-  const conf=document.getElementById('dkConfirm');
-  function refresh(){conf.disabled=!(read.checked&&agree.checked);}
-  read.onchange=refresh;agree.onchange=refresh;
-  termsBox.onscroll=function(){
-    const el=termsBox;
-    if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){ read.disabled=false; }
-  };
-  setTimeout(function(){
-    if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
-  },400);
-}
-
-function setArc(id,pct,maxDash){
-  const el=document.getElementById(id); if(!el)return;
-  const p=Math.max(0,Math.min(100,Number(pct)||0));
-  el.setAttribute('stroke-dasharray', (p/100*maxDash).toFixed(1)+' '+maxDash);
-}
-
-function loadStatus(){
-  return fetch('/api/status').then(r=>r.json()).then(function(t){
-    const rows=[];
-    const addR=(k,v)=>{if(v!=null&&v!=='')rows.push('<div class="row"><span class="k">'+k+'</span><span class="val">'+String(v)+'</span></div>');};
-    addR('Sync',t.sync);
-    addR('Ledger',t.ledger!=null?Number(t.ledger).toLocaleString('en-US'):null);
-    addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
-    addR('Source',t.source||null);
-    addR('Horizon',t.horizon_version||null);
-    addR('Core',t.core_version||null);
-    addR('Protocol',t.protocol||null);
-    addR('Ingest lag',t.ingest_lag!=null?t.ingest_lag:null);
-    addR('Peers',t.peers!=null?t.peers:((t.peer_in!=null||t.peer_out!=null)?((t.peer_in??0)+' / '+(t.peer_out??0)):null));
-    addR('Health',t.health!=null?t.health+'/100':'');
-    const sEl = document.getElementById('s');
-    if(sEl) sEl.innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
-
-    const health=t.health!=null?Number(t.health):(t.ledger&&t.sync?88:null);
-    document.getElementById('scoreVal').textContent=health!=null?health.toFixed(health%1?2:0)+' / 100':'—';
-    document.getElementById('availVal').textContent=health!=null?('Availability '+health.toFixed(2)+'%'):'Availability —';
-    setArc('scoreArc', health||0, 264);
-    const live=/horizon live|synced|ok/i.test(String(t.sync||''));
-    const catchup=/catch|behind|slow|lag/i.test(String(t.sync||''));
-    document.getElementById('scoreTag').textContent=live?'✓ Excellent':(catchup?'Watching catch-up':'Collecting');
-    document.getElementById('scoreArc').setAttribute('stroke', live?'#16c60c':(catchup?'#ffb900':'#4cc2ff'));
-
-    document.getElementById('stSync').textContent=t.sync||'Synced';
-    document.getElementById('stHealth').textContent=t.core_verified?'(core verified)':(t.health?'(healthy)':'('+ (t.source||'horizon') +')');
-    document.getElementById('stCons').textContent=(t.fsm||t.verification&&t.verification.consensus)||(t.source?t.source.toUpperCase():'HEALTHY');
-    document.getElementById('stSrc').textContent=t.source?('('+t.source+')'):'(container)';
-    const pin=t.peer_in, pout=t.peer_out;
-    document.getElementById('stPeers').textContent=(pin!=null||pout!=null)?((pin??'0')+' IN / '+(pout??'0')+' OUT'):(t.peers!=null?t.peers:'0 IN / 8 OUT');
-
-    const cpu=t.container_cpu!=null?t.container_cpu:(t.cpu!=null?t.cpu:null);
-    const ram=t.container_ram!=null?t.container_ram:(t.ram!=null?t.ram:null);
-    const disk=t.disk!=null?t.disk:null;
-    const ports=t.ports_open!=null?t.ports_open:(t.ports&&typeof t.ports==='object'?Object.keys(t.ports).length:null);
-    const mets=[];
-    function chip(label,val,ok){ mets.push('<div class="met'+(ok?'':' off')+'"><b>'+val+'</b><span>'+label+'</span></div>'); }
-    if(cpu!=null) chip('CPU',Math.round(cpu)+'%',true);
-    if(ram!=null) chip('RAM',Math.round(ram)+'%',true);
-    if(disk!=null) chip('Disk',Math.round(disk)+'%',true);
-    if(t.ledger_age!=null) chip('Ledger age',t.ledger_age+'s',true);
-    if(t.ingest_lag!=null) chip('Ingest lag',String(t.ingest_lag),true);
-    if(ports!=null) chip('Ports',String(ports)+' open',true);
-    if(!mets.length) chip('Status','OK',true);
-    document.getElementById('resBox').innerHTML=mets.join('');
-
-    const actEl = document.getElementById('actLine');
-    if(actEl) actEl.textContent=new Date().toISOString().replace('T',' ').slice(11,19)+' · '+(t.sync||'?')+' · ledger '+(t.ledger!=null?t.ledger:'?');
-    document.getElementById('conn').textContent='● Connected';
-
-    try{
-      const key='pinode_health_hist';
-      let hist=[];
-      try{ hist=JSON.parse(localStorage.getItem(key)||'[]'); }catch(e){ hist=[]; }
-      if(health!=null){
-        hist.push({t:Date.now(),v:Number(health)});
-        const cut=Date.now()-24*3600*1000;
-        hist=hist.filter(function(p){return p.t>=cut;});
-        if(hist.length>96) hist=hist.slice(-96);
-        localStorage.setItem(key, JSON.stringify(hist));
-      }
-      const svg=document.getElementById('healthSvg');
-      if(svg && hist.length){
-        const w=240,h=72,pad=4;
-        const min=0,max=100;
-        const pts=hist.map(function(p,i){
-          const x=pad+(hist.length===1?w/2:(i/(hist.length-1))*(w-pad*2));
-          const y=h-pad-((p.v-min)/(max-min))*(h-pad*2);
-          return x.toFixed(1)+','+y.toFixed(1);
-        });
-        const last=hist[hist.length-1].v;
-        svg.innerHTML='<polyline fill="none" stroke="#7CFF9A" stroke-width="2" points="'+pts.join(' ')+'"/>'+
-          '<text x="'+(w-4)+'" y="12" text-anchor="end" fill="#9fef9a" font-size="10">'+last.toFixed(1)+'%</text>';
-      }
-    }catch(e){}
-  }).catch(function(){
-    const sEl = document.getElementById('s');
-    if(sEl) sEl.textContent='Status error';
-    document.getElementById('conn').textContent='○ Offline';
+    item.classList.add('active');
+    document.getElementById(`view-${targetTab}`).classList.add('active');
   });
-}
-
-async function send(){
-  const inp=document.getElementById('inp');let msg=(inp.value||'').trim();if(!msg)return;
-  if(msg.length>2000)msg=msg.slice(0,2000);
-  inp.value='';
-  add('user',msg);add('bot','…');
-  try{
-    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
-    const j=await r.json();
-    box.lastChild.textContent=j.reply||j.error||'No reply';
-  }catch(e){box.lastChild.textContent='Chat error';}
-}
-
-function openDockerTerms(){
-  document.getElementById('dkRead').checked=false;
-  document.getElementById('dkAgree').checked=false;
-  document.getElementById('dkRead').disabled=true;
-  document.getElementById('dkAgree').disabled=false;
-  document.getElementById('dkConfirm').disabled=true;
-  document.getElementById('dkModal').classList.add('on');
-  termsBox.scrollTop=0;
-  setupTermsScroll();
-}
-document.querySelectorAll('.dkTip').forEach(function(el){ el.onclick=openDockerTerms; });
-document.getElementById('dkCancel').onclick=function(){
-  document.getElementById('dkModal').classList.remove('on');
-};
-document.getElementById('dkConfirm').onclick=async function(){
-  if(document.getElementById('dkConfirm').disabled)return;
-  document.getElementById('dkModal').classList.remove('on');
-  add('bot','…');
-  try{
-    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
-    const j=await r.json();
-    if(!j.ok){box.lastChild.textContent=j.error||'Failed';return;}
-    box.lastChild.textContent='Terms accepted.';
-  }catch(e){box.lastChild.textContent='Network error';}
-};
-
-const ACT={
- '/actions/CleanRAM.bat':'Optimize RAM',
- '/actions/DnsFlush.bat':'Flush DNS',
- '/actions/Firewall.bat':'Firewall',
- '/actions/NetRepair.bat':'Net Repair',
- '/actions/LanSetup.bat':'LAN Setup',
- '/actions/NodeReset.bat':'Reset Node',
- '/actions/DockerRecover.bat':'Repair Docker',
- '/actions/Maintain.bat':'Maintain'
-};
-document.getElementById('abar').addEventListener('click',function(e){
-  const b=e.target.closest('button[data-dl]'); if(!b)return;
-  const href=b.getAttribute('data-dl');
-  add('bot', (ACT[href]||'Download BAT')+'\nSaving: '+href);
-  const a=document.createElement('a'); a.href=href; a.download=''; document.body.appendChild(a); a.click(); a.remove();
 });
-document.getElementById('qbar').addEventListener('click',function(e){
-  const b=e.target.closest('button[data-cmd]');
-  if(!b)return;
-  document.getElementById('inp').value=b.getAttribute('data-cmd');
-  send();
+
+// Chat Functionality
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const chatBox = document.getElementById('chatBox');
+
+function handleSend() {
+  const text = chatInput.value.trim();
+  if(!text) return;
+
+  // Add User Message
+  const userMsg = document.createElement('div');
+  userMsg.className = 'chat-bubble user';
+  userMsg.innerHTML = `<span>${text}</span><img src="https://picsum.photos/id/64/100/100" class="chat-avatar" alt="User">`;
+  chatBox.appendChild(userMsg);
+
+  chatInput.value = '';
+  chatBox.scrollTop = chatBox.scrollHeight;
+
+  // Simulate Bot Response
+  setTimeout(() => {
+    const botMsg = document.createElement('div');
+    botMsg.className = 'chat-bubble bot';
+    botMsg.innerHTML = `<div class="chat-avatar" style="background:var(--accent-blue); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold; font-size:0.65rem;">AI</div><span>Đã nhận câu hỏi: "${text}". Hệ thống Node đang hoạt động bình thường!</span>`;
+    chatBox.appendChild(botMsg);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }, 600);
+}
+
+sendBtn.addEventListener('click', handleSend);
+chatInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') handleSend();
 });
-document.getElementById('send').onclick=send;
-document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 
-const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")',pi:'url("/bg-pi.jpg")'};
-function applyBg(kind, custom){
-  const root=document.documentElement;
-  if(kind==='custom' && custom){ root.style.setProperty('--bg-image','url("'+custom+'")'); }
-  else { root.style.setProperty('--bg-image', BG[kind]||BG.cave); kind = BG[kind]?kind:'cave'; }
-  document.querySelectorAll('.bgbar button').forEach(b=>b.classList.toggle('on', b.getAttribute('data-bg')===kind));
-  try{ localStorage.setItem('pinode_bg', JSON.stringify({kind, custom: kind==='custom'?custom:''})); }catch(e){}
-}
-try{
-  const saved=JSON.parse(localStorage.getItem('pinode_bg')||'{}');
-  applyBg(saved.kind||'cave', saved.custom||'');
-}catch(e){ applyBg('cave'); }
-document.getElementById('bgCave').onclick=()=>applyBg('cave');
-document.getElementById('bgClassic').onclick=()=>applyBg('classic');
-document.getElementById('bgPi').onclick=()=>applyBg('pi');
-document.getElementById('bgFile').onchange=function(){
-  const f=this.files&&this.files[0]; if(!f)return;
-  if(f.size>2500000){ add('bot','Wallpaper too large.'); return; }
-  const r=new FileReader();
-  r.onload=()=>applyBg('custom', r.result);
-  r.readAsDataURL(f);
-};
-
-async function loadAlerts(){
-  try{
-    const j=await fetch('/api/alerts').then(r=>r.json());
-    const n=j.unread||0;
-    const badge=document.getElementById('badge');
-    badge.textContent=n; badge.style.display=n?'inline-block':'none';
-    const pan=document.getElementById('alertPanel');
-    if(!j.items||!j.items.length){pan.innerHTML='🔔 No action alerts.';return;}
-    pan.innerHTML=j.items.map(function(it){
-      return '<div class="item">'+(it.ts||'').replace('T',' ').slice(0,16)+'\n'+(it.text||'')+'</div>';
-    }).join('');
-  }catch(e){}
-}
-document.getElementById('bell').onclick=async function(){
-  const pan=document.getElementById('alertPanel');
-  pan.classList.toggle('on');
-  if(pan.classList.contains('on')){
-    try{ await fetch('/api/alerts',{method:'POST'}); }catch(e){}
-    document.getElementById('badge').style.display='none';
-    loadAlerts();
-  }
-};
-loadAlerts();setInterval(loadAlerts,20000);
-loadStatus();setInterval(loadStatus,15000);
+// Click Quick Chips
+document.querySelectorAll('.chip-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    chatInput.value = btn.innerText;
+    handleSend();
+  });
+});
 </script>
+
 </body>
 </html>
