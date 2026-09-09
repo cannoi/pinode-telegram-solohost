@@ -86,33 +86,50 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 .btn-ok{background:var(--win);color:#fff}
 .btn-no{background:rgba(255,255,255,.18);color:#fff}
+html,body{height:100%;overflow:hidden}
+body{padding:8px;align-items:stretch}
+.w{width:100%;max-width:none;height:100%;display:flex;flex-direction:column;gap:6px}
+.top{margin:0;flex:0 0 auto}
+.nav{margin:0;flex:0 0 auto}
+.panel{margin:0;flex:0 0 auto;max-height:22vh}
+.page{flex:1 1 auto;min-height:0;overflow:hidden;display:none;flex-direction:column;gap:6px}
+.page.on{display:flex}
+.card{margin:0;padding:8px 10px;min-height:0;display:flex;flex-direction:column}
+.card h2{margin-bottom:4px}
+.score{flex:1;min-height:0}
+.ringwrap{width:min(128px,28vh);height:min(128px,28vh)}
+.res{display:flex;flex-wrap:wrap;gap:6px;justify-content:space-around;align-items:center}
+.res .met{flex:1 1 70px;text-align:center;padding:6px 4px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18)}
+.res .met b{display:block;font-size:.95rem}
+.res .met span{font-size:.58rem;color:var(--m)}
+.res .met.off{opacity:.45}
+.home-top{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;flex:0 0 auto}
+.home-top .score-card{grid-column:1/-1}
+.grid3{display:contents}
+.home-bot{display:grid;grid-template-columns:1fr;gap:6px;flex:1;min-height:0}
+.home-bot .card{overflow:auto}
+#chatbox{flex:1;min-height:80px;height:auto}
+.page#page-ai .card:last-child{flex:1;min-height:0}
+.foot{margin:0;flex:0 0 auto}
+.hint.dock{margin:2px 0 0;flex:0 0 auto}
+.tile{cursor:grab}
+.tile.wide{grid-column:1/-1}
+.tile .grip{font-size:.62rem;color:var(--m);cursor:grab;user-select:none}
 .sub{font-size:.68rem;color:var(--m);margin-top:2px}
-.home-top,.home-bot{display:contents}
 
-/* Landscape / wide window — Fluent two-pane like the mockups */
-@media (min-width: 880px){
-  body{padding:12px;align-items:stretch}
-  .w{max-width:1200px;display:grid;grid-template-columns:188px 1fr;grid-template-rows:auto auto 1fr auto;gap:10px;align-items:start}
-  .top{grid-column:1/-1;margin:0}
-  .nav{grid-column:1;grid-row:2/4;flex-direction:column;margin:0;padding:10px;align-self:stretch;min-height:420px}
-  .nav button{flex:0 0 auto;text-align:left;padding:12px 10px;font-size:.8rem}
-  .panel{grid-column:2;grid-row:2;margin:0}
-  .page.on{grid-column:2;grid-row:3;margin:0}
+@media (min-width:880px){
+  .w{display:grid;grid-template-columns:168px 1fr;grid-template-rows:auto auto 1fr auto;gap:8px}
+  .top{grid-column:1/-1}
+  .nav{grid-column:1;grid-row:2/4;flex-direction:column;align-self:stretch}
+  .nav button{flex:0 0 auto;text-align:left;padding:11px 10px}
+  .panel{grid-column:2;grid-row:2}
+  .page.on{grid-column:2;grid-row:3}
   .foot{grid-column:1/-1}
-  .home-top{display:grid;grid-template-columns:1.15fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px}
-  .home-top .card{margin:0;grid-column:1}
-  .home-top .grid3{display:contents}
-  .home-top .mini{margin:0}
-  .res{grid-template-columns:repeat(4,1fr)}
-  .home-bot{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .home-bot .card{margin:0}
+  .home-top{grid-template-columns:minmax(180px,1.1fr) 1fr 1fr 1fr;flex:1}
+  .home-top .score-card{grid-column:1;grid-row:1}
+  .home-bot{grid-template-columns:1.2fr .8fr;flex:1}
   .scripts{grid-template-columns:1fr 1fr 1fr}
-  #chatbox{height:280px}
-  .ringwrap{width:168px;height:168px}
-}
-@media (max-width:879px){
-  .w{max-width:440px}
-  .res{grid-template-columns:1fr 1fr}
+  .ringwrap{width:min(150px,22vh);height:min(150px,22vh)}
 }
 </style>
 </head>
@@ -122,7 +139,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
     <img class="av" src="/avatar.jpg" alt="">
     <div style="flex:1">
       <h1>Pi Node Controller PRO</h1>
-      <div class="sub">SoloHost · v2.6.53</div>
+      <div class="sub">SoloHost · v2.6.54</div>
     </div>
     <span class="conn" id="conn">● Connected</span>
     <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span>
@@ -135,8 +152,9 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
   <div class="panel glass" id="alertPanel"></div>
 
   <div class="page on" id="page-home">
-    <div class="home-top">
-    <div class="card glass">
+    <div class="home-top" id="homeTop">
+    <div class="card glass score-card tile" data-id="score" draggable="true">
+      <div class="grip">⠿ drag · dblclick stretch</div>
       <h2>Node Performance Overview</h2>
       <div class="score">
         <div class="ringwrap">
@@ -150,30 +168,27 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
       </div>
     </div>
     <div class="grid3">
-      <div class="mini glass"><div class="ic">🧊</div><div class="k">Node State</div><div class="v" id="stSync">—</div><div class="s" id="stHealth">—</div></div>
-      <div class="mini glass"><div class="ic">⚙</div><div class="k">Consensus</div><div class="v" id="stCons">—</div><div class="s" id="stSrc">source</div></div>
-      <div class="mini glass"><div class="ic">👥</div><div class="k">Peers</div><div class="v" id="stPeers">—</div><div class="s">in / out</div></div>
+      <div class="mini glass tile" data-id="state" draggable="true"><div class="ic">🧊</div><div class="k">Node State</div><div class="v" id="stSync">—</div><div class="s" id="stHealth">—</div></div>
+      <div class="mini glass tile" data-id="cons" draggable="true"><div class="ic">⚙</div><div class="k">Consensus</div><div class="v" id="stCons">—</div><div class="s" id="stSrc">source</div></div>
+      <div class="mini glass tile" data-id="peers" draggable="true"><div class="ic">👥</div><div class="k">Peers</div><div class="v" id="stPeers">—</div><div class="s">in / out</div></div>
     </div>
     </div>
-    <div class="card glass">
-      <h2>System Resources</h2>
-      <div class="res">
-        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="cpuArc" cx="18" cy="18" r="14" fill="none" stroke="#4cc2ff" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="cpuVal">—</span></div><div class="n">CPU</div></div>
-        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="ramArc" cx="18" cy="18" r="14" fill="none" stroke="#b57bff" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="ramVal">—</span></div><div class="n">RAM</div></div>
-        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="diskArc" cx="18" cy="18" r="14" fill="none" stroke="#3aa0ff" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="diskVal">—</span></div><div class="n">Disk</div></div>
-        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="ageArc" cx="18" cy="18" r="14" fill="none" stroke="#ff8a4c" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="ageVal">—</span></div><div class="n">Ledger age</div></div>
-      </div>
+    <div class="card glass tile" data-id="res" draggable="true">
+      <div class="grip">⠿ drag</div>
+      <h2>Live metrics (only fields we have)</h2>
+      <div class="res" id="resBox"></div>
     </div>
     <div class="home-bot">
-    <div class="card glass info">
+    <div class="card glass info tile" data-id="info" draggable="true">
       <h2>Detailed Pi Node Information</h2>
       <div id="s"></div>
     </div>
-    <div class="card glass log">
+    <div class="card glass log tile" data-id="log" draggable="true">
       <h2>Activity</h2>
       <div class="item" id="actLine">Waiting for telemetry…</div>
     </div>
     </div>
+    <p class="hint dock">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
   </div>
 
   <div class="page" id="page-ai">
@@ -203,7 +218,7 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
         <button type="button" data-cmd="/logs">LOGS</button>
         <button type="button" data-cmd="/donate">DONATE</button>
       </div>
-      <p class="hint">Optional Docker probe is configured only on this PC. <button type="button" class="link" id="dkTip">Optional Docker…</button></p>
+      <p class="hint dock">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
       <div class="bar">
         <input id="inp" type="text" placeholder="Ask me anything…" autocomplete="off" maxlength="2000">
         <button id="send" type="button">➤</button>
@@ -224,9 +239,10 @@ box-shadow:0 10px 28px rgba(0,0,0,.18)}
     </div>
     <div class="card glass">
       <h2>About</h2>
-      <div class="row"><span class="k">App</span><span class="val">SoloHost v2.6.53</span></div>
-      <div class="row"><span class="k">Style</span><span class="val">Windows 10 Fluent · portrait</span></div>
+      <div class="row"><span class="k">App</span><span class="val">SoloHost v2.6.54</span></div>
+      <div class="row"><span class="k">Style</span><span class="val">Windows 10 Fluent · fill window</span></div>
     </div>
+    <p class="hint dock">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
   </div>
   <p class="foot">Telegram for remote status · Docker only via this SoloHost UI</p>
 </div>
@@ -349,14 +365,18 @@ function loadStatus(){
     const cpu=t.container_cpu!=null?t.container_cpu:(t.cpu!=null?t.cpu:null);
     const ram=t.container_ram!=null?t.container_ram:(t.ram!=null?t.ram:null);
     const disk=t.disk!=null?t.disk:null;
-    document.getElementById('cpuVal').textContent=cpu!=null?Math.round(cpu)+'%':'n/a';
-    document.getElementById('ramVal').textContent=ram!=null?Math.round(ram)+'%':'n/a';
-    document.getElementById('diskVal').textContent=disk!=null?Math.round(disk)+'%':'n/a';
-    document.getElementById('ageVal').textContent=t.ledger_age!=null?(t.ledger_age+'s'):'—';
-    setArc('cpuArc', cpu||0, 88);
-    setArc('ramArc', ram||0, 88);
-    setArc('diskArc', disk||0, 88);
-    setArc('ageArc', t.ledger_age!=null?Math.min(100,t.ledger_age/3):0, 88);
+    const ports=t.ports_open!=null?t.ports_open:(t.ports&&typeof t.ports==='object'?Object.keys(t.ports).length:null);
+    const mets=[];
+    function chip(label,val,ok){ mets.push('<div class="met'+(ok?'':' off')+'"><b>'+val+'</b><span>'+label+'</span></div>'); }
+    if(cpu!=null) chip('CPU',Math.round(cpu)+'%',true);
+    if(ram!=null) chip('RAM',Math.round(ram)+'%',true);
+    if(disk!=null) chip('Disk',Math.round(disk)+'%',true);
+    if(t.ledger_age!=null) chip('Ledger age',t.ledger_age+'s',true);
+    if(t.ingest_lag!=null) chip('Ingest lag',String(t.ingest_lag),true);
+    if(ports!=null) chip('Ports',String(ports)+' open',true);
+    if(t.ledger!=null) chip('Ledger',Number(t.ledger).toLocaleString('en-US'),true);
+    if(!mets.length) chip('Metrics','waiting',false);
+    document.getElementById('resBox').innerHTML=mets.join('');
 
     document.getElementById('actLine').textContent=
       new Date().toISOString().replace('T',' ').slice(11,19)+' · '+(t.sync||'?')+' · ledger '+(t.ledger!=null?t.ledger:'?');
@@ -389,7 +409,7 @@ async function send(){
   }catch(e){box.lastChild.textContent='Chat error';}
 }
 
-document.getElementById('dkTip').onclick=function(){
+function openDockerTerms(){
   document.getElementById('dkRead').checked=false;
   document.getElementById('dkAgree').checked=false;
   document.getElementById('dkRead').disabled=true;
@@ -398,7 +418,8 @@ document.getElementById('dkTip').onclick=function(){
   document.getElementById('dkModal').classList.add('on');
   termsBox.scrollTop=0;
   setupTermsScroll();
-};
+}
+document.querySelectorAll('.dkTip').forEach(function(el){ el.onclick=openDockerTerms; });
 document.getElementById('dkCancel').onclick=function(){
   document.getElementById('dkModal').classList.remove('on');
 };
@@ -492,6 +513,29 @@ document.getElementById('bell').onclick=async function(){
 };
 loadAlerts();setInterval(loadAlerts,20000);
 loadStatus();setInterval(loadStatus,15000);
+
+(function(){
+  let dragEl=null;
+  document.addEventListener('dragstart',function(e){
+    const t=e.target.closest('.tile'); if(!t)return;
+    dragEl=t; e.dataTransfer.effectAllowed='move';
+  });
+  document.addEventListener('dragover',function(e){
+    if(dragEl && e.target.closest('.tile')) e.preventDefault();
+  });
+  document.addEventListener('drop',function(e){
+    const dest=e.target.closest('.tile'); if(!dragEl||!dest||dest===dragEl)return;
+    e.preventDefault();
+    const p=dest.parentNode;
+    if(p!==dragEl.parentNode) return;
+    p.insertBefore(dragEl, dest);
+    dragEl=null;
+  });
+  document.addEventListener('dblclick',function(e){
+    const t=e.target.closest('.tile'); if(!t)return;
+    t.classList.toggle('wide');
+  });
+})();
 </script>
 </body>
 </html>
