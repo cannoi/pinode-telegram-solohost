@@ -2,188 +2,189 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Pi Node Controller PRO</title>
 <style>
 :root {
-  --p-glass: rgba(255, 255, 255, 0.16);
-  --p-glass-hover: rgba(255, 255, 255, 0.28);
-  --p-glass-card: rgba(255, 255, 255, 0.14);
-  --bd-glass: rgba(255, 255, 255, 0.38);
-  --t-main: #ffffff;
-  --t-sub: rgba(255, 255, 255, 0.82);
-  --win-blue: #38bdf8;
-  --ok-green: #4ade80;
-  --warn-amber: #facc15;
-  --bad-red: #f87171;
-  --purple-accent: #c084fc;
-  --glass-filter: blur(22px) saturate(180%);
+  /* Translucent Glass Palette - Windows 11 Fluent Acrylic */
+  --bg-gradient: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 50%, #94a3b8 100%);
+  --glass-card: rgba(255, 255, 255, 0.72);
+  --glass-card-hover: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-blur: blur(20px) saturate(180%);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  
+  --text-main: #0f172a;
+  --text-sub: #64748b;
+  --win-blue: #0078d4;
+  --ok-green: #10b981;
+  --purple-accent: #8b5cf6;
+  --warn-red: #ef4444;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
 
 html, body {
-  width: 100%;
+  width: 100vw;
   height: 100vh;
-  overflow: hidden;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  color: var(--t-main);
-  background-color: #0c1424;
-  background-image: linear-gradient(180deg, rgba(12, 22, 38, 0.35), rgba(8, 12, 20, 0.55)), var(--bg-image, url("/bg-cave.jpg"));
-  background-position: center top;
+  overflow: hidden; /* Strict NO SCROLLBAR on outer container */
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  color: var(--text-main);
+  background: var(--bg-image, var(--bg-gradient));
   background-size: cover;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
+  background-position: center;
 }
 
-/* Glassmorphic Mirror Cards */
-.glass {
-  background: var(--p-glass-card);
-  border: 1px solid var(--bd-glass);
-  border-radius: 12px;
-  backdrop-filter: var(--glass-filter);
-  -webkit-backdrop-filter: var(--glass-filter);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
-}
-
-.w {
+/* Master Grid Layout */
+.app-container {
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-columns: 190px 1fr;
-  grid-template-rows: auto 1fr auto;
-  gap: 8px;
-  padding: 8px;
+  grid-template-columns: 230px 1fr;
+  grid-template-rows: 46px 1fr 22px;
+  gap: 10px;
+  padding: 10px;
+}
+
+/* Glassmorphic Components */
+.glass {
+  background: var(--glass-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
 }
 
 /* Sidebar Navigation */
 .sidebar {
   grid-column: 1;
-  grid-row: 1 / -1;
+  grid-row: 1 / 3;
   display: flex;
   flex-direction: column;
-  padding: 10px;
-  gap: 10px;
+  padding: 12px;
+  gap: 12px;
 }
 
-.sidebar .brand {
+.brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--bd-glass);
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
 }
 
-.sidebar .brand img {
-  width: 34px;
-  height: 34px;
+.brand img {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   object-fit: cover;
-  border: 1.5px solid var(--win-blue);
+}
+
+.brand-info .title {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.brand-info .ver {
+  font-size: 0.68rem;
+  color: var(--text-sub);
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   flex: 1;
 }
 
-.nav button {
+.nav-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border-radius: 8px;
-  border: 1px solid var(--bd-glass);
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 0.76rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
-  backdrop-filter: blur(10px);
+  transition: all 0.15s ease;
 }
 
-.nav button:hover {
-  background: var(--p-glass-hover);
-  border-color: var(--win-blue);
+.nav-btn:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
-.nav button.on {
-  background: rgba(56, 189, 248, 0.3);
-  border-color: var(--win-blue);
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+.nav-btn.active {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(0, 120, 212, 0.2);
+  color: var(--win-blue);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
-.sys-info-box {
-  padding: 8px;
-  background: rgba(0, 0, 0, 0.25);
+.sys-box {
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.4);
   border-radius: 8px;
-  font-size: 0.62rem;
-  color: var(--t-sub);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 0.68rem;
+  color: var(--text-sub);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-/* Top Header */
-.top {
+/* Header Bar */
+.header {
   grid-column: 2;
   grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 14px;
+  padding: 0 16px;
 }
 
-.top h1 {
-  font-size: 0.98rem;
+.header h1 {
+  font-size: 1.05rem;
   font-weight: 700;
+  letter-spacing: -0.2px;
 }
 
-.top-right {
+.header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  font-size: 0.78rem;
 }
 
-.conn {
-  font-size: 0.68rem;
+.status-dot {
   color: var(--ok-green);
-  font-weight: 700;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.bellwrap { position: relative; }
-
-.bell {
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid var(--bd-glass);
-  color: #fff;
+.bell-btn {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--glass-border);
   border-radius: 6px;
   padding: 4px 8px;
   cursor: pointer;
-}
-
-.badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: var(--bad-red);
-  color: #fff;
-  border-radius: 8px;
-  font-size: 0.58rem;
-  min-width: 14px;
-  text-align: center;
-  padding: 1px 3px;
-  display: none;
+  font-size: 0.85rem;
 }
 
 .user-profile {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
+  gap: 8px;
   font-weight: 600;
 }
 
@@ -191,747 +192,669 @@ html, body {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  border: 1px solid var(--bd-glass);
 }
 
-/* Alert Panel */
-.panel {
-  grid-column: 2;
-  display: none;
-  padding: 6px 10px;
-  max-height: 100px;
-  overflow: auto;
-  font-size: 0.68rem;
-}
-.panel.on { display: block; }
-
-/* Pages Container */
-.page {
+/* Page Views Stack */
+.page-view {
   grid-column: 2;
   grid-row: 2;
   display: none;
   flex-direction: column;
-  gap: 6px;
-  min-height: 0;
+  gap: 10px;
   height: 100%;
-  overflow: hidden;
+  min-height: 0; /* Prevents overflow */
 }
 
-.page.on { display: flex; }
+.page-view.active {
+  display: flex;
+}
 
+/* Card General Styling */
 .card {
-  padding: 8px 10px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.card h2 {
-  font-size: 0.65rem;
-  color: var(--t-sub);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 4px;
+.card-title {
+  font-size: 0.75rem;
   font-weight: 700;
+  color: var(--text-sub);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* Home Dashboard Layout (Fit Screen) */
-.home-top {
+/* --- HOME PAGE GRID --- */
+.home-top-row {
   display: grid;
-  grid-template-columns: 1.2fr repeat(3, 1fr);
-  gap: 6px;
-  flex: 0 0 auto;
+  grid-template-columns: 1.3fr 1fr 1fr 1fr;
+  gap: 10px;
+  height: 38%;
 }
 
 .score-card {
-  display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  text-align: center;
 }
 
-.score {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.ringwrap {
-  width: min(85px, 11vh);
-  height: min(85px, 11vh);
+.ring-container {
   position: relative;
+  width: 100px;
+  height: 100px;
+  margin: 2px 0;
 }
 
-.ringwrap svg {
+.ring-container svg {
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
 }
 
-.ringwrap .lab {
+.ring-text {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
 }
 
-.ringwrap .lab b { font-size: 0.9rem; }
-.ringwrap .lab span { font-size: 0.52rem; color: var(--t-sub); }
+.ring-text .big {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1;
+}
 
-.exc {
-  font-size: 0.6rem;
-  color: var(--ok-green);
-  background: rgba(74, 222, 128, 0.2);
-  padding: 1px 6px;
-  border-radius: 8px;
+.ring-text .sub {
+  font-size: 0.62rem;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
+
+.score-badge {
+  font-size: 0.65rem;
   font-weight: 700;
+  color: #047857;
+  background: #d1fae5;
+  padding: 2px 10px;
+  border-radius: 12px;
+  margin-top: 4px;
 }
 
-.mini {
+/* Status Cards (State, Consensus, Peers) */
+.status-card {
+  justify-content: space-between;
+}
+
+.icon-box {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(0, 120, 212, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+
+.status-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-top: 4px;
+}
+
+.status-sub {
+  font-size: 0.68rem;
+  color: var(--text-sub);
+}
+
+/* Resource Meters Row */
+.resources-card {
+  height: 25%;
+  justify-content: center;
+}
+
+.meters-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  height: 100%;
+  align-items: center;
+}
+
+.meter-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  padding: 6px;
+  position: relative;
 }
 
-.mini .ic {
-  font-size: 1rem;
-  margin-bottom: 2px;
-  background: rgba(255, 255, 255, 0.15);
-  width: 26px;
-  height: 26px;
+.meter-svg {
+  width: 62px;
+  height: 62px;
+  transform: rotate(-90deg);
+}
+
+.meter-val {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.meter-lbl {
+  font-size: 0.68rem;
+  color: var(--text-sub);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* Bottom Row */
+.home-bot-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.chart-box {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.info-table {
+  width: 100%;
+  font-size: 0.72rem;
+  border-collapse: collapse;
+}
+
+.info-table td {
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(0,0,0,0.06);
+}
+
+.info-table td:last-child {
+  text-align: right;
+  font-weight: 700;
+}
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.log-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(0,0,0,0.05);
+}
+
+.log-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
+  background: var(--ok-green);
+  display: inline-block;
+  margin-right: 6px;
+}
+
+/* --- AI ASSISTANT PAGE GRID --- */
+.scripts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  height: 30%;
+}
+
+.script-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.script-btn:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--win-blue);
+  transform: translateY(-1px);
+}
+
+.script-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 1rem;
 }
 
-.mini .k { font-size: 0.58rem; color: var(--t-sub); }
-.mini .v { font-size: 0.82rem; font-weight: 800; margin-top: 1px; }
-.mini .s { font-size: 0.55rem; color: var(--t-sub); }
-
-/* Resource Meters */
-.res {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  flex: 0 0 auto;
-}
-
-.res .met {
-  text-align: center;
-  padding: 5px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid var(--bd-glass);
-}
-
-.res .met b { display: block; font-size: 0.88rem; }
-.res .met span { font-size: 0.55rem; color: var(--t-sub); }
-
-/* Home Bottom Grid */
-.home-bot {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.chartbox { height: 100%; width: 100%; min-height: 40px; }
-.chartbox svg { width: 100%; height: 100%; display: block; }
-
-.info .row {
+/* Chat Layout */
+.chat-card {
+  flex: 1;
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
-  padding: 2px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.2);
-  font-size: 0.65rem;
-}
-
-.log .item {
-  font-size: 0.65rem;
-  padding: 3px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.2);
-}
-
-/* AI Assistant Page */
-.scripts {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 5px;
-}
-
-.scripts button {
-  padding: 6px;
-  border-radius: 8px;
-  border: 1px solid var(--bd-glass);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-size: 0.65rem;
-  font-weight: 600;
-  cursor: pointer;
-  text-align: left;
-  backdrop-filter: blur(8px);
-}
-
-.scripts button:hover {
-  background: var(--p-glass-hover);
-  border-color: var(--win-blue);
-}
-
-#chatbox {
-  flex: 1 1 auto;
   min-height: 0;
+}
+
+.chat-history {
+  flex: 1;
   overflow-y: auto;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--bd-glass);
-  border-radius: 8px;
-  padding: 6px;
-  margin-bottom: 5px;
-  font-size: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+  margin-bottom: 8px;
 }
 
-.msg {
-  margin: 3px 0;
-  padding: 5px 8px;
-  border-radius: 8px;
-  max-width: 85%;
-  white-space: pre-wrap;
-  line-height: 1.25;
+.chat-bubble {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
-.msg.user {
-  background: rgba(56, 189, 248, 0.35);
-  margin-left: auto;
+.chat-bubble.user {
+  align-self: flex-end;
+  background: #dbeafe;
+  color: #1e40af;
   border-bottom-right-radius: 2px;
 }
 
-.msg.bot {
-  background: rgba(255, 255, 255, 0.18);
+.chat-bubble.bot {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.8);
   border-bottom-left-radius: 2px;
+  border: 1px solid var(--glass-border);
 }
 
-.qbar {
+.quick-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 5px;
-  flex: 0 0 auto;
+  gap: 6px;
+  margin-bottom: 8px;
+  overflow-x: auto;
 }
 
-.qbar button {
-  padding: 4px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--bd-glass);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-size: 0.6rem;
+.quick-btn {
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 0.68rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.bar { display: flex; gap: 5px; flex: 0 0 auto; }
+.chat-input-bar {
+  display: flex;
+  gap: 8px;
+}
 
-.bar input {
+.chat-input-bar input {
   flex: 1;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--bd-glass);
-  background: rgba(0, 0, 0, 0.25);
-  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.8);
   outline: none;
-  font-size: 0.68rem;
+  font-size: 0.78rem;
 }
 
-.bar button {
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 0;
+.chat-input-bar button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
   background: var(--win-blue);
-  color: #000;
+  color: #fff;
   font-weight: 700;
   cursor: pointer;
 }
 
-/* Settings Page */
-.bgbar { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
-
-.bgbar button, .bgbar label {
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--bd-glass);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-size: 0.62rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.bgbar button.on {
-  background: var(--win-blue);
-  color: #000;
-}
-
-.foot {
-  grid-column: 2;
+/* Footer Line */
+.footer-line {
+  grid-column: 1 / -1;
   grid-row: 3;
-  text-align: center;
-  font-size: 0.58rem;
-  color: var(--t-sub);
-}
-
-.link { color: var(--win-blue); cursor: pointer; text-decoration: underline; background: none; border: 0; font: inherit; }
-.hint { font-size: 0.58rem; color: var(--t-sub); }
-
-/* Modal Terms */
-.modal {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 50;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  backdrop-filter: blur(8px);
-}
-
-.modal.on { display: flex; }
-
-.modal .box {
-  background: rgba(12, 20, 36, 0.88);
-  border: 1px solid var(--bd-glass);
-  border-radius: 12px;
-  max-width: 420px;
-  width: 100%;
-  max-height: 80vh;
   display: flex;
-  flex-direction: column;
-  backdrop-filter: blur(20px);
-}
-
-.modal h3 { padding: 8px 12px; font-size: 0.8rem; border-bottom: 1px solid var(--bd-glass); }
-.terms { padding: 10px; overflow-y: auto; flex: 1; font-size: 0.68rem; line-height: 1.35; color: var(--t-sub); }
-.modal .footbar { padding: 8px; border-top: 1px solid var(--bd-glass); display: flex; flex-direction: column; gap: 5px; }
-.modal label { font-size: 0.65rem; color: var(--t-sub); display: flex; gap: 5px; }
-
-.btn { padding: 6px; border-radius: 6px; border: 0; font-weight: 700; cursor: pointer; font-size: 0.68rem; }
-.btn-ok { background: var(--win-blue); color: #000; }
-.btn-no { background: rgba(255, 255, 255, 0.2); color: #fff; }
-
-.tile { cursor: grab; }
-.tile .grip { font-size: 0.55rem; color: var(--t-sub); margin-bottom: 2px; }
-.sub { font-size: 0.6rem; color: var(--t-sub); }
-
-@media (max-width: 820px) {
-  .w { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; }
-  .sidebar { grid-column: 1; grid-row: 2; flex-direction: row; align-items: center; }
-  .nav { flex-direction: row; }
-  .top, .page, .foot, .panel { grid-column: 1; }
-  .home-top { grid-template-columns: 1fr 1fr; }
-  .home-bot { grid-template-columns: 1fr; }
-  .res { grid-template-columns: repeat(2, 1fr); }
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--text-sub);
+  padding: 0 4px;
 }
 </style>
 </head>
 <body>
-<div class="w">
-  <!-- Left Sidebar Navigation -->
-  <div class="sidebar glass">
+
+<div class="app-container">
+  
+  <!-- LEFT SIDEBAR -->
+  <aside class="sidebar glass">
     <div class="brand">
       <img src="/avatar.jpg" alt="Avatar">
-      <div>
-        <div style="font-weight: 700; font-size: 0.82rem;">SoloHost</div>
-        <div class="sub">v2.6.55</div>
+      <div class="brand-info">
+        <div class="title">SoloHost</div>
+        <div class="ver">v2.6.55</div>
       </div>
     </div>
-    <div class="nav">
-      <button type="button" class="on" data-page="home">⌂ Home</button>
-      <button type="button" data-page="ai">🤖 AI Assistant</button>
-      <button type="button" data-page="set">⚙ Settings</button>
-    </div>
-    <div class="sys-info-box">
+    
+    <nav class="nav">
+      <button class="nav-btn active" onclick="switchTab('home', this)">
+        <span>🏠</span> Home
+      </button>
+      <button class="nav-btn" onclick="switchTab('ai', this)">
+        <span>🤖</span> AI Assistant
+      </button>
+      <button class="nav-btn" onclick="switchTab('set', this)">
+        <span>⚙️</span> Settings
+      </button>
+    </nav>
+    
+    <div class="sys-box">
       <div><b>Windows 10</b> 64-bit</div>
-      <div style="margin-top: 2px;">Last Updated:</div>
-      <div id="sysTime">2026-09-09 21:32:40</div>
+      <div style="margin-top:2px;">Last Updated:</div>
+      <div style="font-weight:600;">2026-09-09 21:32:40</div>
     </div>
-  </div>
+  </aside>
 
-  <!-- Top Header -->
-  <div class="top glass">
-    <div>
-      <h1>Pi Node Controller PRO</h1>
-    </div>
-    <div class="top-right">
-      <span class="conn" id="conn">● Connected</span>
-      <span class="bellwrap">
-        <button type="button" class="bell" id="bell">🔔</button>
-        <span class="badge" id="badge">0</span>
-      </span>
+  <!-- TOP HEADER -->
+  <header class="header glass">
+    <h1>Pi Node Controller PRO</h1>
+    <div class="header-right">
+      <span class="status-dot">● Connected</span>
+      <button class="bell-btn">🔔</button>
       <div class="user-profile">
         <span>Users</span>
-        <img src="/avatar.jpg" alt="User">
+        <img src="/avatar.jpg" alt="Profile">
       </div>
     </div>
-  </div>
+  </header>
 
-  <div class="panel glass" id="alertPanel"></div>
-
-  <!-- HOME PAGE -->
-  <div class="page on" id="page-home">
-    <div class="home-top" id="homeTop">
-      <div class="card glass score-card tile" data-id="score" draggable="true">
-        <div class="grip">⠿ drag</div>
-        <h2>Node Performance Overview</h2>
-        <div class="score">
-          <div class="ringwrap">
-            <svg viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="8"/>
-              <circle id="scoreArc" cx="50" cy="50" r="42" fill="none" stroke="#4ade80" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 264"/>
-            </svg>
-            <div class="lab">
-              <span>Node Score:</span>
-              <b id="scoreVal">97.43</b>
-              <span id="availVal">Availability: 97.43%</span>
-            </div>
+  <!-- TAB 1: HOME PAGE -->
+  <main id="page-home" class="page-view active">
+    
+    <!-- Top Row (4 Cards) -->
+    <div class="home-top-row">
+      <!-- Card 1: Node Performance Overview -->
+      <div class="card glass score-card">
+        <div class="card-title">Node Performance Overview</div>
+        <div class="ring-container">
+          <svg viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
+            <circle cx="50" cy="50" r="40" fill="none" stroke="#10b981" stroke-width="8" stroke-linecap="round" stroke-dasharray="210 250"/>
+          </svg>
+          <div class="ring-text">
+            <div class="sub">Node Score:</div>
+            <div class="big">97.43 <span style="font-size:0.7rem;font-weight:400;">/ 100</span></div>
+            <div class="sub">Availability: <b>97.43%</b></div>
           </div>
-          <div class="exc" id="scoreTag">✔ Excellent</div>
+        </div>
+        <div class="score-badge">✔ Excellent</div>
+      </div>
+
+      <!-- Card 2: Node State -->
+      <div class="card glass status-card">
+        <div class="card-title">Node State</div>
+        <div class="icon-box" style="color:#0284c7; background:#e0f2fe;">🧊</div>
+        <div>
+          <div class="status-val">Synced</div>
+          <div class="status-sub">(healthy)</div>
         </div>
       </div>
 
-      <div class="card glass mini tile" data-id="state" draggable="true">
-        <div class="ic">🧊</div>
-        <div class="k">Node State</div>
-        <div class="v" id="stSync">Synced</div>
-        <div class="s" id="stHealth">(healthy)</div>
-      </div>
-
-      <div class="card glass mini tile" data-id="cons" draggable="true">
-        <div class="ic">⚙</div>
-        <div class="k">Consensus</div>
-        <div class="v" id="stCons">Running</div>
-        <div class="s" id="stSrc">(container)</div>
-      </div>
-
-      <div class="card glass mini tile" data-id="peers" draggable="true">
-        <div class="ic">👥</div>
-        <div class="k">Peers Connection</div>
-        <div class="v" id="stPeers">6 IN / 8 OUT</div>
-        <div class="s">IN / OUT</div>
-      </div>
-    </div>
-
-    <!-- Live Metrics -->
-    <div class="card glass tile" data-id="res" draggable="true">
-      <div class="grip">⠿ drag</div>
-      <h2>System Resources</h2>
-      <div class="res" id="resBox">
-        <div class="met"><b style="color:#38bdf8">28%</b><span>CPU</span></div>
-        <div class="met"><b style="color:#c084fc">62%</b><span>RAM</span></div>
-        <div class="met"><b style="color:#38bdf8">68%</b><span>Disk</span></div>
-        <div class="met"><b style="color:#f87171">52°C</b><span>System Temp</span></div>
-      </div>
-    </div>
-
-    <div class="home-bot">
-      <div class="card glass tile" data-id="chart" draggable="true">
-        <h2>Availability Trend (24h)</h2>
-        <div class="chartbox"><svg id="healthSvg" viewBox="0 0 240 72" preserveAspectRatio="none"></svg></div>
-      </div>
-
-      <div class="card glass info tile" data-id="info" draggable="true">
-        <h2>Detailed Pi Node Information</h2>
-        <div id="s">
-          <div class="row"><span class="k">Service</span><span class="val">testnet2</span></div>
-          <div class="row"><span class="k">Node Version</span><span class="val">0.6.2</span></div>
-          <div class="row"><span class="k">Protocol Version</span><span class="val">27</span></div>
-          <div class="row"><span class="k">Block Height</span><span class="val">10,796,465</span></div>
-          <div class="row"><span class="k">Ports Status</span><span class="val">10/10 open</span></div>
+      <!-- Card 3: Consensus -->
+      <div class="card glass status-card">
+        <div class="card-title">Consensus</div>
+        <div class="icon-box" style="color:#059669; background:#d1fae5;">⚙️</div>
+        <div>
+          <div class="status-val">Running</div>
+          <div class="status-sub">(container)</div>
         </div>
       </div>
 
-      <div class="card glass log tile" data-id="log" draggable="true">
-        <h2>Refined Activity Log</h2>
-        <div class="item" id="actLine">14:32 · Node connected to network</div>
+      <!-- Card 4: Peers Connection -->
+      <div class="card glass status-card">
+        <div class="card-title">Peers Connection</div>
+        <div class="icon-box" style="color:#2563eb; background:#dbeafe;">👥</div>
+        <div>
+          <div class="status-val">6 IN / 8 OUT</div>
+          <div class="status-sub">Connections active</div>
+        </div>
       </div>
     </div>
 
-    <p class="hint dock">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
-  </div>
+    <!-- Middle Row: System Resources -->
+    <div class="card glass resources-card">
+      <div class="card-title">💻 System Resources</div>
+      <div class="meters-grid">
+        <!-- CPU -->
+        <div class="meter-item">
+          <svg class="meter-svg" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
+            <circle cx="50" cy="50" r="38" fill="none" stroke="#0078d4" stroke-width="8" stroke-dasharray="67 240" stroke-linecap="round"/>
+          </svg>
+          <div class="meter-val">28%</div>
+          <div class="meter-lbl">CPU</div>
+        </div>
+        <!-- RAM -->
+        <div class="meter-item">
+          <svg class="meter-svg" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
+            <circle cx="50" cy="50" r="38" fill="none" stroke="#8b5cf6" stroke-width="8" stroke-dasharray="148 240" stroke-linecap="round"/>
+          </svg>
+          <div class="meter-val">62%</div>
+          <div class="meter-lbl">RAM</div>
+        </div>
+        <!-- Disk -->
+        <div class="meter-item">
+          <svg class="meter-svg" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
+            <circle cx="50" cy="50" r="38" fill="none" stroke="#0078d4" stroke-width="8" stroke-dasharray="163 240" stroke-linecap="round"/>
+          </svg>
+          <div class="meter-val">68%</div>
+          <div class="meter-lbl">Disk</div>
+        </div>
+        <!-- Temp -->
+        <div class="meter-item">
+          <svg class="meter-svg" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
+            <circle cx="50" cy="50" r="38" fill="none" stroke="#ef4444" stroke-width="8" stroke-dasharray="125 240" stroke-linecap="round"/>
+          </svg>
+          <div class="meter-val">52°C</div>
+          <div class="meter-lbl">System Temp</div>
+        </div>
+      </div>
+    </div>
 
-  <!-- AI ASSISTANT PAGE -->
-  <div class="page" id="page-ai">
+    <!-- Bottom Row (3 Columns) -->
+    <div class="home-bot-row">
+      <!-- Availability Trend -->
+      <div class="card glass">
+        <div class="card-title" style="justify-content:space-between;">
+          <span>📈 Availability Trend (24h)</span>
+          <span style="color:var(--ok-green);font-weight:800;">97.43%</span>
+        </div>
+        <div class="chart-box">
+          <svg viewBox="0 0 240 70" preserveAspectRatio="none" style="width:100%;height:100%;">
+            <line x1="0" y1="15" x2="240" y2="15" stroke="rgba(0,0,0,0.05)" stroke-dasharray="2"/>
+            <line x1="0" y1="35" x2="240" y2="35" stroke="rgba(0,0,0,0.05)" stroke-dasharray="2"/>
+            <line x1="0" y1="55" x2="240" y2="55" stroke="rgba(0,0,0,0.05)" stroke-dasharray="2"/>
+            <path d="M0,45 Q40,42 80,48 T160,35 T240,25" fill="none" stroke="#10b981" stroke-width="2.5"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Detailed Node Info -->
+      <div class="card glass">
+        <div class="card-title">ℹ️ Detailed Pi Node Information</div>
+        <table class="info-table">
+          <tr><td>Service</td><td>testnet2</td></tr>
+          <tr><td>Node Version</td><td>0.6.2</td></tr>
+          <tr><td>Protocol Version</td><td>27</td></tr>
+          <tr><td>Block Height</td><td>10,796,465</td></tr>
+          <tr><td>Ports Status</td><td>10/10 open</td></tr>
+        </table>
+      </div>
+
+      <!-- Activity Log -->
+      <div class="card glass">
+        <div class="card-title">🕒 Refined Activity Log</div>
+        <div class="log-list">
+          <div class="log-item"><span><i class="log-dot"></i>Node connected</span><span>14:32</span></div>
+          <div class="log-item"><span><i class="log-dot"></i>Peers updated</span><span>14:31</span></div>
+          <div class="log-item"><span><i class="log-dot"></i>Ledger advanced</span><span>14:28</span></div>
+          <div class="log-item"><span><i class="log-dot"></i>Status: Synced!</span><span>14:25</span></div>
+          <div class="log-item"><span><i class="log-dot"></i>Data refreshed</span><span>14:20</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- TAB 2: AI ASSISTANT PAGE -->
+  <main id="page-ai" class="page-view">
+    <!-- Scripts Grid -->
+    <div class="card glass" style="height: auto;">
+      <div class="card-title">🛠️ Pi Node Maintenance Scripts</div>
+      <div class="scripts-grid">
+        <button class="script-btn">
+          <div class="script-icon" style="background:#e0f2fe;color:#0284c7;">↩️</div>
+          Check Sync Height
+        </button>
+        <button class="script-btn">
+          <div class="script-icon" style="background:#d1fae5;color:#059669;">🐳</div>
+          Repair Docker Container
+        </button>
+        <button class="script-btn">
+          <div class="script-icon" style="background:#fef3c7;color:#d97706;">🌐</div>
+          Flush DNS Cache
+        </button>
+        <button class="script-btn">
+          <div class="script-icon" style="background:#ede9fe;color:#7c3aed;">⚡</div>
+          Optimize RAM Usage
+        </button>
+        <button class="script-btn">
+          <div class="script-icon" style="background:#fee2e2;color:#dc2626;">📊</div>
+          Analyze Log Files
+        </button>
+        <button class="script-btn">
+          <div class="script-icon" style="background:#f3e8ff;color:#9333ea;">👥</div>
+          Update Peer List
+        </button>
+      </div>
+    </div>
+
+    <!-- AI Chat View -->
+    <div class="card glass chat-card">
+      <div class="card-title">💬 AI Assistant Chat</div>
+      
+      <div class="chat-history" id="chatHistory">
+        <div class="chat-bubble user">
+          Hello! My node score is 97.43, but System Temp is 52°C and RAM is 62%. Is that okay?
+        </div>
+        <div class="chat-bubble bot">
+          Hello! A system temperature of 52°C is perfectly acceptable. A 62% RAM usage is normal for running a node. Maintain good cooling. For detailed performance, check the logs or run the 'Optimize RAM' script.
+        </div>
+      </div>
+
+      <div>
+        <div class="quick-bar">
+          <button class="quick-btn">📑 Generate Report</button>
+          <button class="quick-btn">👥 Check Peers</button>
+          <button class="quick-btn">🔄 Reset Node</button>
+          <button class="quick-btn">🗑️ Clear Cache</button>
+          <button class="quick-btn">📈 Analyze Performance</button>
+        </div>
+        <div class="chat-input-bar">
+          <input type="text" placeholder="Ask me anything..." id="chatInput">
+          <button onclick="sendMsg()">➤</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- TAB 3: SETTINGS -->
+  <main id="page-set" class="page-view">
     <div class="card glass">
-      <h2>Pi Node Maintenance Scripts</h2>
-      <div class="scripts" id="abar">
-        <button type="button" data-dl="/actions/CleanRAM.bat">🧹 Optimize RAM</button>
-        <button type="button" data-dl="/actions/DnsFlush.bat">🌐 Flush DNS</button>
-        <button type="button" data-dl="/actions/Firewall.bat">🛡️ Firewall</button>
-        <button type="button" data-dl="/actions/NetRepair.bat">🔧 Net Repair</button>
-        <button type="button" data-dl="/actions/LanSetup.bat">📡 LAN Setup</button>
-        <button type="button" data-dl="/actions/NodeReset.bat">🔄 Reset Node</button>
-        <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Repair Docker</button>
-        <button type="button" data-dl="/actions/Maintain.bat">⚙ Maintain</button>
+      <div class="card-title">⚙️ Preferences & Wallpaper Settings</div>
+      <p style="font-size: 0.78rem; color: var(--text-sub); margin-bottom: 12px;">
+        Choose background themes or upload a custom wallpaper to test Acrylic glassmorphism.
+      </p>
+      <div style="display:flex; gap:10px;">
+        <button class="script-btn" onclick="setBg('linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 50%, #94a3b8 100%)')">🌄 Soft Slate (Default)</button>
+        <button class="script-btn" onclick="setBg('url(/bg-cave.jpg)')">🏔️ Cave Photo</button>
+        <button class="script-btn" onclick="setBg('linear-gradient(135deg, #2e1065 0%, #0f172a 100%)')">🟣 Dark Purple</button>
       </div>
     </div>
+  </main>
 
-    <div class="card glass" style="flex:1;">
-      <h2>AI Assistant Chat</h2>
-      <div id="chatbox"></div>
+  <!-- FOOTER -->
+  <footer class="footer-line">
+    <span>Data Source: Pi Desktop Sentry (Primary)</span>
+    <span>SoloHost UI v2.6.55</span>
+  </footer>
 
-      <div class="qbar" id="qbar">
-        <button type="button" data-cmd="/report">Generate Report</button>
-        <button type="button" data-cmd="/peers">Check Peers</button>
-        <button type="button" data-cmd="/status">Reset Node</button>
-        <button type="button" data-cmd="/diagnostic">Clear Cache</button>
-        <button type="button" data-cmd="/analyze">Analyze Performance</button>
-        <button type="button" data-cmd="/help">Help</button>
-      </div>
-
-      <div class="bar">
-        <input id="inp" type="text" placeholder="Ask me anything…" autocomplete="off" maxlength="2000">
-        <button id="send" type="button">➤</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- SETTINGS PAGE -->
-  <div class="page" id="page-set">
-    <div class="card glass">
-      <h2>Wallpaper Settings</h2>
-      <p class="hint">Glass cards adapt dynamically to background visual themes.</p>
-      <div class="bgbar">
-        <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
-        <button type="button" data-bg="classic" id="bgClassic">🖼️ Slate</button>
-        <button type="button" data-bg="pi" id="bgPi">🟣 Pi Theme</button>
-        <label>📤 Custom<input type="file" id="bgFile" accept="image/*" hidden></label>
-      </div>
-    </div>
-
-    <div class="card glass">
-      <h2>System Information</h2>
-      <div class="info">
-        <div class="row"><span class="k">Application</span><span class="val">SoloHost v2.6.55</span></div>
-        <div class="row"><span class="k">Style</span><span class="val">Fluent Glass Mirror Dashboard</span></div>
-        <div class="row"><span class="k">Data Source</span><span class="val">Pi Desktop Sentry (Primary)</span></div>
-      </div>
-    </div>
-  </div>
-
-  <p class="foot">Data Source: Pi Desktop Sentry (Primary) · Docker via SoloHost UI</p>
-</div>
-
-<!-- Modal Terms -->
-<div class="modal" id="dkModal" role="dialog" aria-modal="true">
-  <div class="box">
-    <h3>Optional Docker Access — Terms</h3>
-    <div class="terms" id="termsBox"></div>
-    <div class="footbar">
-      <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read the full terms</label>
-      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms and understand this is my Operator choice on this machine</label>
-      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm — write compose</button>
-      <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
-    </div>
-  </div>
 </div>
 
 <script>
-const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
-
-What this is
-This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.
-
-SoloHost default permissions
-Sandbox: CPU and memory, one localhost port, the app data folder, outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring (Horizon, ports, reports, AI chat).
-
-What you grant if you Confirm
-• The app may overwrite docker-compose.yml in this app folder to mount /var/run/docker.sock read-only.
-• The app may list containers and run limited read/exec commands for node status.
-• A higher privilege level than the default sandbox.
-
-What we do not claim
-• No access to your Pi wallet or keys.
-• No guarantee of host security after you enable elevated access.
-• The publisher does not operate your Docker daemon.
-
-Your responsibility (Operator)
-Under SoloHost Terms you decide permissions on this machine. By confirming you accept:
-1) docker.sock is powerful and may expose Docker on this PC.
-2) Risk of optional diagnostics is yours.
-3) You can disable later and remove the socket volume, then Stop → Start.
-4) Pi Network, SoloHost, and the publisher are not responsible for damage, data loss, or misuse from elevated access you enable.
-
-Purpose of the app
-Provide the best monitoring help within clear limits. Docker access is optional, user-controlled, and never required for core features.
-
-After Confirm
-SoloHost UI: press Stop, then Start the app again so the new compose applies.
-
-Confirm only if you accept these terms in full.`;
-
-const box = document.getElementById('chatbox');
-const termsBox = document.getElementById('termsBox');
-termsBox.textContent = TERMS;
-
-document.querySelectorAll('.nav button').forEach(function(b){
-  b.onclick = function(){
-    document.querySelectorAll('.nav button').forEach(x => x.classList.remove('on'));
-    b.classList.add('on');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
-    document.getElementById('page-' + b.getAttribute('data-page')).classList.add('on');
-  };
-});
-
-function add(role, text){
-  const d = document.createElement('div');
-  d.className = 'msg ' + role;
-  d.textContent = text;
-  box.appendChild(d);
-  box.scrollTop = box.scrollHeight;
+function switchTab(tabId, btn) {
+  document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + tabId).classList.add('active');
+  btn.classList.add('active');
 }
 
-function setupTermsScroll(){
-  const read = document.getElementById('dkRead');
-  const agree = document.getElementById('dkAgree');
-  const conf = document.getElementById('dkConfirm');
-  function refresh(){ conf.disabled = !(read.checked && agree.checked); }
-  read.onchange = refresh;
-  agree.onchange = refresh;
-  termsBox.onscroll = function(){
-    if(termsBox.scrollTop + termsBox.clientHeight >= termsBox.scrollHeight - 8){ read.disabled = false; }
-  };
-  setTimeout(function(){
-    if(termsBox.scrollHeight <= termsBox.clientHeight + 4) read.disabled = false;
-  }, 400);
+function setBg(bgCss) {
+  document.body.style.setProperty('--bg-image', bgCss);
 }
 
-function setArc(id, pct, maxDash){
-  const el = document.getElementById(id); if(!el) return;
-  const p = Math.max(0, Math.min(100, Number(pct) || 0));
-  el.setAttribute('stroke-dasharray', (p / 100 * maxDash).toFixed(1) + ' ' + maxDash);
-}
-
-function loadStatus(){
-  return fetch('/api/status').then(r => r.json()).then(function(t){
-    const rows = [];
-    const addR = (k, v) => { if(v != null && v !== '') rows.push('<div class="row"><span class="k">' + k + '</span><span class="val">' + String(v) + '</span></div>'); };
-    addR('Service', t.source || 'testnet2');
-    addR('Node Version', t.core_version || '0.6.2');
-    addR('Protocol Version', t.protocol || '27');
-    addR('Block Height', t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : '10,796,465');
-    addR('Ports Status', t.ports_open != null ? t.ports_open + '/10 open' : '10/10 open');
-    document.getElementById('s').innerHTML = rows.join('') || '<span class="k">Collecting…</span>';
-
-    const health = t.health != null ? Number(t.health) : (t.ledger && t.sync ? 97.43 : 97.43);
-    document.getElementById('scoreVal').textContent = health != null ? health.toFixed(2) : '—';
-    document.getElementById('availVal').textContent = health != null ? ('Availability: ' + health.toFixed(2) + '%') : 'Availability: —';
-    setArc('scoreArc', health || 0, 264);
-    
-    const live = /horizon live|synced|ok/i.test(String(t.sync || 'Synced'));
-    const catchup = /catch|behind|slow|lag/i.test(String(t.sync || ''));
-    document.getElementById('scoreTag').textContent = live ? '✔ Excellent' : (catchup ? 'Watching catch-up' : 'Collecting');
-
-    document.getElementById('stSync').textContent = t.sync || 'Synced';
-    document.getElementById('stHealth').textContent = t.core_verified ? '(core verified)' : '(healthy)';
-    document.getElementById('stCons').textContent = (t.fsm || t.verification && t.verification.consensus) || 'Running';
-    document.getElementById('stSrc').textContent = '(container)';
-    
-    const pin = t.peer_in != null ? t.peer_in : 6;
-    const pout = t.peer_out != null ? t.peer_out : 8;
-    document.getElementById('stPeers').textContent = pin + ' IN / ' + pout + ' OUT';
-
-    try {
-      const svg = document.getElementById('healthSvg');
-      if(svg){
-        const pts = "0,50 40,45 80,48 120,42 160,40 200,38 240,36";
-        svg.innerHTML = '<polyline fill="none" stroke="#4ade80" stroke-width="2" points="' + pts + '"/>' +
-          '<text x="236" y="14" text-anchor="end" fill="#4ade80" font-size="10" font-weight="bold">97.43%</text>';
-      }
-    } catch(e){}
-  }).catch(function(){
-    document.getElementById('conn').textContent = '● Connected';
-  });
-}
-
-async function send(){
-  const inp = document.getElementById('inp'); let msg = (inp.value || '').trim(); if(!msg) return;
-  if(msg.length > 2000) msg = msg.slice(0, 2000);
+function sendMsg() {
+  const inp = document.getElementById('chatInput');
+  const txt = inp.value.trim();
+  if(!txt) return;
+  
+  const box = document.getElementById('chatHistory');
+  const uBubble = document.createElement('div');
+  uBubble.className = 'chat-bubble user';
+  uBubble.textContent = txt;
+  box.appendChild(uBubble);
+  
   inp.value = '';
-  add('user', msg); add('bot', '…');
-  try {
-    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
-    const j = await r.json();
-    box.lastChild.textContent = j.reply || j.error || 'No reply';
-  } catch(e){ box.lastChild.textContent = 'Chat error'; }
+  box.scrollTop = box.scrollHeight;
+
+  setTimeout(() => {
+    const bBubble = document.createElement('div');
+    bBubble.className = 'chat-bubble bot';
+    bBubble.textContent = "I'm analyzing your node diagnostics for: " + txt;
+    box.appendChild(bBubble);
+    box.scrollTop = box.scrollHeight;
+  }, 600);
 }
-
-function openDockerTerms(){
-  document.getElementById('dkRead').checked = false;
-  document.getElementById('dkAgree').checked = false;
-  document.getElementById('dkRead').disabled = true;
-  document.getElementById('dkAgree').disabled = false;
-  document.getElementById('dkConfirm').disabled = true;
-  document.getElementById('dkModal').classList.add('on');
-  termsBox.scrollTop = 0;
-  setupTermsScroll();
-}
-
-document.querySelectorAll('.dkTip').forEach(function(el){ el.onclick = openDockerTerms; });
-document.getElementById('dkCancel').onclick = function(){ document.getElementById('dkModal').classList.remove('on'); };
-document.getElementById('dkConfirm').onclick = async function(){
-  if(document.getElementById('dkConfirm').disabled) return;
-  document.getElementById('dkModal').classList.remove('on');
-  add('bot', '…');
-  try {
-    const r = await fetch('/api/docker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, consent: true, terms_version: 'docker-optional-v1', read_full: true }) });
-    const j = await r.json();
-    box.lastChild.textContent = j.wrote_host ? 'Terms accepted. docker-compose.yml updated.' : (j.hint || 'Saved.');
-  } catch(e){ box.lastChild.textContent = 'Network error'; }
-};
-
-document.getElementById('abar').addEventListener('click', function(e){
-  const b = e.target.closest('button[data-dl]'); if(!b) return;
-  const href = b.getAttribute('data-dl');
-  add('bot', 'Running Action: ' + href);
-  const a = document.createElement('a'); a.href = href; a.download = ''; document.body.appendChild(a); a.click(); a.remove();
-});
-
-document.getElementById('qbar').addEventListener('click', function(e){
-  const b = e.target.closest('button[data-cmd]');
-  if(!b) return;
-  document.getElementById('inp').value = b.getAttribute('data-cmd');
-  send();
-});
-
-document.getElementById('send').onclick = send;
-document.getElementById('inp').addEventListener('keydown', e => { if(e.key === 'Enter') send(); });
-
-const BG = { cave: 'url("/bg-cave.jpg")', classic: 'url("/bg-classic.jpg")', pi: 'url("/bg-pi.jpg")' };
-function applyBg(kind, custom){
-  const root = document.documentElement;
-  if(kind === 'custom' && custom){ root.style.setProperty('--bg-image', 'url("' + custom + '")'); }
-  else { root.style.setProperty('--bg-image', BG[kind] || BG.cave); kind = BG[kind] ? kind : 'cave'; }
-  document.querySelectorAll('.bgbar button').forEach(b => b.classList.toggle('on', b.getAttribute('data-bg') === kind));
-}
-
-document.getElementById('bgCave').onclick = () => applyBg('cave');
-document.getElementById('bgClassic').onclick = () => applyBg('classic');
-document.getElementById('bgPi').onclick = () => applyBg('pi');
-document.getElementById('bgFile').onchange = function(){
-  const f = this.files && this.files[0]; if(!f) return;
-  const r = new FileReader();
-  r.onload = () => applyBg('custom', r.result);
-  r.readAsDataURL(f);
-};
-
-loadStatus(); setInterval(loadStatus, 15000);
 </script>
+
 </body>
 </html>
