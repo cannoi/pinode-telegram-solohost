@@ -1,106 +1,200 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Pi Node Controller PRO</title>
 <style>
-:root{--p:rgba(255,255,255,.16);--bd:rgba(255,255,255,.42);--t:#f3f6fb;--m:#d7deea;--gold:#4cc2ff;--ok:#16c60c;--win:#0078d7}
+:root{
+  --p:rgba(255,255,255,.14);--p2:rgba(255,255,255,.20);--bd:rgba(255,255,255,.38);
+  --t:#f4f7fb;--m:#c5d0de;--win:#0078d7;--acc:#4cc2ff;--ok:#16c60c;--warn:#ffb900;--bad:#e81123;
+  --glass:blur(22px) saturate(165%);
+}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:"Segoe UI",system-ui,sans-serif;color:var(--t);min-height:100vh;
 background-color:#1b140c;
-background-image:linear-gradient(180deg,rgba(10,18,30,.32),rgba(8,12,18,.46)),var(--bg-image,url("/bg-cave.jpg"));
+background-image:linear-gradient(180deg,rgba(12,22,38,.38),rgba(8,12,20,.52)),var(--bg-image,url("/bg-cave.jpg"));
 background-position:center top;background-size:cover;background-repeat:no-repeat;background-attachment:fixed;
-padding:14px;display:flex;justify-content:center}
-.w{width:100%;max-width:480px}
-.hero{text-align:center;margin-bottom:10px}
-.ring{width:72px;height:72px;margin:0 auto 8px;border-radius:50%;padding:2px;background:linear-gradient(135deg,#4cc2ff,#0078d7)}
-.ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
-h1{font-size:1.12rem;font-weight:700;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.45)}
-.sub{font-size:.75rem;color:var(--m)}
-.card{background:var(--p);border:1px solid var(--bd);border-radius:6px;padding:12px;margin-bottom:10px;
-backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
-box-shadow:0 8px 28px rgba(0,0,0,.18)}
-.card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
-.row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.16);font-size:.85rem}
+padding:10px;display:flex;justify-content:center}
+.w{width:100%;max-width:440px}
+.glass{background:var(--p);border:1px solid var(--bd);border-radius:14px;
+backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+box-shadow:0 10px 28px rgba(0,0,0,.18)}
+.top{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px}
+.top img.av{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid rgba(76,194,255,.7)}
+.top h1{font-size:.92rem;font-weight:700;flex:1;text-shadow:0 1px 8px rgba(0,0,0,.4)}
+.conn{font-size:.62rem;color:#9fef9a;font-weight:700;white-space:nowrap}
+.bellwrap{position:relative}
+.bell{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:4px 8px;cursor:pointer}
+.badge{position:absolute;top:-6px;right:-6px;background:#e81123;color:#fff;border-radius:8px;font-size:.58rem;min-width:16px;text-align:center;padding:1px 4px;display:none}
+.nav{display:flex;gap:6px;margin-bottom:8px}
+.nav button{flex:1;padding:8px 6px;border-radius:10px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.10);color:#fff;font-size:.72rem;font-weight:650;cursor:pointer;backdrop-filter:blur(12px)}
+.nav button.on{background:rgba(0,120,215,.42);border-color:#4cc2ff}
+.page{display:none}.page.on{display:block}
+.card{padding:12px;margin-bottom:8px}
+.card h2{font-size:.62rem;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:700}
+.score{display:flex;flex-direction:column;align-items:center;gap:4px}
+.ringwrap{width:148px;height:148px;position:relative}
+.ringwrap svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ringwrap .lab{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.ringwrap .lab b{font-size:1.25rem}
+.ringwrap .lab span{font-size:.62rem;color:var(--m)}
+.exc{font-size:.68rem;color:#9fef9a;font-weight:700;margin-top:2px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px}
+.mini{padding:10px 6px;text-align:center}
+.mini .ic{font-size:1.05rem;margin-bottom:4px}
+.mini .k{font-size:.58rem;color:var(--m)}
+.mini .v{font-size:.78rem;font-weight:800;margin-top:2px}
+.mini .s{font-size:.55rem;color:var(--m)}
+.res{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.res .dot{width:88px;height:88px;margin:0 auto 4px;position:relative}
+.res .dot svg{width:100%;height:100%;transform:rotate(-90deg)}
+.res .dot span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:800}
+.res .n{text-align:center;font-size:.62rem;color:var(--m)}
+.info .row,.log .item{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.14);font-size:.78rem}
 .k{color:var(--m)}.val{font-weight:700}
-#chatbox{height:200px;overflow-y:auto;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);border-radius:4px;padding:8px;margin-bottom:8px;font-size:.8rem}
-.msg{margin:6px 0;padding:7px 9px;border-radius:4px;max-width:96%;white-space:pre-wrap}
-.msg.user{background:rgba(0,120,215,.28);margin-left:auto;text-align:right}
-.msg.bot{background:rgba(255,255,255,.14)}
-.hint{font-size:.72rem;color:var(--m);margin-top:4px}
+.log .item{display:block}
+.scripts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.scripts button{padding:10px 8px;border-radius:12px;border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.14);color:#fff;font-size:.68rem;font-weight:700;cursor:pointer;text-align:left;backdrop-filter:blur(12px)}
+.scripts button:hover{border-color:#4cc2ff;background:rgba(76,194,255,.22)}
+#chatbox{height:210px;overflow-y:auto;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);border-radius:10px;padding:8px;margin-bottom:8px;font-size:.78rem}
+.msg{margin:6px 0;padding:8px 10px;border-radius:12px;max-width:94%;white-space:pre-wrap}
+.msg.user{background:rgba(0,120,215,.32);margin-left:auto;text-align:right}
+.msg.bot{background:rgba(255,255,255,.16)}
+.hint{font-size:.68rem;color:var(--m);margin:4px 0 8px}
 .bar{display:flex;gap:6px}
-.bar input{flex:1;padding:10px;border-radius:4px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14);color:var(--t);outline:none}
-.bar input:focus{border-color:#4cc2ff;box-shadow:0 0 0 2px rgba(76,194,255,.25)}
-.bar button{padding:10px 14px;border-radius:4px;border:0;background:linear-gradient(180deg,#4cc2ff,#0078d7);color:#fff;font-weight:700;cursor:pointer}
+.bar input{flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14);color:var(--t);outline:none}
+.bar input:focus{border-color:#4cc2ff}
+.bar button{padding:10px 14px;border-radius:10px;border:0;background:linear-gradient(180deg,#4cc2ff,#0078d7);color:#fff;font-weight:700;cursor:pointer}
 .qbar{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 8px}
-.qbar button{padding:6px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:var(--t);font-size:.68rem;font-weight:650;cursor:pointer;backdrop-filter:blur(12px)}
-.qbar button:hover{background:rgba(76,194,255,.28);border-color:#4cc2ff}
-.bgbar{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:8px 0 2px}
-.bgbar button,.bgbar label{padding:5px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font-size:.64rem;font-weight:650;cursor:pointer}
+.qbar button{padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.14);color:var(--t);font-size:.64rem;font-weight:650;cursor:pointer}
+.bgbar{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
+.bgbar button,.bgbar label{padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font-size:.64rem;font-weight:650;cursor:pointer}
 .bgbar button.on{background:rgba(0,120,215,.45);border-color:#4cc2ff}
-.bellwrap{position:relative;display:inline-block;margin-left:8px;vertical-align:middle}
-.bell{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:4px 8px;cursor:pointer;font-size:.85rem}
-.badge{position:absolute;top:-6px;right:-6px;background:#e81123;color:#fff;border-radius:8px;font-size:.6rem;min-width:16px;text-align:center;padding:1px 4px;display:none}
-.panel{display:none;text-align:left;background:rgba(20,28,40,.72);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:8px;margin:8px auto 0;max-width:480px;max-height:220px;overflow:auto;font-size:.75rem;backdrop-filter:blur(18px)}
+.panel{display:none;text-align:left;padding:8px;margin:0 0 8px;max-height:200px;overflow:auto;font-size:.72rem}
 .panel.on{display:block}
 .panel .item{border-bottom:1px dashed rgba(255,255,255,.2);padding:6px 0;white-space:pre-wrap}
-.foot{text-align:center;font-size:.62rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+.foot{text-align:center;font-size:.6rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
 .link{color:#9ad8ff;cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
 .modal.on{display:flex}
-.modal .box{background:rgba(20,28,40,.55);border:1px solid rgba(255,255,255,.35);border-radius:6px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;backdrop-filter:blur(24px)}
+.modal .box{background:rgba(20,28,40,.55);border:1px solid rgba(255,255,255,.35);border-radius:12px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;backdrop-filter:blur(24px)}
 .modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(255,255,255,.2)}
 .terms{padding:12px 14px;overflow-y:auto;flex:1;font-size:.78rem;line-height:1.45;white-space:pre-wrap;color:#eef3f8}
 .modal .footbar{padding:10px 14px;border-top:1px solid rgba(255,255,255,.2);display:flex;flex-direction:column;gap:8px}
 .modal label{font-size:.75rem;color:var(--m);display:flex;gap:8px;align-items:flex-start}
-.btn{padding:10px;border-radius:4px;border:0;font-weight:700;cursor:pointer}
+.btn{padding:10px;border-radius:8px;border:0;font-weight:700;cursor:pointer}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 .btn-ok{background:var(--win);color:#fff}
 .btn-no{background:rgba(255,255,255,.18);color:#fff}
+.sub{font-size:.68rem;color:var(--m);margin-top:2px}
 </style>
 </head>
 <body>
 <div class="w">
-  <div class="hero">
-    <div class="ring"><img src="/avatar.jpg" alt=""></div>
-    <h1>Pi Node Controller PRO <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
-    <p class="sub">SoloHost · v2.6.51</p>
-    <div class="bgbar">
-      <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
-      <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
-      <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
-      <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
+  <div class="top glass">
+    <img class="av" src="/avatar.jpg" alt="">
+    <div style="flex:1">
+      <h1>Pi Node Controller PRO</h1>
+      <div class="sub">SoloHost · v2.6.52</div>
+    </div>
+    <span class="conn" id="conn">● Connected</span>
+    <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span>
+  </div>
+  <div class="nav">
+    <button type="button" class="on" data-page="home">⌂ Home</button>
+    <button type="button" data-page="ai">AI Assistant</button>
+    <button type="button" data-page="set">⚙ Settings</button>
+  </div>
+  <div class="panel glass" id="alertPanel"></div>
+
+  <div class="page on" id="page-home">
+    <div class="card glass">
+      <h2>Node Performance Overview</h2>
+      <div class="score">
+        <div class="ringwrap">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="8"/>
+            <circle id="scoreArc" cx="50" cy="50" r="42" fill="none" stroke="#16c60c" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 264"/>
+          </svg>
+          <div class="lab"><span>Node Score</span><b id="scoreVal">—</b><span id="availVal">Availability —</span></div>
+        </div>
+        <div class="exc" id="scoreTag">Collecting…</div>
+      </div>
+    </div>
+    <div class="grid3">
+      <div class="mini glass"><div class="ic">🧊</div><div class="k">Node State</div><div class="v" id="stSync">—</div><div class="s" id="stHealth">—</div></div>
+      <div class="mini glass"><div class="ic">⚙</div><div class="k">Consensus</div><div class="v" id="stCons">—</div><div class="s" id="stSrc">source</div></div>
+      <div class="mini glass"><div class="ic">👥</div><div class="k">Peers</div><div class="v" id="stPeers">—</div><div class="s">in / out</div></div>
+    </div>
+    <div class="card glass">
+      <h2>System Resources</h2>
+      <div class="res">
+        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="cpuArc" cx="18" cy="18" r="14" fill="none" stroke="#4cc2ff" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="cpuVal">—</span></div><div class="n">CPU</div></div>
+        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="ramArc" cx="18" cy="18" r="14" fill="none" stroke="#b57bff" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="ramVal">—</span></div><div class="n">RAM</div></div>
+        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="diskArc" cx="18" cy="18" r="14" fill="none" stroke="#3aa0ff" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="diskVal">—</span></div><div class="n">Disk</div></div>
+        <div><div class="dot"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4"/><circle id="ageArc" cx="18" cy="18" r="14" fill="none" stroke="#ff8a4c" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 88"/></svg><span id="ageVal">—</span></div><div class="n">Ledger age</div></div>
+      </div>
+    </div>
+    <div class="card glass info">
+      <h2>Detailed Pi Node Information</h2>
+      <div id="s"></div>
+    </div>
+    <div class="card glass log">
+      <h2>Activity</h2>
+      <div class="item" id="actLine">Waiting for telemetry…</div>
     </div>
   </div>
-  <div class="panel" id="alertPanel"></div>
-  <div class="card"><h2>Live status</h2><div id="s">…</div></div>
-  <div class="card">
-    <h2>Chat</h2>
-    <div class="qbar" id="abar">
-      <button type="button" data-dl="/actions/CleanRAM.bat">🧹 CleanRAM</button>
-      <button type="button" data-dl="/actions/DnsFlush.bat">🌐 DnsFlush</button>
-      <button type="button" data-dl="/actions/Firewall.bat">🧱 Firewall</button>
-      <button type="button" data-dl="/actions/NetRepair.bat">🔧 NetRepair</button>
-      <button type="button" data-dl="/actions/LanSetup.bat">📌 LanSetup</button>
-      <button type="button" data-dl="/actions/NodeReset.bat">♻️ NodeReset</button>
-      <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Docker</button>
-      <button type="button" data-dl="/actions/Maintain.bat">🗓️ Maintain</button>
+
+  <div class="page" id="page-ai">
+    <div class="card glass">
+      <h2>Pi Node Maintenance Scripts</h2>
+      <div class="scripts" id="abar">
+        <button type="button" data-dl="/actions/CleanRAM.bat">Optimize RAM</button>
+        <button type="button" data-dl="/actions/DnsFlush.bat">Flush DNS</button>
+        <button type="button" data-dl="/actions/Firewall.bat">Firewall</button>
+        <button type="button" data-dl="/actions/NetRepair.bat">Net Repair</button>
+        <button type="button" data-dl="/actions/LanSetup.bat">LAN Setup</button>
+        <button type="button" data-dl="/actions/NodeReset.bat">Reset Node</button>
+        <button type="button" data-dl="/actions/DockerRecover.bat">Repair Docker</button>
+        <button type="button" data-dl="/actions/Maintain.bat">Maintain</button>
+      </div>
     </div>
-    <div id="chatbox"></div>
-    <div class="qbar" id="qbar">
-      <button type="button" data-cmd="/help">❓ HELP</button>
-      <button type="button" data-cmd="/status">📊 STATUS</button>
-      <button type="button" data-cmd="/report">📈 REPORT</button>
-      <button type="button" data-cmd="/peers">👥 PEERS</button>
-      <button type="button" data-cmd="/diagnostic">🩺 DIAG</button>
-      <button type="button" data-cmd="/analyze">💬 ANALYZE</button>
-      <button type="button" data-cmd="/logs">📋 LOGS</button>
-      <button type="button" data-cmd="/donate">💛 DONATE</button>
+    <div class="card glass">
+      <h2>AI Assistant Chat</h2>
+      <div id="chatbox"></div>
+      <div class="qbar" id="qbar">
+        <button type="button" data-cmd="/help">HELP</button>
+        <button type="button" data-cmd="/status">STATUS</button>
+        <button type="button" data-cmd="/report">REPORT</button>
+        <button type="button" data-cmd="/peers">PEERS</button>
+        <button type="button" data-cmd="/diagnostic">DIAG</button>
+        <button type="button" data-cmd="/analyze">ANALYZE</button>
+        <button type="button" data-cmd="/logs">LOGS</button>
+        <button type="button" data-cmd="/donate">DONATE</button>
+      </div>
+      <p class="hint">Optional Docker probe is configured only on this PC. <button type="button" class="link" id="dkTip">Optional Docker…</button></p>
+      <div class="bar">
+        <input id="inp" type="text" placeholder="Ask me anything…" autocomplete="off" maxlength="2000">
+        <button id="send" type="button">➤</button>
+      </div>
     </div>
-    <p class="hint">Optional Docker probe (advanced) is configured only on this PC. <button type="button" class="link" id="dkTip">Optional Docker…</button></p>
-    <div class="bar">
-      <input id="inp" type="text" placeholder="Message…" autocomplete="off" maxlength="2000">
-      <button id="send" type="button">Send</button>
+  </div>
+
+  <div class="page" id="page-set">
+    <div class="card glass">
+      <h2>Wallpaper</h2>
+      <p class="hint">Glass cards stay transparent so the background shows through.</p>
+      <div class="bgbar">
+        <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
+        <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
+        <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
+        <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
+      </div>
+    </div>
+    <div class="card glass">
+      <h2>About</h2>
+      <div class="row"><span class="k">App</span><span class="val">SoloHost v2.6.52</span></div>
+      <div class="row"><span class="k">Style</span><span class="val">Windows 10 Fluent · portrait</span></div>
     </div>
   </div>
   <p class="foot">Telegram for remote status · Docker only via this SoloHost UI</p>
@@ -139,7 +233,7 @@ What we do not claim
 • The publisher does not operate your Docker daemon.
 
 Your responsibility (Operator)
-Under SoloHost Terms you decide permissions on your machine. By confirming you accept:
+Under SoloHost Terms you decide permissions on this machine. By confirming you accept:
 1) docker.sock is powerful and may expose Docker on this PC.
 2) Risk of optional diagnostics is yours.
 3) You can disable later and remove the socket volume, then Stop → Start.
@@ -157,6 +251,15 @@ const box=document.getElementById('chatbox');
 const termsBox=document.getElementById('termsBox');
 termsBox.textContent=TERMS;
 
+document.querySelectorAll('.nav button').forEach(function(b){
+  b.onclick=function(){
+    document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+    document.getElementById('page-'+b.getAttribute('data-page')).classList.add('on');
+  };
+});
+
 function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
 
 function setupTermsScroll(){
@@ -167,28 +270,70 @@ function setupTermsScroll(){
   read.onchange=refresh;agree.onchange=refresh;
   termsBox.onscroll=function(){
     const el=termsBox;
-    if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){
-      read.disabled=false;
-    }
+    if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){ read.disabled=false; }
   };
-  // short screens: allow mark read after brief delay if content fits
   setTimeout(function(){
     if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
   },400);
 }
 
-async function loadStatus(){
-  try{
-    const t=await fetch('/api/status').then(r=>r.json());
+function setArc(id,pct,maxDash){
+  const el=document.getElementById(id); if(!el)return;
+  const p=Math.max(0,Math.min(100,Number(pct)||0));
+  el.setAttribute('stroke-dasharray', (p/100*maxDash).toFixed(1)+' '+maxDash);
+}
+
+function loadStatus(){
+  return fetch('/api/status').then(r=>r.json()).then(function(t){
     const rows=[];
     const addR=(k,v)=>{if(v!=null&&v!=='')rows.push('<div class="row"><span class="k">'+k+'</span><span class="val">'+String(v)+'</span></div>');};
     addR('Sync',t.sync);
     addR('Ledger',t.ledger!=null?Number(t.ledger).toLocaleString('en-US'):null);
     addR('Age',t.ledger_age!=null?t.ledger_age+'s':null);
-    addR('Peers',t.peers!=null?t.peers:((t.peer_in!=null||t.peer_out!=null)?((t.peer_in??0)+(t.peer_out??0)):null));
+    addR('Source',t.source||null);
+    addR('Horizon',t.horizon_version||null);
+    addR('Core',t.core_version||null);
+    addR('Protocol',t.protocol||null);
+    addR('Ingest lag',t.ingest_lag!=null?t.ingest_lag:null);
+    addR('Peers',t.peers!=null?t.peers:((t.peer_in!=null||t.peer_out!=null)?((t.peer_in??0)+' / '+(t.peer_out??0)):null));
     addR('Health',t.health!=null?t.health+'/100':'');
     document.getElementById('s').innerHTML=rows.join('')||'<span class="k">Collecting…</span>';
-  }catch(e){document.getElementById('s').textContent='Status error';}
+
+    const health=t.health!=null?Number(t.health):(t.ledger&&t.sync?88:null);
+    document.getElementById('scoreVal').textContent=health!=null?health.toFixed(health%1?2:0)+' / 100':'—';
+    document.getElementById('availVal').textContent=health!=null?('Availability '+health.toFixed(2)+'%'):'Availability —';
+    setArc('scoreArc', health||0, 264);
+    const live=/horizon live|synced|ok/i.test(String(t.sync||''));
+    const catchup=/catch|behind|slow|lag/i.test(String(t.sync||''));
+    document.getElementById('scoreTag').textContent=live?'Excellent':(catchup?'Watching catch-up':'Collecting');
+    document.getElementById('scoreArc').setAttribute('stroke', live?'#16c60c':(catchup?'#ffb900':'#4cc2ff'));
+
+    document.getElementById('stSync').textContent=t.sync||'—';
+    document.getElementById('stHealth').textContent=t.core_verified?'core verified':(t.source||'horizon');
+    document.getElementById('stCons').textContent=(t.fsm||t.verification&&t.verification.consensus)||(t.source||'—');
+    document.getElementById('stSrc').textContent=t.source||'source';
+    const pin=t.peer_in, pout=t.peer_out;
+    document.getElementById('stPeers').textContent=(pin!=null||pout!=null)?((pin??'—')+' / '+(pout??'—')):(t.peers!=null?t.peers:'—');
+
+    const cpu=t.container_cpu!=null?t.container_cpu:(t.cpu!=null?t.cpu:null);
+    const ram=t.container_ram!=null?t.container_ram:(t.ram!=null?t.ram:null);
+    const disk=t.disk!=null?t.disk:null;
+    document.getElementById('cpuVal').textContent=cpu!=null?Math.round(cpu)+'%':'n/a';
+    document.getElementById('ramVal').textContent=ram!=null?Math.round(ram)+'%':'n/a';
+    document.getElementById('diskVal').textContent=disk!=null?Math.round(disk)+'%':'n/a';
+    document.getElementById('ageVal').textContent=t.ledger_age!=null?(t.ledger_age+'s'):'—';
+    setArc('cpuArc', cpu||0, 88);
+    setArc('ramArc', ram||0, 88);
+    setArc('diskArc', disk||0, 88);
+    setArc('ageArc', t.ledger_age!=null?Math.min(100,t.ledger_age/3):0, 88);
+
+    document.getElementById('actLine').textContent=
+      new Date().toISOString().replace('T',' ').slice(11,19)+' · '+(t.sync||'?')+' · ledger '+(t.ledger!=null?t.ledger:'?');
+    document.getElementById('conn').textContent='● Connected';
+  }).catch(function(){
+    document.getElementById('s').textContent='Status error';
+    document.getElementById('conn').textContent='○ Offline';
+  });
 }
 async function send(){
   const inp=document.getElementById('inp');let msg=(inp.value||'').trim();if(!msg)return;
@@ -244,15 +389,15 @@ document.getElementById('dkAgree').onchange=function(){
 };
 
 const ACT={
- '/actions/CleanRAM.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
- '/actions/CleanRam.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
- '/actions/DnsFlush.bat':'🌐 DnsFlush\nWhat: Refresh Windows DNS cache.\nWhen: Peers drop while ports stay open.',
- '/actions/Firewall.bat':'🧱 Firewall\nWhat: Open TCP 31401-31410 on Windows Firewall.\nWhen: Local Pi ports stay closed.',
- '/actions/NetRepair.bat':'🔧 NetRepair\nWhat: Repair internet while keeping the current LAN IP.\nWhen: Horizon or internet is down for a long time.',
- '/actions/LanSetup.bat':'📌 LanSetup\nWhat: Lock the current LAN IP as static + open Pi ports.\nWhen: First setup on this PC.',
- '/actions/NodeReset.bat':'♻️ NodeReset\nWhat: Restart the Pi container only.\nWhen: The container is stuck and Docker Engine is healthy.',
- '/actions/DockerRecover.bat':'🐳 DockerRecover\nWhat: Restart Docker Desktop safely.\nWhen: Docker Engine itself is down.',
- '/actions/Maintain.bat':'🗓️ Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
+ '/actions/CleanRAM.bat':'Optimize RAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/CleanRam.bat':'Optimize RAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/DnsFlush.bat':'Flush DNS\nWhat: Refresh Windows DNS cache.\nWhen: Peers drop while ports stay open.',
+ '/actions/Firewall.bat':'Firewall\nWhat: Open TCP 31401-31410 on Windows Firewall.\nWhen: Local Pi ports stay closed.',
+ '/actions/NetRepair.bat':'Net Repair\nWhat: Repair internet while keeping the current LAN IP.\nWhen: Horizon or internet is down for a long time.',
+ '/actions/LanSetup.bat':'LAN Setup\nWhat: Lock the current LAN IP as static + open Pi ports.\nWhen: First setup on this PC.',
+ '/actions/NodeReset.bat':'Reset Node\nWhat: Restart the Pi container only.\nWhen: The container is stuck and Docker Engine is healthy.',
+ '/actions/DockerRecover.bat':'Repair Docker\nWhat: Restart Docker Desktop safely.\nWhen: Docker Engine itself is down.',
+ '/actions/Maintain.bat':'Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
 };
 document.getElementById('abar').addEventListener('click',function(e){
   const b=e.target.closest('button[data-dl]'); if(!b)return;
@@ -292,7 +437,6 @@ document.getElementById('bgFile').onchange=function(){
   r.readAsDataURL(f);
 };
 
-
 async function loadAlerts(){
   try{
     const j=await fetch('/api/alerts').then(r=>r.json());
@@ -316,7 +460,6 @@ document.getElementById('bell').onclick=async function(){
   }
 };
 loadAlerts();setInterval(loadAlerts,20000);
-
 loadStatus();setInterval(loadStatus,15000);
 </script>
 </body>
