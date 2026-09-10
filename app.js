@@ -24,7 +24,7 @@ const APP_KNOWLEDGE = `
 APP: Pi Node Telegram Controller PRO (SoloHost Edition)
 Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI. Sandboxed Docker app on Pi Desktop.
 
-INCIDENT ENGINE (v2.7):
+INCIDENT ENGINE (v2.6.57):
 - Detects 10 incident classes: docker_down, network_down, ports_closed, sync_stalled, sync_lag, peers_zero, peers_low, ram_high, cpu_high, disk_high
 - Stage machine 0-5: observe (0-1) -> first alert (2) -> reminder (3-4) -> chronic (5)
 - Adaptive polling: shortens telemetry interval while incident is active
@@ -41,7 +41,7 @@ STYLE: Static system messages stay English for consistency. Free-text AI replies
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.7.0-solohost';
+const VERSION = '2.6.57.0-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
