@@ -144,6 +144,38 @@ function hourVN() {
   } catch (e) { return (new Date().getUTCHours() + 7) % 24; }
 }
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ---------- NEW HELPERS: tree / footer / source label ---------- */
+/** Tree block: header + các dòng có ├ / └ tự động canh dòng cuối. */
+function treeBlock(header, lines) {
+  if (!lines || !lines.length) return '';
+  const out = [header];
+  lines.forEach(function (l, i) {
+    const isLast = i === lines.length - 1;
+    out.push(' ' + (isLast ? '└' : '├') + ' ' + l);
+  });
+  return out.join('\n');
+}
+
+/** Footer time "HH:MM DD-MM" theo giờ VN — chỉ dùng cho footer formatter. */
+function footerTime() {
+  try {
+    return new Date().toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh', hour12: false,
+      hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'
+    }).replace(/\//g, '-');
+  } catch (e) { return nowHM(); }
+}
+
+/** Nhãn nguồn cho footer, ví dụ "DockerExec+Horizon". */
+function sourceLabel(t) {
+  t = t || {};
+  let src = t.source || 'Horizon';
+  if (t.docker_sock && !/docker/i.test(src)) src = 'DockerExec+' + src;
+  return src;
+}
+/* ---------- END NEW HELPERS ---------- */
+
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function fmtN(n) { return n == null ? null : Number(n).toLocaleString('en-US'); }
 function redactSecrets(s) {
@@ -916,140 +948,219 @@ function formatActionLog() {
   return lines.join('\n');
 }
 
+/* ---------- NEW formatStatus ---------- */
 function formatStatus(t, mode) {
   t = t || {};
   const age = t._age != null ? t._age : (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0);
-  const syncOk = t.sync && /synced|live|good|horizon ok/i.test(String(t.sync)) && !(t.ledger_age != null && t.ledger_age > 120);
+  const syncStr = String(t.sync || '');
+  const syncOk = syncStr && /synced|live|good|horizon ok/i.test(syncStr) && !(t.ledger_age != null && t.ledger_age > 120);
   const netOk = t.ports_all_open || (t.ports_open != null && t.ports_open >= 2);
   const nodeOk = t.level === 'ok' || (syncOk && netOk && t.level !== 'critical');
-  const head = nodeOk ? '🟢 PI NODE · STATUS' : (t.level === 'critical' ? '🔴 PI NODE · STATUS' : '🟡 PI NODE · STATUS');
-  const lines = [head, '━━━━━━━━━━━━━━━━━━', ''];
 
+  let head;
+  if (mode === 'RECOVERED') head = '🟢 PI NODE · RECOVERED';
+  else if (t.level === 'critical') head = '🔴 PI NODE · QUICK STATUS';
+  else if (!nodeOk) head = '🟡 PI NODE · QUICK STATUS';
+  else head = '🟢 PI NODE · QUICK STATUS';
+
+  // ── RUNTIME ──
+  const runtime = [];
   if (t.sync) {
-    const ic = /synced|live/i.test(String(t.sync)) ? '🟢' : (/catch|behind|slow|lag/i.test(String(t.sync)) ? '🟡' : '🔄');
-    lines.push('🔄 SYNC · ' + ic + ' ' + t.sync);
+    const ic = /synced|live/i.test(syncStr) ? '🟢'
+      : (/catch|behind|slow|lag/i.test(syncStr) ? '🟡' : '🔄');
+    runtime.push('SYNC    · ' + ic + ' ' + t.sync);
   }
-  if (t.docker) lines.push('🐳 NODE · 🟢 ' + t.docker);
-  else if (t.docker_sock) lines.push('🐳 NODE · 🟢 sock');
-  else if (t.ports_all_open) lines.push('🐳 NODE · 🟢 Running');
-  else if (t.ports_open === 0) lines.push('🐳 NODE · 🔴 Ports closed');
-  if (t.container) lines.push('📦 CONTAINER · ' + t.container);
-  if (t.docker_sock) lines.push('🔌 SOCK · yes');
-  if (netOk) lines.push('🌐 NETWORK · 🟢 Good');
-  else if (t.ports_open != null) lines.push('🌐 NETWORK · 🟡 Partial');
+  if (t.container) runtime.push('NODE    · ' + (/stop|exit/i.test(String(t.docker || '')) ? '🔴' : '🟢') + ' RUNNING (`' + t.container + '`)');
+  else if (t.docker) runtime.push('NODE    · ' + (/stop|exit/i.test(String(t.docker)) ? '🔴 ' : '🟢 ') + t.docker);
+  else if (t.docker_sock) runtime.push('NODE    · 🟢 sock');
+  else if (t.ports_all_open) runtime.push('NODE    · 🟢 Running');
+  else if (t.ports_open === 0) runtime.push('NODE    · 🔴 Ports closed');
 
-  if (t.ram != null) lines.push('🧠 RAM · ' + Math.round(t.ram) + '%');
+  if (netOk) {
+    let netKind = '';
+    if (t.network_kind === 'Testnet') netKind = 'Pi Testnet';
+    else if (t.network_kind === 'Mainnet') netKind = 'Pi Mainnet';
+    else if (t.network_kind) netKind = t.network_kind;
+    runtime.push('NET     · 🟢 Good' + (netKind ? ' (' + netKind + ')' : ''));
+  } else if (t.ports_open != null) {
+    runtime.push('NET     · 🟡 Partial');
+  }
+
+  if (t.ledger != null) {
+    let s = '#' + Number(t.ledger).toLocaleString('en-US');
+    if (t.ledger_age != null) s += ' (Age ' + t.ledger_age + 's)';
+    runtime.push('LEDGER  · ' + s);
+  }
+  if (t.core_version) runtime.push('CORE    · ' + t.core_version);
+
+  // ── SYSTEM (chỉ hiện khi có dữ liệu) ──
+  const sys = [];
+  if (t.ram != null) sys.push('RAM     · ' + Math.round(t.ram) + '%');
   if (t.cpu != null) {
     const cic = t.cpu >= 90 ? '🔴' : (t.cpu >= 70 ? '🟡' : '🟢');
-    lines.push('⚙️ CPU · ' + cic + ' ' + t.cpu + '%');
+    sys.push('CPU     · ' + cic + ' ' + t.cpu + '%');
   }
-  if (t.temp != null) lines.push('🌡️ TEMP · ' + t.temp + '°C');
-  if (t.ledger != null) lines.push('📦 LEDGER · ' + Number(t.ledger).toLocaleString('en-US'));
-  if (t.ledger_age != null) lines.push('⏱️ AGE · ' + t.ledger_age + 's');
-  if (t.ingest_lag != null && t.ingest_lag > 0) lines.push('📥 INGEST LAG · ' + t.ingest_lag);
-  if (t.network_kind || t.network) lines.push('🌍 NET · ' + (t.network_kind || t.network));
-  if (t.core_version) lines.push('🔧 CORE · ' + t.core_version);
+  if (t.temp != null) sys.push('TEMP    · ' + t.temp + '°C');
 
-  lines.push('');
-  lines.push('🕐 ' + nowHM());
-  lines.push('────────');
-  lines.push('');
+  // ── RESULT ──
+  const result = [];
   if (nodeOk) {
-    lines.push('🟢 STATUS · OK');
-    lines.push('💡 No Issues');
-    lines.push('✅ No Action');
+    result.push('STATUS  · 🟢 OK');
+    result.push('ACTION  · None (No Issues)');
   } else if (t.level === 'critical') {
-    lines.push('🔴 STATUS · CRITICAL');
-    lines.push('💡 Check ports / Horizon / Core');
-    lines.push('🛠️ Action · Inspect node');
+    result.push('STATUS  · 🔴 CRITICAL');
+    result.push('ACTION  · Inspect node');
   } else {
-    lines.push('🟡 STATUS · WATCH');
-    lines.push('💡 Monitor sync / resources');
-    lines.push('🛠️ Action · Review');
+    result.push('STATUS  · 🟡 WATCH');
+    result.push('ACTION  · Review');
   }
-  lines.push('');
-  lines.push('📡 Source · ' + (t.source || '?'));
-  lines.push('⏱️ ' + age + 's ago · v' + VERSION);
-  return lines.join('\n');
+
+  const parts = [head, ''];
+  if (runtime.length) parts.push(treeBlock('⚙️ RUNTIME', runtime));
+  if (sys.length)     { parts.push(''); parts.push(treeBlock('📊 SYSTEM', sys)); }
+  parts.push('');
+  parts.push(treeBlock('✅ RESULT', result));
+  parts.push('');
+  parts.push('───────────────');
+  parts.push('📡 ' + sourceLabel(t) + ' • ⏱ ' + age + 's ago');
+  parts.push('🕐 ' + footerTime() + ' · v' + VERSION);
+  return parts.join('\n');
 }
 
+/* ---------- NEW formatPeers ---------- */
 function formatPeers(t) {
   t = t || {};
   try { if (typeof dataFrame !== 'undefined') dataFrame.applyPeerRule(t); } catch (e) {}
-  const inn = t.peer_in;
-  const out = t.peer_out;
-  const total = t.peer_total != null ? t.peer_total : ((inn != null && out != null) ? (inn + out) : (inn != null ? inn : out));
-  const lines = ['🔗 PEERS · STELLAR CORE', '━━━━━━━━━━━━━━━━━━', ''];
+
+  const inn   = t.peer_in;
+  const out   = t.peer_out;
+  const total = t.peer_total != null
+    ? t.peer_total
+    : ((inn != null && out != null) ? (inn + out) : (inn != null ? inn : out));
+
+  const age = cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0;
+  const head = '🌐 PEERS & TREND · STELLAR CORE';
+  const parts = [head, ''];
+
   if (inn == null && out == null) {
-    lines.push('⚠️ Peer data unavailable');
-    lines.push('(Core HTTP /peers not exposed)');
-    lines.push('');
-    lines.push('📡 PI NODE TELEGRAM CONTROLLER PRO');
-    lines.push('⏱️ ' + (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0) + 's ago');
-    return lines.join('\n');
+    parts.push('👥 CONNECTIONS');
+    parts.push(' └ ⚠️ Peer data unavailable');
+    parts.push('');
+    parts.push('(Core HTTP /peers not exposed)');
+    parts.push('');
+    parts.push('───────────────');
+    parts.push('📡 Controller Pro • ⏱ ' + age + 's ago');
+    return parts.join('\n');
   }
-  if (inn != null) lines.push('🟢 IN · ' + inn);
-  if (out != null) lines.push('🔵 OUT · ' + out);
-  if (total != null) lines.push('👥 TOTAL · ' + total);
-  lines.push('');
-  lines.push('📊 TREND');
+
+  // ── CONNECTIONS ──
+  const conn = [];
+  if (inn != null) conn.push('🟢 IN    · ' + inn);
+  if (out != null) conn.push('🔵 OUT   · ' + out);
+  if (total != null) conn.push('📊 TOTAL · ' + total);
+  parts.push(treeBlock('👥 CONNECTIONS', conn));
+  parts.push('');
+
+  // ── TREND ──
+  parts.push('📈 TREND');
   try {
-    const rows = readHistory(1).filter(r => r.peer_in != null || r.peer_out != null).slice(-12);
+    const rows = readHistory(1).filter(function (r) {
+      return r.peer_in != null || r.peer_out != null;
+    }).slice(-12);
+
     if (rows.length >= 2) {
       const a = rows[0], b = rows[rows.length - 1];
       const ta = (a.peer_in || 0) + (a.peer_out || 0);
       const tb = (b.peer_in || 0) + (b.peer_out || 0);
       const drop = ta > 0 ? ((ta - tb) / ta) : 0;
-      lines.push('👥 ' + ta + ' → ' + tb + ' · ' + (drop > 0.5 ? '📉 Drop' : '🟢 Stable'));
-      if (a.peer_in != null && b.peer_in != null) lines.push('🟢 ' + a.peer_in + ' → ' + b.peer_in + ' · Stable');
-      if (a.peer_out != null && b.peer_out != null) lines.push('🔵 ' + a.peer_out + ' → ' + b.peer_out + ' · Stable');
-      if (tb === 0) lines.push('');
-      if (tb === 0) lines.push('🚨 WARNING');
-      if (tb === 0) lines.push('0 PEERS');
-      if (drop > 0.5) { lines.push(''); lines.push('🚨 WARNING'); lines.push('📉 >50% DROP'); }
+      const totalTrend = (ta === tb) ? '🟢 Stable' : (drop > 0.5 ? '📉 Drop' : '🟡 Changed');
+
+      const trendLines = [];
+      trendLines.push('TOTAL · ' + ta + ' ➔ ' + tb + ' (' + totalTrend + ')');
+      if (a.peer_in != null && b.peer_in != null) {
+        trendLines.push('IN    · ' + a.peer_in + ' ➔ ' + b.peer_in + ' (🟢 Stable)');
+      }
+      if (a.peer_out != null && b.peer_out != null) {
+        trendLines.push('OUT   · ' + a.peer_out + ' ➔ ' + b.peer_out + ' (🟢 Stable)');
+      }
+      trendLines.forEach(function (l, i) {
+        const isLast = i === trendLines.length - 1;
+        parts.push(' ' + (isLast ? '└' : '├') + ' ' + l);
+      });
     } else {
-      lines.push('👥 ' + (total != null ? total : '?') + ' · collecting');
+      parts.push(' └ 👥 ' + (total != null ? total : '?') + ' · collecting');
     }
   } catch (e) {
-    lines.push('👥 collecting');
+    parts.push(' └ 👥 collecting');
   }
-  lines.push('');
-  lines.push('────────');
-  lines.push('📡 PI NODE TELEGRAM CONTROLLER PRO');
-  lines.push('⏱️ ' + (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0) + 's ago');
-  return lines.join('\n');
+
+  parts.push('');
+  parts.push('───────────────');
+  parts.push('📡 Controller Pro • ⏱ ' + age + 's ago');
+  return parts.join('\n');
 }
 
+/* ---------- NEW formatDiagnostic ---------- */
 function formatDiagnostic(t) {
   t = t || {};
-  const lines = ['🩺 PI NODE · DIAGNOSTIC', '━━━━━━━━━━━━━━━━━━', ''];
-  lines.push('📡 Source · ' + (t.source || '?'));
-  if (t.horizon_host || t.core_host) lines.push('🔗 Endpoint · ' + (t.core_host || t.horizon_host || ''));
-  if (t.sync) lines.push('🔄 Sync · ' + t.sync);
-  if (t.ledger != null) lines.push('📦 Ledger · ' + Number(t.ledger).toLocaleString('en-US'));
-  if (t.ledger_age != null) lines.push('⏱️ Age · ' + t.ledger_age + 's');
-  if (t.ingest_lag != null) lines.push('📥 Ingest lag · ' + t.ingest_lag);
-  if (t.peer_in != null || t.peer_out != null)
-    lines.push('👥 Peers · IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
-  if (t.ports) {
-    lines.push('🔌 Ports · ' + [31401,31402,31403].map(function (p) {
-      return p + '=' + (t.ports[String(p)] || '?');
-    }).join(' '));
+
+  // ── NETWORK & LEDGER ──
+  const net = [];
+  if (t.network_kind === 'Testnet')   net.push('Network · Pi Testnet');
+  else if (t.network_kind === 'Mainnet') net.push('Network · Pi Mainnet');
+  else if (t.network_kind)            net.push('Network · ' + t.network_kind);
+  else if (t.network)                 net.push('Network · ' + t.network);
+
+  if (t.sync) {
+    const ic = /synced|live/i.test(String(t.sync)) ? '🟢'
+      : (/catch|behind|slow|lag/i.test(String(t.sync)) ? '🟡' : '🔄');
+    net.push('Sync    · ' + ic + ' ' + t.sync);
   }
-  if (t.ram != null) lines.push('🧠 RAM · ' + t.ram + '%');
-  if (t.cpu != null) lines.push('⚙️ CPU · ' + t.cpu + '%');
-  if (t.network_kind || t.network) lines.push('🌍 Network · ' + (t.network_kind || t.network));
-  if (t.core_version) lines.push('🔧 Core · ' + t.core_version);
-  if (t.horizon_version) lines.push('🔧 Horizon · ' + t.horizon_version);
-  if (t.protocol != null) lines.push('📜 Protocol · ' + t.protocol);
-  if (t.docker) lines.push('🐳 Docker · ' + t.docker);
-  if (t.docker_sock) lines.push('🔌 Sock · yes');
-  if (t.container) lines.push('📦 Container · ' + t.container);
-  if (t.sources) lines.push('📚 Sources · ' + Object.keys(t.sources).filter(function (k) { return t.sources[k]; }).join(', '));
-  lines.push('');
-  lines.push('💡 Level · ' + (t.level || '?'));
-  lines.push('💛 /donate · MB 0905428801');
-  return lines.join('\n');
+  if (t.ledger != null) {
+    let s = 'Ledger  · #' + Number(t.ledger).toLocaleString('en-US');
+    const bits = [];
+    if (t.ledger_age != null) bits.push('Age: ' + t.ledger_age + 's');
+    if (t.ingest_lag != null) bits.push('Lag: ' + t.ingest_lag);
+    if (bits.length) s += ' (' + bits.join(' | ') + ')';
+    net.push(s);
+  }
+  if (t.peer_in != null || t.peer_out != null) {
+    net.push('Peers   · IN ' + (t.peer_in != null ? t.peer_in : '?') +
+             ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
+  }
+  if (t.ports) {
+    const openCount = [31401,31402,31403].filter(function (p) { return t.ports[String(p)] === 'OPEN'; }).length;
+    const pic = openCount === 3 ? '🟢 OPEN' : (openCount === 0 ? '🔴 CLOSED' : '🟡 ' + openCount + '/3');
+    net.push('Ports   · 31401-31403 ' + pic);
+  }
+
+  // ── ENGINE & SYSTEM ──
+  const eng = [];
+  const sockYes = !!(t.docker_sock || t.docker_probe);
+  if (t.docker) {
+    const dic = /stop|exit/i.test(String(t.docker)) ? '🔴' : '🟢';
+    eng.push('Docker    · ' + dic + ' ' + String(t.docker).toUpperCase() + ' (Sock: ' + (sockYes ? 'Yes' : 'No') + ')');
+  } else if (sockYes) {
+    eng.push('Docker    · 🟢 Sock (Sock: Yes)');
+  }
+  if (t.container)  eng.push('Container · ' + t.container);
+  if (t.core_version) {
+    eng.push('Core      · ' + t.core_version + (t.protocol != null ? ' (Proto ' + t.protocol + ')' : ''));
+  }
+  if (t.horizon_version) eng.push('Horizon   · ' + t.horizon_version);
+
+  // Level icon
+  let levelIc = '🟢';
+  if (t.level === 'critical') levelIc = '🔴';
+  else if (t.level === 'warning' || t.level === 'soft') levelIc = '🟡';
+
+  const parts = ['🩺 PI NODE · DIAGNOSTIC', ''];
+  if (net.length) { parts.push(treeBlock('🌐 NETWORK & LEDGER', net)); parts.push(''); }
+  if (eng.length) { parts.push(treeBlock('🐳 ENGINE & SYSTEM', eng)); parts.push(''); }
+  parts.push('───────────────');
+  parts.push('💡 Level: ' + levelIc + ' ' + String(t.level || 'unknown').toUpperCase());
+  parts.push('☕ Donate: MB 0905428801');
+  return parts.join('\n');
 }
 
 
@@ -1197,78 +1308,77 @@ function formatActionAdvice(t) {
   return lines.join('\n');
 }
 
+/* ---------- NEW formatReport ---------- */
 function formatReport() {
   const rows = readHistory(1);
-  const lines = [];
   if (!rows.length) {
-    return ['🟢 PI NODE · REPORT', '━━━━━━━━━━━━━━━━━━', '', '📊 DATA · collecting…', '', '💛 PI NODE CONTROLLER', '"/donate"'].join('\n');
+    return [
+      '🟢 PI NODE · REPORT', '',
+      '⏱ RANGE · collecting…',
+      '',
+      '📊 METRICS',
+      ' └ 🔄 SYNC · n/a',
+      '',
+      '💡 DIAGNOSIS',
+      ' ├ 🟢 NODE   · Healthy (n/a)',
+      ' └ 🛠️ ACTION · None (No BAT needed)',
+      '',
+      '───────────────',
+      '☕ Donate: MB 0905428801',
+      '🔗 UI: http://127.0.0.1:18780/'
+    ].join('\n');
   }
+
   const first = rows[0], last = rows[rows.length - 1];
-  const t0 = (first.ts || '').slice(0, 16).replace('T', ' ');
-  const t1 = (last.ts || '').slice(0, 16).replace('T', ' ');
-  const hours = Math.max(1, Math.round(rows.length * TELEMETRY_SEC / 3600 * 10) / 10);
-  const ok = rows.filter(r => r.level === 'ok').length;
-  const crit = rows.filter(r => r.level === 'critical').length;
-  const rams = rows.map(r => r.ram).filter(x => x != null);
-  const cpus = rows.map(r => r.cpu).filter(x => x != null);
-  const temps = rows.map(r => r.temp).filter(x => x != null);
-  const head = crit > rows.length * 0.15 ? '🟡 PI NODE · REPORT' : '🟢 PI NODE · REPORT';
-  lines.push(head);
-  lines.push('────────');
-  lines.push('');
-  lines.push('🕐 ' + (t0 || '?') + ' → ' + (t1 || '?'));
-  lines.push('📊 DATA · ~' + hours + 'h · ' + rows.length + ' samples');
-  lines.push('');
+  const t0 = String(first.ts || '').replace('T', ' ').slice(11, 16) || '--:--';
+  const t1 = String(last.ts  || '').replace('T', ' ').slice(11, 16) || '--:--';
+  const hours = Math.max(0.1, Math.round(rows.length * TELEMETRY_SEC / 3600 * 10) / 10);
+  const crit = rows.filter(function (r) { return r.level === 'critical'; }).length;
+  const healthy = rows.filter(function (r) { return r.level === 'ok' || r.level === 'soft'; }).length;
+  const healthyPct = Math.round((healthy / rows.length) * 100);
+
+  const head = (crit > rows.length * 0.15) ? '🟡 PI NODE · REPORT' : '🟢 PI NODE · REPORT';
+
+  // ── METRICS ──
   const lastSync = last.sync || '';
-  lines.push('🔄 SYNC · ' + (/synced|live|good/i.test(lastSync) ? '🟢' : '🟡') + ' ' + (lastSync || 'n/a'));
+  const metrics = [];
+  metrics.push('🔄 SYNC    · ' + (/synced|live|good/i.test(lastSync) ? '🟢 ' : '🟡 ') + (lastSync || 'n/a'));
+
   const dockRows = rows.filter(function (r) { return r.docker || r.docker_sock || r.container; });
   const lastDock = dockRows.length ? dockRows[dockRows.length - 1] : last;
-  const dockLabel = lastDock.docker || (lastDock.docker_sock ? 'sock' : (last.ports_open > 0 ? 'Running' : 'n/a'));
-  lines.push('🐳 DOCKER · ' + (/stop|exit|n\/a/i.test(String(dockLabel)) ? '🟡 ' : '🟢 ') + dockLabel);
-  if (lastDock.container) lines.push('📦 CONTAINER · ' + lastDock.container);
+  const dockLabel = lastDock.docker
+    || (lastDock.docker_sock ? 'sock' : (last.ports_open > 0 ? 'Running' : 'N/A'));
+  metrics.push('🐳 DOCKER  · ' + (/stop|exit|n\/a/i.test(String(dockLabel)) ? '🟡 ' : '🟢 ') + dockLabel);
+
   if (last.peer_in != null || last.peer_out != null) {
-    lines.push('👥 PEERS · IN ' + (last.peer_in != null ? last.peer_in : '?') + ' / OUT ' + (last.peer_out != null ? last.peer_out : '?'));
+    metrics.push('👥 PEERS   · IN ' + (last.peer_in != null ? last.peer_in : '?') +
+                 ' / OUT ' + (last.peer_out != null ? last.peer_out : '?'));
   }
-  lines.push('🌐 NETWORK · ' + (last.ports_all_open || last.ports_open >= 2 ? '🟢 Stable' : '🟡 Check'));
-  if (rams.length) lines.push('🧠 RAM · ' + Math.round(Math.min.apply(null, rams)) + '–' + Math.round(Math.max.apply(null, rams)) + '%');
-  if (cpus.length) {
-    const peak = Math.max.apply(null, cpus);
-    lines.push('⚙️ CPU · ' + (peak >= 90 ? '🔴 Peak ' + Math.round(peak) + '%' : '🟢 Normal'));
-  }
-  if (temps.length) lines.push('🌡️ TEMP · ' + Math.round(Math.min.apply(null, temps)) + '–' + Math.round(Math.max.apply(null, temps)) + '°C');
-  lines.push('');
-  lines.push('────────');
-  lines.push('');
-  lines.push('📌 ISSUES');
-  if (crit === 0) lines.push('🟢 None');
-  else lines.push('🔴 Critical samples · ' + crit);
-  // simple sync-loss events from history
-  let events = 0;
-  for (let i = 1; i < rows.length; i++) {
-    const a = rows[i - 1], b = rows[i];
-    if (a.level === 'ok' && b.level === 'critical') events++;
-  }
+  metrics.push('🌐 NETWORK · ' + ((last.ports_all_open || last.ports_open >= 2) ? '🟢 Stable' : '🟡 Check'));
+
+  // ── ISSUE WINDOWS ──
   const windows = extractIssueWindows(rows);
-  lines.push('');
-  lines.push('📌 ISSUE WINDOWS');
-  if (!windows.length && crit === 0) lines.push('🟢 None');
-  else lines.push(formatIssueWindows(windows));
-  if (events) {
-    lines.push('');
-    lines.push('📌 EVENTS');
-    lines.push('🔴 Status flips · ' + events);
-  }
-  lines.push('');
-  lines.push('────────');
-  lines.push('');
-  lines.push('💡 RESULT');
-  lines.push((crit > rows.length * 0.1 ? '🟡' : '🟢') + ' NODE · ' + (crit > rows.length * 0.1 ? 'Watch' : 'Healthy'));
-  lines.push('🔄 SYNC · ' + (lastSync || 'n/a'));
-  lines.push('🛠️ ACTION · ' + (crit > rows.length * 0.1 ? 'Review node' : 'None'));
-  lines.push('');
-  lines.push('💛 PI NODE CONTROLLER');
-  lines.push('☕ DEV COFFEE · MB 0905428801 · "/donate"');
-  return lines.join('\n');
+
+  // ── DIAGNOSIS ──
+  const diag = [];
+  diag.push((healthyPct >= 90 ? '🟢' : '🟡') + ' NODE   · ' +
+            (healthyPct >= 90 ? 'Healthy' : 'Watch') + ' (' + healthyPct + '%)');
+  diag.push('🛠️ ACTION · ' + (crit > rows.length * 0.1 ? 'Review node' : 'None (No BAT needed)'));
+
+  const parts = [head, ''];
+  parts.push('⏱ RANGE · ' + t0 + ' ➔ ' + t1 + ' (~' + hours + 'h | ' + rows.length + ' samples)');
+  parts.push('');
+  parts.push(treeBlock('📊 METRICS', metrics));
+  parts.push('');
+  parts.push('⚠️ ISSUE WINDOWS');
+  parts.push(formatIssueWindows(windows));
+  parts.push('');
+  parts.push(treeBlock('💡 DIAGNOSIS', diag));
+  parts.push('');
+  parts.push('───────────────');
+  parts.push('☕ Donate: MB 0905428801');
+  parts.push('🔗 UI: http://127.0.0.1:18780/');
+  return parts.join('\n');
 }
 
 
@@ -1324,12 +1434,18 @@ function extractIssueWindows(rows) {
   return out.slice(-8);
 }
 
+/* ---------- NEW formatIssueWindows ---------- */
 function formatIssueWindows(windows) {
-  if (!windows || !windows.length) return '🟢 No issue windows in this sample set';
-  return windows.map(function (w) {
-    const a = String(w.from || '').replace('T', ' ').slice(0, 16);
-    const b = String(w.to || '').replace('T', ' ').slice(0, 16);
-    return '🔴 ' + (w.kind || 'issue') + ' · ' + a + ' → ' + b + ' · ' + (w.n || 1) + ' samples' + (w.sync ? (' · ' + w.sync) : '');
+  if (!windows || !windows.length) return ' └ 🟢 None in this sample set';
+  return windows.map(function (w, i) {
+    const isLast = i === windows.length - 1;
+    // ts = "2024-09-10T01:35:00+07:00" -> lấy HH:MM
+    const from = String(w.from || w.to || '').replace('T', ' ');
+    const hhmm = from.slice(11, 16) || '--:--';
+    const n = (w.n || 1) + 'x';
+    const kind = w.kind || 'watch';
+    const sync = w.sync ? (' ' + w.sync) : '';
+    return ' ' + (isLast ? '└' : '├') + ' 🔴 ' + kind + ' · ' + hhmm + ' (' + n + ')' + sync;
   }).join('\n');
 }
 
@@ -3263,4 +3379,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       await tgSend('✅ Controller online\n\n' + formatStatus(t), { reply_markup: mainKeyboard() });
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-}
+      }
