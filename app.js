@@ -64,7 +64,7 @@ HELP USER WITH:
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.56-solohost';
+const VERSION = '2.6.57-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -490,6 +490,8 @@ async function collectTelemetry() {
     t.docker_status = lf.docker_status;
     t.docker_health = lf.docker_health;
     t.health = lf.health;
+    t.core_health = lf.core_health;
+    t.health_source = lf.health_source;
     t.trend = lf.trend;
     try {
       const hist = readHistory(1);
@@ -1723,6 +1725,9 @@ function buildFacts(t) {
   return {
     source: t.source || null,
     sync: t.sync || null,
+    health: t.health != null ? t.health : null,
+    core_health: t.core_health != null ? t.core_health : null,
+    health_source: t.health_source || null,
     core_state: t.core_state || null,
     core_verified: t.core_verified === true,
     sync_confidence: t.sync_confidence || null,
@@ -1782,7 +1787,7 @@ function writeDockerPref(obj) {
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
-  // normalize image tag from VERSION e.g. 2.6.56-solohost -> v2.6.24
+  // normalize image tag from VERSION e.g. 2.6.57-solohost -> v2.6.24
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);

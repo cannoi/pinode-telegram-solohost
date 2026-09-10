@@ -80,7 +80,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
     <h1>Pi Node Controller PRO <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
-    <p class="sub">SoloHost · v2.6.51</p>
+    <p class="sub">SoloHost · v2.6.57</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
@@ -201,7 +201,8 @@ async function loadStatus(){
     const peersVal = t.peers!=null ? String(t.peers) : ((t.peer_in!=null||t.peer_out!=null)?String((t.peer_in??0)+(t.peer_out??0)):'—');
     
     // Đọc điểm sức khỏe theo thời gian thực từ API
-    const health = t.health!=null ? Math.min(100, Math.max(0, Number(t.health))) : 0;
+    const rawH = (t.core_health!=null && t.docker_sock) ? t.core_health : t.health;
+    const health = rawH!=null ? Math.min(100, Math.max(0, Number(rawH))) : 0;
     
     // Tự động gán màu sắc và trạng thái tương ứng theo thang điểm 100
     let color = '#16c60c';
