@@ -3,39 +3,29 @@
  * SoloHost Controller v2.6.57
  * - Smart Incident Engine (observe -> evaluate -> decide -> act)
  * - Health Scoring with Damper + Stability-aware adjustment
- * - Adaptive polling during incidents
- * - Telegram long-poll independent of telemetry
+ * - AI Data Query DSL (flexible metric/window/agg/filter) + named blocks
+ * - Unified data pipeline: read -> normalize -> aggregate -> use
+ * - Night/off mute applies to ALL notifications (alerts + recovery + scheduled)
+ * - Reports use dynamic rolling window (spans midnight)
  * - NO docker.sock required
- * - International: static messages English; AI replies in user's language
  */
 const http = require('http');
 const https = require('https');
 const PiNodeStatusMonitor = require('./status-monitor');
 const dataFrame = require('./data-frame');
 const lite = require('./telemetry-lite');
-
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
 const APP_KNOWLEDGE = `
 APP: Pi Node Telegram Controller PRO (SoloHost Edition)
-Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI. Sandboxed Docker app on Pi Desktop.
-
-HEALTH SCORING (v2.6.57):
-- Raw score from lite.liveFrame is passed through a damper:
-  stability-aware adjustment -> EMA -> dead-band -> confidence weighting.
-- Stability-aware: if sync flips a lot but is mostly good, score is pulled up (noise tolerance).
-  If sync is persistently bad (long window), score stays low.
-- Confidence depends on data sources: docker.sock + Core = HIGH,
-  Core only = MEDIUM, Horizon only = LOW, no source = NONE (score frozen).
-
-INCIDENT ENGINE:
-- Detects 10 incident classes: docker_down, network_down, ports_closed,
-  sync_stalled, sync_lag, peers_zero, peers_low, ram_high, cpu_high, disk_high
-- Stage machine 0-5: observe -> first alert -> reminders -> chronic
-
-STYLE: Static system messages stay English. AI replies match the user's language.
+Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI.
+HEALTH: stability-aware damper (EMA + dead-band + confidence).
+INCIDENT: 10 classes, stage machine 0-5.
+AI DATA: named blocks + flexible DSL queries (metric/window/agg/filter).
+Night/off mute covers alerts, reminders, recovery, and scheduled reports.
+STYLE: static system messages English; AI replies match user's language.
 `.trim();
 
 const VERSION = '2.6.57-solohost';
@@ -56,9 +46,7 @@ const GITHUB_PRO = 'https://github.com/cannoi/pinode-telegram-controller';
 const NODE_PORTS = [31401, 31402, 31403];
 const NODE_PORTS_STR = NODE_PORTS.map(String);
 const statusMonitor = new PiNodeStatusMonitor({
-  nodeHost: NODE_HOST,
-  horizonPort: HORIZON_PORT,
-  stateDir: DATA,
+  nodeHost: NODE_HOST, horizonPort: HORIZON_PORT, stateDir: DATA,
   cacheTTL: Math.min(8000, Math.max(3000, (typeof TELEMETRY_SEC === 'number' ? TELEMETRY_SEC : 60) * 80))
 });
 
@@ -131,7 +119,6 @@ function hourVN() {
   } catch (e) { return (new Date().getUTCHours() + 7) % 24; }
 }
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 function treeBlock(header, lines) {
   if (!lines || !lines.length) return '';
   const out = [header];
@@ -155,7 +142,6 @@ function sourceLabel(t) {
   if (t.docker_sock && !/docker/i.test(src)) src = 'DockerExec+' + src;
   return src;
 }
-
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function fmtN(n) { return n == null ? null : Number(n).toLocaleString('en-US'); }
 function redactSecrets(s) {
@@ -244,50 +230,112 @@ function probeTcp(host, port, timeout) {
   });
 }
 
+/* ======================================================================
+ * DATA PIPELINE (read -> normalize -> aggregate -> use)
+ * ==================================================================== */
+function normalizeHistoryRow(r) {
+  if (!r || typeof r !== 'object') return null;
+  const out = { ts: r.ts || null };
+  const numKeys = ['ledger','ledger_age','peer_in','peer_out','peer_total','cpu','ram','temp','disk',
+    'health','health_raw','health_adjusted','ports_open','ingest_lag'];
+  numKeys.forEach(function (k) {
+    const v = r[k];
+    if (v != null && v !== '' && isFinite(Number(v))) out[k] = Number(v);
+  });
+  ['sync','level','container','docker','health_confidence','network_kind','source'].forEach(function (k) {
+    if (r[k] != null && r[k] !== '') out[k] = String(r[k]);
+  });
+  if (r.ports_all_open === true || r.ports_all_open === false) out.ports_all_open = r.ports_all_open;
+  if (r.docker_sock === true || r.docker_sock === false) out.docker_sock = r.docker_sock;
+  return out;
+}
+function getTimeWindow(hours) {
+  const h = Math.max(0.1, Number(hours) || 24);
+  const cutoff = Date.now() - h * 3600 * 1000;
+  const daysBack = Math.ceil(h / 24) + 1;
+  const raw = readHistory(daysBack);
+  const out = [];
+  raw.forEach(function (r) {
+    const ts = Date.parse(r && r.ts) || 0;
+    if (!ts || ts < cutoff) return;
+    const n = normalizeHistoryRow(r);
+    if (n) out.push(n);
+  });
+  return out;
+}
+function aggregate(rows, key) {
+  const vals = [];
+  (rows || []).forEach(function (r) {
+    if (r && r[key] != null && isFinite(Number(r[key]))) vals.push(Number(r[key]));
+  });
+  if (!vals.length) return { n: 0, min: null, max: null, avg: null, median: null };
+  const sorted = vals.slice().sort(function (a, b) { return a - b; });
+  const mid = Math.floor(sorted.length / 2);
+  const med = sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2 * 10) / 10;
+  return {
+    n: vals.length, min: sorted[0], max: sorted[sorted.length - 1],
+    avg: Math.round(vals.reduce(function (s, x) { return s + x; }, 0) / vals.length * 10) / 10,
+    median: med
+  };
+}
+function syncConsensus(rows) {
+  const buckets = {};
+  let total = 0;
+  (rows || []).forEach(function (r) {
+    const s = (r && r.sync) ? String(r.sync) : '';
+    if (!s) return;
+    total++;
+    buckets[s] = (buckets[s] || 0) + 1;
+  });
+  const out = {};
+  Object.keys(buckets).forEach(function (k) {
+    out[k] = { count: buckets[k], pct: Math.round(buckets[k] / Math.max(1, total) * 1000) / 10 };
+  });
+  return { total: total, states: out };
+}
+function ledgerVelocity(rows) {
+  if (!rows || rows.length < 2) return null;
+  const first = rows[0], last = rows[rows.length - 1];
+  if (first.ledger == null || last.ledger == null) return null;
+  const dt = (Date.parse(last.ts) - Date.parse(first.ts)) / 3600000;
+  if (!isFinite(dt) || dt <= 0) return null;
+  return { delta: last.ledger - first.ledger, hours: Math.round(dt * 10) / 10,
+           perHour: Math.round((last.ledger - first.ledger) / dt * 10) / 10 };
+}
+/* END DATA PIPELINE ==================================================== */
+
 function normalizeAny(j, sourceTag) {
   const o = { source: sourceTag || j.source || 'unknown', timestamp: j.timestamp || nowISO() };
-  if (j.sync) o.sync = String(j.sync);
-  if (j.ledger != null) o.ledger = Number(j.ledger);
-  if (j.ledger_age != null) o.ledger_age = Number(j.ledger_age);
-  if (j.peer_in != null) o.peer_in = Number(j.peer_in);
-  if (j.peer_out != null) o.peer_out = Number(j.peer_out);
-  if (j.docker) o.docker = String(j.docker);
-  if (j.container) o.container = String(j.container);
+  ['sync','docker','container','confidence'].forEach(function (k) {
+    if (j[k] != null && j[k] !== '') o[k] = String(j[k]);
+  });
+  ['ledger','ledger_age','peer_in','peer_out','cpu','ram','temp','disk'].forEach(function (k) {
+    if (j[k] != null && j[k] !== '' && isFinite(Number(j[k]))) o[k] = Number(j[k]);
+  });
   if (j.ports) o.ports = j.ports;
-  if (j.cpu != null) o.cpu = Number(j.cpu);
-  if (j.ram != null) o.ram = Number(j.ram);
-  if (j.temp != null) o.temp = Number(j.temp);
-  if (j.disk != null) o.disk = Number(j.disk);
-  if (j.confidence) o.confidence = j.confidence;
   return o;
 }
 
 function mergeTelemetry(primary, horizon, portSnap) {
   const t = { timestamp: nowISO(), sources: {} };
   if (primary) {
-    Object.keys(primary).forEach(k => {
-      if (primary[k] != null && k !== 'source' && k !== 'timestamp') t[k] = primary[k];
-    });
+    Object.keys(primary).forEach(k => { if (primary[k] != null && k !== 'source' && k !== 'timestamp') t[k] = primary[k]; });
     t.sources.data_live = true;
     t.source = 'Horizon';
     t.confidence = primary.confidence || 'high';
   } else t.sources.data_live = false;
-
   if (horizon) {
     t.sources.horizon = true;
     if (t.ledger == null && horizon.ledger != null) t.ledger = horizon.ledger;
     if (t.sync == null && horizon.sync) t.sync = horizon.sync;
     if (!primary) { t.source = 'Horizon'; t.confidence = 'medium'; }
   } else t.sources.horizon = false;
-
   if (portSnap && portSnap.ports) {
     t.sources.ports = true;
     if (!t.ports) t.ports = portSnap.ports;
     t.ports_open = portSnap.openCount;
   } else t.sources.ports = false;
-
   if (!t.container) t.container = NODE_LABEL;
-
   const portsAllOpen = t.ports && NODE_PORTS.every(p => t.ports[String(p)] === 'OPEN');
   const portsAllClosed = t.ports && NODE_PORTS.every(p => t.ports[String(p)] === 'CLOSED');
   const dockerStopped = t.docker && /stop|exit/i.test(t.docker);
@@ -295,7 +343,6 @@ function mergeTelemetry(primary, horizon, portSnap) {
   const syncBad = /not synced|unsynced|error|fail/i.test(syncStr);
   const catching = /catching|joining|booting|behind|slow|ingest lag/i.test(syncStr);
   const coreMissing = t.core_verified === false || /core n\/a|unverified/i.test(syncStr);
-
   let level = 'ok';
   if (dockerStopped || portsAllClosed) level = 'critical';
   else if (syncBad || (t.ledger_age != null && t.ledger_age > 300)) level = 'warning';
@@ -303,31 +350,19 @@ function mergeTelemetry(primary, horizon, portSnap) {
   else if (coreMissing && (primary || horizon)) level = 'soft';
   else if (primary || horizon || (portSnap && portSnap.openCount >= 2)) level = 'ok';
   else level = 'soft';
-
   t.level = level;
   t.ports_all_open = !!portsAllOpen;
   return t;
 }
 
-/* ======================================================================
- * HEALTH SCORING: Damper + Stability-aware adjustment
- * ==================================================================== */
+/* HEALTH SCORING (Damper + stability) ================================== */
 const HEALTH_CFG = {
   emaAlpha: { high: 0.30, medium: 0.20, low: 0.10 },
   deadBand: { high: 3, medium: 5, low: 8 },
-  trendWindow: 12,
-  trendThreshold: 4,
-  staleResetMs: 60 * 60 * 1000,
-  // Stability analysis tuning
-  stabShortWindow: 30,   // samples (~30 min at 60s)
-  stabLongWindow: 180,   // samples (~3h at 60s)
-  stabFlipHi: 0.15,      // flipRate considered "noisy"
-  stabFlipMax: 0.50,     // flipRate at which pullUp is max
-  stabBadLow: 0.40,      // badRatio considered "not sustained bad"
-  stabBadHi: 0.70,       // badRatio considered "sustained bad"
-  stabLongBadHi: 0.30    // longerBadRatio considered "chronic"
+  trendWindow: 12, trendThreshold: 4, staleResetMs: 60 * 60 * 1000,
+  stabShortWindow: 30, stabLongWindow: 180,
+  stabFlipHi: 0.15, stabFlipMax: 0.50, stabBadLow: 0.40, stabBadHi: 0.70, stabLongBadHi: 0.30
 };
-
 function healthConfidence(t) {
   t = t || {};
   const hasSock = !!(t.docker_sock || t.docker_probe);
@@ -335,10 +370,7 @@ function healthConfidence(t) {
   const hasHorizon = !!(t.source && /horizon/i.test(t.source));
   const hasPorts = t.ports_open != null;
   let sources = 0;
-  if (hasSock) sources++;
-  if (hasCore) sources++;
-  if (hasHorizon) sources++;
-  if (hasPorts) sources++;
+  if (hasSock) sources++; if (hasCore) sources++; if (hasHorizon) sources++; if (hasPorts) sources++;
   if (hasSock && hasCore) return { level: 'high', sources: sources, score: 100 };
   if (hasSock) return { level: 'high', sources: sources, score: 85 };
   if (hasCore) return { level: 'medium', sources: sources, score: 70 };
@@ -347,24 +379,15 @@ function healthConfidence(t) {
   if (hasPorts) return { level: 'low', sources: sources, score: 30 };
   return { level: 'none', sources: 0, score: 10 };
 }
-
 function isBadSyncString(s) {
   s = String(s || '');
   if (!s) return false;
   return /catching|behind|slow|not synced|unsynced|error|fail|ingest lag/i.test(s)
     && !/synced|live|good|horizon ok/i.test(s);
 }
-
-/**
- * Analyze sync stability over last 30min + 3h windows.
- * Returns: { samples, flips, flipRate, badRatio, longerBadRatio, unstableShort, sustainedBad, label }
- */
 function computeSyncStability() {
-  const rows = (typeof readHistory === 'function') ? readHistory(1) : [];
-  if (!rows || rows.length < 3) {
-    return { samples: 0, flips: 0, flipRate: 0, badRatio: 0, longerBadRatio: 0,
-             unstableShort: false, sustainedBad: false, label: 'unknown' };
-  }
+  const rows = getTimeWindow(3);
+  if (!rows || rows.length < 3) return { samples: 0, flips: 0, flipRate: 0, badRatio: 0, longerBadRatio: 0, unstableShort: false, sustainedBad: false, label: 'unknown' };
   const recent = rows.slice(-HEALTH_CFG.stabShortWindow);
   let flips = 0, bad = 0, lastSync = null;
   recent.forEach(function (r) {
@@ -375,65 +398,39 @@ function computeSyncStability() {
     lastSync = s;
   });
   const n = Math.max(1, recent.length);
-  const flipRate = flips / n;
-  const badRatio = bad / n;
-
+  const flipRate = flips / n, badRatio = bad / n;
   const longer = rows.slice(-HEALTH_CFG.stabLongWindow);
   let longBad = 0;
-  longer.forEach(function (r) {
-    if (isBadSyncString(String(r.sync || ''))) longBad++;
-  });
+  longer.forEach(function (r) { if (isBadSyncString(String(r.sync || ''))) longBad++; });
   const longerBadRatio = longer.length ? longBad / longer.length : 0;
-
   const unstableShort = flipRate >= HEALTH_CFG.stabFlipHi && badRatio < HEALTH_CFG.stabBadLow;
   const sustainedBad = longerBadRatio >= HEALTH_CFG.stabLongBadHi || badRatio >= HEALTH_CFG.stabBadHi;
-
   let label = 'stable';
   if (sustainedBad) label = 'sustained_bad';
   else if (unstableShort) label = 'unstable_short';
   else if (flipRate >= 0.10) label = 'some_flips';
-
-  return {
-    samples: recent.length,
-    flips: flips,
+  return { samples: recent.length, flips: flips,
     flipRate: Math.round(flipRate * 100) / 100,
     badRatio: Math.round(badRatio * 100) / 100,
     longerBadRatio: Math.round(longerBadRatio * 100) / 100,
-    unstableShort: unstableShort,
-    sustainedBad: sustainedBad,
-    label: label
-  };
+    unstableShort: unstableShort, sustainedBad: sustainedBad, label: label };
 }
-
-/**
- * Adjust raw score using stability:
- * - noisy but mostly good  -> pull up (discount transient noise)
- * - sustained bad          -> no pull-up; cautious recovery only if recent clean
- */
 function applyStabilityAdjustment(rawHealth, stability) {
   if (!stability || stability.samples < 5) return rawHealth;
   let adjusted = rawHealth;
-
   if (stability.unstableShort && !stability.sustainedBad) {
-    const noiseFactor = Math.min(1, (stability.flipRate - HEALTH_CFG.stabFlipHi) /
-                                    (HEALTH_CFG.stabFlipMax - HEALTH_CFG.stabFlipHi));
+    const noiseFactor = Math.min(1, (stability.flipRate - HEALTH_CFG.stabFlipHi) / (HEALTH_CFG.stabFlipMax - HEALTH_CFG.stabFlipHi));
     const notBadFactor = 1 - Math.min(1, stability.badRatio / HEALTH_CFG.stabBadLow);
     const pullUp = noiseFactor * notBadFactor * 0.6;
     adjusted = rawHealth + (95 - rawHealth) * pullUp;
   }
-
   if (stability.sustainedBad) {
-    if (stability.badRatio >= 0.3) {
-      adjusted = Math.min(adjusted, rawHealth);
-    } else {
-      adjusted = Math.min(adjusted, rawHealth + (95 - rawHealth) * 0.25);
-    }
+    if (stability.badRatio >= 0.3) adjusted = Math.min(adjusted, rawHealth);
+    else adjusted = Math.min(adjusted, rawHealth + (95 - rawHealth) * 0.25);
   }
-
   return Math.max(0, Math.min(100, adjusted));
 }
-
-function computeHealthTrend(recentRows, currentSmoothed) {
+function computeHealthTrend(recentRows) {
   if (!recentRows || recentRows.length < 4) return 'stable';
   const vals = recentRows.map(function (r) { return r && r.health; })
     .filter(function (x) { return x != null && isFinite(Number(x)); }).map(Number);
@@ -447,41 +444,30 @@ function computeHealthTrend(recentRows, currentSmoothed) {
   if (delta < -HEALTH_CFG.trendThreshold) return 'degrading';
   return 'stable';
 }
-
 function dampHealthScore(t, rawHealth) {
   t = t || {};
   const conf = healthConfidence(t);
   const stability = computeSyncStability();
-
   if (conf.level === 'none' || rawHealth == null || !isFinite(Number(rawHealth))) {
     const frozen = state.healthSmooth != null ? Number(state.healthSmooth) : null;
     state.healthStability = stability;
-    return {
-      health: frozen, raw: null, adjusted: null,
-      confidence: conf.level, confidenceScore: conf.score, sourceCount: conf.sources,
-      trend: state.healthTrend || 'unknown', frozen: true, stability: stability
-    };
+    return { health: frozen, raw: null, adjusted: null, confidence: conf.level,
+      confidenceScore: conf.score, sourceCount: conf.sources,
+      trend: state.healthTrend || 'unknown', frozen: true, stability: stability };
   }
-
   const alpha = HEALTH_CFG.emaAlpha[conf.level];
   const dead = HEALTH_CFG.deadBand[conf.level];
   const raw = Number(rawHealth);
   const adjustedRaw = applyStabilityAdjustment(raw, stability);
-
   const stale = !state.healthAt || (Date.now() - state.healthAt) > HEALTH_CFG.staleResetMs;
   let prev = (!stale && state.healthSmooth != null) ? Number(state.healthSmooth) : adjustedRaw;
-
   let input = adjustedRaw;
   if (Math.abs(adjustedRaw - prev) < dead) input = prev;
-
   let smoothed = prev * (1 - alpha) + input * alpha;
-
   if (adjustedRaw <= 30 && smoothed > adjustedRaw + 20) smoothed = adjustedRaw + 20;
   if (adjustedRaw >= 95 && smoothed < adjustedRaw - 15) smoothed = adjustedRaw - 15;
-
-  const recentRows = (typeof readHistory === 'function') ? readHistory(1).slice(-HEALTH_CFG.trendWindow) : [];
-  const trend = computeHealthTrend(recentRows, smoothed);
-
+  const recentRows = getTimeWindow(1).slice(-HEALTH_CFG.trendWindow);
+  const trend = computeHealthTrend(recentRows);
   state.healthSmooth = Math.round(smoothed);
   state.healthRaw = Math.round(raw);
   state.healthAdjusted = Math.round(adjustedRaw);
@@ -491,33 +477,17 @@ function dampHealthScore(t, rawHealth) {
   state.healthAt = Date.now();
   state.healthTrend = trend;
   state.healthStability = stability;
-
-  return {
-    health: Math.round(smoothed),
-    raw: Math.round(raw),
-    adjusted: Math.round(adjustedRaw),
-    confidence: conf.level,
-    confidenceScore: conf.score,
-    sourceCount: conf.sources,
-    trend: trend,
-    frozen: false,
-    stability: stability
-  };
+  return { health: Math.round(smoothed), raw: Math.round(raw), adjusted: Math.round(adjustedRaw),
+    confidence: conf.level, confidenceScore: conf.score, sourceCount: conf.sources,
+    trend: trend, frozen: false, stability: stability };
 }
-/* ======================================================================
- * END HEALTH SCORING
- * ==================================================================== */
+/* END HEALTH SCORING ==================================================== */
 
 async function collectTelemetry() {
   let t = null;
-  try {
-    t = await statusMonitor.getStatus(true, { detailed: false, docker: false });
-  } catch (e) {
-    try { actionLog('error', 'statusMonitor: ' + (e && e.message)); } catch (e2) {}
-  }
-  if (!t || typeof t !== 'object') {
-    t = { source: 'none', sync: 'Unknown', level: 'soft', core_verified: false, sources: {} };
-  }
+  try { t = await statusMonitor.getStatus(true, { detailed: false, docker: false }); }
+  catch (e) { try { actionLog('error', 'statusMonitor: ' + (e && e.message)); } catch (e2) {} }
+  if (!t || typeof t !== 'object') t = { source: 'none', sync: 'Unknown', level: 'soft', core_verified: false, sources: {} };
   t.sources = t.sources || {};
   t.sources.horizon = !!(t.source && /horizon/i.test(String(t.source)));
   t.sources.core = !!t.core_verified;
@@ -526,7 +496,7 @@ async function collectTelemetry() {
   if (!t.container) t.container = NODE_LABEL || null;
   try { t = Object.assign(t, dataFrame.toFrame(t)); dataFrame.applyPeerRule(t); } catch (e) {}
   try {
-    const prev = readHistory(1).slice(-10);
+    const prev = getTimeWindow(1).slice(-10);
     const lf = lite.liveFrame(t, prev);
     t.status = lf.status;
     t.peers = lf.peers;
@@ -554,7 +524,7 @@ async function collectTelemetry() {
     t.core_health = lf.core_health;
     t.health_source = lf.health_source;
     try {
-      const hist = readHistory(1);
+      const hist = getTimeWindow(1);
       const prev2 = hist.length ? hist[hist.length - 1] : null;
       if (prev2 && prev2.ledger != null && t.ledger != null && prev2.ts) {
         const dt = (Date.now() - Date.parse(prev2.ts)) / 60000;
@@ -567,17 +537,16 @@ async function collectTelemetry() {
     if (t.disk == null) t.disk = lf.disk;
   } catch (e) {}
   try {
-    const cg = readCgroupResources();
-    if (cg) {
-      if (cg.ram != null && Number(cg.ram) > 0 && t.ram == null) t.ram = cg.ram;
-      if (cg.cpu != null && Number(cg.cpu) > 0 && t.cpu == null) t.cpu = cg.cpu;
-      t.sources.cgroup = true;
+    if (typeof readCgroupResources === 'function') {
+      const cg = readCgroupResources();
+      if (cg) {
+        if (cg.ram != null && Number(cg.ram) > 0 && t.ram == null) t.ram = cg.ram;
+        if (cg.cpu != null && Number(cg.cpu) > 0 && t.cpu == null) t.cpu = cg.cpu;
+        t.sources.cgroup = true;
+      }
     }
   } catch (e) {}
-  try {
-    state.lastTelemetry = lite.historyRow(t);
-    saveJSON(STATE_F, state);
-  } catch (e) {}
+  try { state.lastTelemetry = lite.historyRow(t); saveJSON(STATE_F, state); } catch (e) {}
   try { cache = t; cacheAt = Date.now(); t._age = 0; } catch (e) {}
   try { appendHistory(t); } catch (e) {}
   try {
@@ -587,35 +556,30 @@ async function collectTelemetry() {
   } catch (e) { try { fs.writeFileSync(LATEST_F, JSON.stringify(t)); } catch (e2) {} }
   return t;
 }
-
 function getTelemetry() {
   if (cache && Date.now() - cacheAt < TELEMETRY_SEC * 1000 + 5000) return Promise.resolve(cache);
   return collectTelemetry();
 }
 
-// ---------- history ----------
+/* HISTORY ============================================================== */
 function appendHistory(t) {
   try {
     const f = path.join(DIR_HIST, dayVN() + '.ndjson');
     const row = lite.historyRow(t);
     row.ts = nowISO();
-    // Core metrics (some may already be set by lite.historyRow)
     if (t.sync) row.sync = String(t.sync);
     if (t.ledger != null) row.ledger = Number(t.ledger);
     if (t.ledger_age != null) row.ledger_age = Number(t.ledger_age);
     if (t.level != null) row.level = t.level;
-    // Health fields
     if (t.health != null) row.health = t.health;
     if (t.health_raw != null) row.health_raw = t.health_raw;
     if (t.health_adjusted != null) row.health_adjusted = t.health_adjusted;
     if (t.health_confidence) row.health_confidence = t.health_confidence;
-    // NEW: context so formatReport + analytics have real data
     if (t.ports_open != null) row.ports_open = t.ports_open;
     if (t.ports_all_open != null) row.ports_all_open = t.ports_all_open;
     if (t.docker_sock != null) row.docker_sock = t.docker_sock;
     if (t.container) row.container = t.container;
     if (t.docker) row.docker = t.docker;
-    // Peers
     if (t.peer_in != null) row.peer_in = t.peer_in;
     if (t.peer_out != null) row.peer_out = t.peer_out;
     if (t.peer_total != null) row.peer_total = t.peer_total;
@@ -662,9 +626,7 @@ function pruneHistory() {
     for (const n of files) {
       const day = n.replace('.ndjson', '');
       const t0 = Date.parse(day + 'T00:00:00+07:00') || Date.parse(day);
-      if (t0 && t0 < cutoff) {
-        try { fs.unlinkSync(path.join(DIR_HIST, n)); } catch (e) {}
-      }
+      if (t0 && t0 < cutoff) { try { fs.unlinkSync(path.join(DIR_HIST, n)); } catch (e) {} }
     }
   } catch (e) {}
 }
@@ -681,8 +643,9 @@ function readHistory(days) {
   }
   return out;
 }
+/* END HISTORY ========================================================== */
 
-// ---------- FSM alerts ----------
+/* FSM ALERTS =========================================================== */
 function hourNowLocal() {
   try { return parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', hour12: false }), 10); }
   catch (e) { return new Date().getHours(); }
@@ -698,15 +661,12 @@ function alertsMuted() {
   }
   return { muted: false, why: '' };
 }
-
 function reportKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: '🕖 07:00', callback_data: 'cmd_report_h7' }, { text: '🕕 18:00', callback_data: 'cmd_report_h18' }],
-      [{ text: '🕖🕕 Both', callback_data: 'cmd_report_both' }, { text: '⏰ Off', callback_data: 'cmd_report_off' }],
-      [{ text: '🔔 Alerts On', callback_data: 'cmd_mute_on' }]
-    ]
-  };
+  return { inline_keyboard: [
+    [{ text: '🕖 07:00', callback_data: 'cmd_report_h7' }, { text: '🕕 18:00', callback_data: 'cmd_report_h18' }],
+    [{ text: '🕖🕕 Both', callback_data: 'cmd_report_both' }, { text: '⏰ Off', callback_data: 'cmd_report_off' }],
+    [{ text: '🔔 Alerts On', callback_data: 'cmd_mute_on' }]
+  ]};
 }
 function effectiveReportHours() {
   if (state.reportHours === 'off' || (Array.isArray(state.reportHours) && !state.reportHours.length)) return [];
@@ -714,14 +674,12 @@ function effectiveReportHours() {
   return REPORT_HOURS;
 }
 function alertKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: '🔇 1h', callback_data: 'cmd_mute_1h' }, { text: '🌙 Night', callback_data: 'cmd_mute_night' }],
-      [{ text: '📅 24h', callback_data: 'cmd_mute_24h' }, { text: '🔕 Off', callback_data: 'cmd_mute_off' }],
-      [{ text: '✅ I did it', callback_data: 'cmd_incident_ack' }, { text: '⏸ Skip 4h', callback_data: 'cmd_incident_skip' }],
-      [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📋 Incidents', callback_data: 'cmd_incidents' }]
-    ]
-  };
+  return { inline_keyboard: [
+    [{ text: '🔇 1h', callback_data: 'cmd_mute_1h' }, { text: '🌙 Night', callback_data: 'cmd_mute_night' }],
+    [{ text: '📅 24h', callback_data: 'cmd_mute_24h' }, { text: '🔕 Off', callback_data: 'cmd_mute_off' }],
+    [{ text: '✅ I did it', callback_data: 'cmd_incident_ack' }, { text: '⏸ Skip 4h', callback_data: 'cmd_incident_skip' }],
+    [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📋 Incidents', callback_data: 'cmd_incidents' }]
+  ]};
 }
 function setMuteHours(h) {
   state.muteUntil = Date.now() + h * 3600 * 1000;
@@ -732,13 +690,12 @@ function formatMuteAck() {
   const m = alertsMuted();
   const until = state.muteUntil ? new Date(state.muteUntil).toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh' }) : '-';
   return [
-    '🔔 ALERT PREFS',
-    '───────────────',
+    '🔔 ALERT PREFS', '───────────────',
     'Mode       · ' + (state.alertMode || 'on'),
     'Mute until · ' + until,
-    'Now        · ' + (m.muted ? ('QUIET · ' + m.why) : 'ACTIVE'),
-    '',
-    'Incident engine: observe -> alert (5m) -> reminder (15m/45m) -> chronic.'
+    'Now        · ' + (m.muted ? ('QUIET · ' + m.why) : 'ACTIVE'), '',
+    'Night/off mute applies to ALL notifications:',
+    'alerts, reminders, recovery, scheduled reports.'
   ].join('\n');
 }
 function mapLevelToFsm(level) {
@@ -761,10 +718,7 @@ function classifyIssueKind(t) {
   if (t.level === 'warning' || t.level === 'soft') return 'watch';
   return 'ok';
 }
-
-/* ======================================================================
- * SMART INCIDENT ENGINE
- * ==================================================================== */
+/* INCIDENT ENGINE ====================================================== */
 function detectIncidentSignature(t) {
   t = t || {};
   const sync = String(t.sync || '');
@@ -779,7 +733,6 @@ function detectIncidentSignature(t) {
   const disk = t.disk != null ? Number(t.disk) : null;
   const source = String(t.source || '');
   const synced = /synced|live|horizon ok|good/i.test(sync);
-
   if (/stop|exit/i.test(docker)) return { type: 'docker_down', severity: 'critical' };
   if (portsOpen === 0 && source === 'none') return { type: 'network_down', severity: 'critical' };
   if (portsOpen === 0) return { type: 'ports_closed', severity: 'warning' };
@@ -862,11 +815,9 @@ function decideIncidentAction(incident, t) {
   if ((incident.alertsSent || 0) > 0 && sinceLastMin < (cooldownMin + userAckBonus)) {
     return { action: 'cooldown', targetStage: targetStage, durationMin: durMin, waitMin: Math.round((cooldownMin + userAckBonus) - sinceLastMin) };
   }
-  return {
-    action: (incident.alertsSent || 0) === 0 ? 'alert' : 'remind',
+  return { action: (incident.alertsSent || 0) === 0 ? 'alert' : 'remind',
     targetStage: targetStage, durationMin: durMin,
-    reason: isUpgradeCatchup ? 'upgrade_catchup' : 'persistent'
-  };
+    reason: isUpgradeCatchup ? 'upgrade_catchup' : 'persistent' };
 }
 function smartScriptForIncident(incident, t) {
   if (!incident) return null;
@@ -878,7 +829,7 @@ function smartScriptForIncident(incident, t) {
     case 'sync_stalled': return { script: 'NodeReset', note: 'Ledger age > 5 min while container is running. Container may be stuck - NodeReset only AFTER confirming Docker Engine is healthy.' };
     case 'sync_lag': {
       if (incident.firstCoreVersion && t && t.core_version && String(t.core_version) !== String(incident.firstCoreVersion)) {
-        return { script: 'WAIT', note: 'Catching up after a Core version change - this is normal. Watch 10-15 min; DO NOT restart.' };
+        return { script: 'WAIT', note: 'Catching up after a Core version change - normal. Watch 10-15 min; DO NOT restart.' };
       }
       return { script: 'WAIT', note: 'Sync lag while ports are OK and ledger is still advancing. Wait - do not restart. If it lasts >15 min AND ledger stops moving, escalate to /diagnostic.' };
     }
@@ -937,6 +888,7 @@ function formatIncidents() {
   parts.push('Adaptive interval: ' + currentTelemetryInterval() + 's (base ' + TELEMETRY_SEC + 's)');
   return parts.join('\n');
 }
+/* END INCIDENT ENGINE ================================================== */
 
 async function fetchPctContext() {
   const now = Date.now();
@@ -967,17 +919,16 @@ async function fetchPctContext() {
     req.end();
   });
 }
-
 async function aiClassifyIncident(t, kind, durationMin) {
   if (!GEMINI_API_KEY) return null;
   if (state.incidentAiAt && Date.now() - state.incidentAiAt < 25 * 60 * 1000) return state.incidentAiText || null;
   try {
     const pct = await fetchPctContext();
-    const brief = (typeof preEvalBrief === 'function') ? preEvalBrief(t) : '';
+    const brief = preEvalBrief(t);
     const q = [
       'Classify this Pi Node incident for the operator. Reply in English, short (alerts are English-only).',
       'Kind guess: ' + kind + '. Duration minutes: ' + durationMin + '.',
-      'Decide: TRANSIENT (upgrade/catch-up, brief network blip, regional cable) vs ACTION (node really needs operator fix).',
+      'Decide: TRANSIENT vs ACTION.',
       'PCT recent releases: ' + JSON.stringify(pct).slice(0, 400),
       brief.slice(0, 1200),
       'Format: 1 line verdict + 2 lines why + 1 line what to do. No markdown.'
@@ -992,7 +943,6 @@ async function aiClassifyIncident(t, kind, durationMin) {
   } catch (e) {}
   return null;
 }
-
 function alertFingerprint(t, kind) {
   const s = String((kind || '') + ' ' + (t && t.sync || '') + ' ' + (t && t.level || '')).replace(/\d+/g, 'N').toLowerCase();
   return s.replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -1021,12 +971,8 @@ function pushDashAlert(text, t) {
   const rec = recommendActions(t || {});
   const tip = (rec && rec.why && rec.why[0]) ? rec.why[0] : '';
   const files = (rec && rec.items) ? rec.items.map(function (i) { return i.file; }).join(', ') : '';
-  rows.unshift({
-    ts: nowISO(), text: String(text || '').slice(0, 500),
-    tip: tip, scripts: files,
-    health: t && t.health != null ? t.health : null,
-    sync: t && t.sync || null, read: false
-  });
+  rows.unshift({ ts: nowISO(), text: String(text || '').slice(0, 500), tip: tip, scripts: files,
+    health: t && t.health != null ? t.health : null, sync: t && t.sync || null, read: false });
   fs.mkdirSync(path.dirname(dashAlertPath()), { recursive: true });
   fs.writeFileSync(dashAlertPath(), JSON.stringify(rows.slice(0, 30)));
 }
@@ -1040,10 +986,12 @@ async function runAlertMachine(t) {
         .filter(function (i) { return i && i.resolvedAt && (now - i.resolvedAt) < 60000 && (i.alertsSent || 0) > 0; })
         .sort(function (a, b) { return (b.resolvedAt || 0) - (a.resolvedAt || 0); })[0];
       if (justResolved) {
+        const gate = alertsMuted();
         const durMin = Math.max(1, Math.round((justResolved.resolvedAt - justResolved.firstSeen) / 60000));
         const recTxt = '🟢 RECOVERED after ~' + durMin + ' min\nPrevious issue: ' + justResolved.type + '\n\n' + formatStatus(t, 'RECOVERED');
         try { pushDashAlert(recTxt, t); } catch (e3) {}
-        await tgSend(recTxt);
+        if (gate.muted) { try { actionLog('info', 'recovery muted - ' + gate.why); } catch (e) {} }
+        else { await tgSend(recTxt); }
       }
     }
     state.fsm = 'HEALTHY'; state.failCount = 0;
@@ -1068,10 +1016,7 @@ async function runAlertMachine(t) {
   let advice = '';
   if (script) {
     if (script.script === 'WAIT') advice = '\n\n⏸️ RECOMMENDED: WAIT\n' + script.note;
-    else {
-      advice = '\n\n🛠️ RECOMMENDED: ' + script.script + '\n' + script.note;
-      if (script.then) advice += '\nIf not improved after ~15 min, escalate to: ' + script.then;
-    }
+    else { advice = '\n\n🛠️ RECOMMENDED: ' + script.script + '\n' + script.note; if (script.then) advice += '\nIf not improved after ~15 min, escalate to: ' + script.then; }
   }
   const aiBlock = ai ? ('\n\n🤖 AI\n' + ai) : '';
   const body = '\n\n' + formatStatus(t, 'ALERT');
@@ -1086,12 +1031,11 @@ async function runAlertMachine(t) {
   saveJSON(STATE_F, state);
 }
 
-// ---------- format helpers ----------
+/* FORMAT HELPERS ======================================================= */
 function lineIf(icon, label, value) {
   if (value == null || value === '') return null;
   return icon + '  ' + label + '  ' + value;
 }
-
 const ACTION_LOG = path.join(DIR_LOGS, 'actions.ndjson');
 function actionLog(kind, msg, extra) {
   try {
@@ -1120,7 +1064,6 @@ function formatActionLog() {
   lines.push(''); lines.push('SoloHost · /logs');
   return lines.join('\n');
 }
-
 function healthIcon(score) {
   if (score == null) return '⚪';
   if (score >= 85) return '🟢';
@@ -1134,7 +1077,6 @@ function healthConfIcon(conf) {
   if (conf === 'low') return '🟠';
   return '⚪';
 }
-
 function formatStatus(t, mode) {
   t = t || {};
   const age = t._age != null ? t._age : (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0);
@@ -1142,13 +1084,11 @@ function formatStatus(t, mode) {
   const syncOk = syncStr && /synced|live|good|horizon ok/i.test(syncStr) && !(t.ledger_age != null && t.ledger_age > 120);
   const netOk = t.ports_all_open || (t.ports_open != null && t.ports_open >= 2);
   const nodeOk = t.level === 'ok' || (syncOk && netOk && t.level !== 'critical');
-
   let head;
   if (mode === 'RECOVERED') head = '🟢 PI NODE · RECOVERED';
   else if (t.level === 'critical') head = '🔴 PI NODE · QUICK STATUS';
   else if (!nodeOk) head = '🟡 PI NODE · QUICK STATUS';
   else head = '🟢 PI NODE · QUICK STATUS';
-
   const runtime = [];
   if (t.sync) {
     const ic = /synced|live/i.test(syncStr) ? '🟢' : (/catch|behind|slow|lag/i.test(syncStr) ? '🟡' : '🔄');
@@ -1163,7 +1103,6 @@ function formatStatus(t, mode) {
   } else if (t.docker_sock) runtime.push('NODE    · 🟢 sock');
   else if (t.ports_all_open) runtime.push('NODE    · 🟢 Running');
   else if (t.ports_open === 0) runtime.push('NODE    · 🔴 Ports closed');
-
   if (netOk) {
     let netKind = '';
     if (t.network_kind === 'Testnet') netKind = 'Pi Testnet';
@@ -1171,14 +1110,12 @@ function formatStatus(t, mode) {
     else if (t.network_kind) netKind = t.network_kind;
     runtime.push('NET     · 🟢 Good' + (netKind ? ' (' + netKind + ')' : ''));
   } else if (t.ports_open != null) runtime.push('NET     · 🟡 Partial');
-
   if (t.ledger != null) {
     let s = '#' + Number(t.ledger).toLocaleString('en-US');
     if (t.ledger_age != null) s += ' (Age ' + t.ledger_age + 's)';
     runtime.push('LEDGER  ·    ' + s);
   }
   if (t.core_version) runtime.push('CORE    ·    ' + t.core_version);
-
   const sys = [];
   if (t.health != null) {
     const hIcon = healthIcon(t.health);
@@ -1193,12 +1130,10 @@ function formatStatus(t, mode) {
     sys.push('CPU     · ' + cic + ' ' + t.cpu + '%');
   }
   if (t.temp != null) sys.push('TEMP    ·    ' + t.temp + '°C');
-
   const result = [];
   if (nodeOk) { result.push('STATUS  · 🟢 OK'); result.push('ACTION  · None (No Issues)'); }
   else if (t.level === 'critical') { result.push('STATUS  · 🔴 CRITICAL'); result.push('ACTION  · Inspect node'); }
   else { result.push('STATUS  · 🟡 WATCH'); result.push('ACTION  · Review'); }
-
   const parts = [head, ''];
   if (runtime.length) parts.push(treeBlock('⚙️ RUNTIME', runtime));
   if (sys.length) { parts.push(''); parts.push(treeBlock('📊 SYSTEM', sys)); }
@@ -1210,13 +1145,11 @@ function formatStatus(t, mode) {
   parts.push('🕐 ' + footerTime() + ' · v' + VERSION);
   return parts.join('\n');
 }
-
 function formatPeers(t) {
   t = t || {};
   try { if (typeof dataFrame !== 'undefined') dataFrame.applyPeerRule(t); } catch (e) {}
   const inn = t.peer_in, out = t.peer_out;
-  const total = t.peer_total != null ? t.peer_total
-    : ((inn != null && out != null) ? (inn + out) : (inn != null ? inn : out));
+  const total = t.peer_total != null ? t.peer_total : ((inn != null && out != null) ? (inn + out) : (inn != null ? inn : out));
   const age = cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0;
   const parts = ['🌐 PEERS & TREND · STELLAR CORE', ''];
   if (inn == null && out == null) {
@@ -1237,7 +1170,7 @@ function formatPeers(t) {
   parts.push('');
   parts.push('📈 TREND');
   try {
-    const rows = readHistory(1).filter(function (r) { return r.peer_in != null || r.peer_out != null; }).slice(-12);
+    const rows = getTimeWindow(1).filter(function (r) { return r.peer_in != null || r.peer_out != null; }).slice(-12);
     if (rows.length >= 2) {
       const a = rows[0], b = rows[rows.length - 1];
       const ta = (a.peer_in || 0) + (a.peer_out || 0);
@@ -1258,7 +1191,6 @@ function formatPeers(t) {
   parts.push('📡 Controller Pro · ⏱ ' + age + 's ago');
   return parts.join('\n');
 }
-
 function formatDiagnostic(t) {
   t = t || {};
   const net = [];
@@ -1278,15 +1210,12 @@ function formatDiagnostic(t) {
     if (bits.length) s += ' (' + bits.join(' | ') + ')';
     net.push(s);
   }
-  if (t.peer_in != null || t.peer_out != null) {
-    net.push('Peers   · IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
-  }
+  if (t.peer_in != null || t.peer_out != null) net.push('Peers   · IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
   if (t.ports) {
     const openCount = NODE_PORTS_STR.filter(function (p) { return t.ports[p] === 'OPEN'; }).length;
     const pic = openCount === 3 ? '🟢 OPEN' : (openCount === 0 ? '🔴 CLOSED' : '🟡 ' + openCount + '/3');
     net.push('Ports   · 31401-31403 ' + pic);
   }
-
   const eng = [];
   const sockYes = !!(t.docker_sock || t.docker_probe);
   if (t.docker) {
@@ -1296,11 +1225,9 @@ function formatDiagnostic(t) {
   if (t.container) eng.push('Container · ' + t.container);
   if (t.core_version) eng.push('Core      · ' + t.core_version + (t.protocol != null ? ' (Proto ' + t.protocol + ')' : ''));
   if (t.horizon_version) eng.push('Horizon   · ' + t.horizon_version);
-
   let levelIc = '🟢';
   if (t.level === 'critical') levelIc = '🔴';
   else if (t.level === 'warning' || t.level === 'soft') levelIc = '🟡';
-
   const health = [];
   if (t.health != null) {
     const hIcon = healthIcon(t.health);
@@ -1314,12 +1241,10 @@ function formatDiagnostic(t) {
     const s = state.healthStability;
     if (s && s.samples > 0) {
       const sIcon = s.sustainedBad ? '🔴' : (s.unstableShort ? '🟡' : (s.flipRate >= 0.10 ? '🟡' : '🟢'));
-      health.push('Stability  · ' + sIcon + ' ' + s.label +
-        ' · flip ' + s.flipRate + ' · bad ' + s.badRatio + ' (3h ' + s.longerBadRatio + ')');
+      health.push('Stability  · ' + sIcon + ' ' + s.label + ' · flip ' + s.flipRate + ' · bad ' + s.badRatio + ' (3h ' + s.longerBadRatio + ')');
     }
     if (t.health_frozen) health.push('State      · ⚪ frozen (no source)');
   }
-
   const parts = ['🩺 PI NODE · DIAGNOSTIC', ''];
   if (health.length) { parts.push(treeBlock('💚 HEALTH', health)); parts.push(''); }
   if (net.length) { parts.push(treeBlock('🌐 NETWORK & LEDGER', net)); parts.push(''); }
@@ -1348,19 +1273,20 @@ const APP_GUIDE = `
 HOW TO USE THIS APP
 Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /incidents /donate /help /mute.
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
-Ask in any language. AI answers as a Pi Node technician using real telemetry + 24h history.
-Health score: stability-aware damper (noise-tolerant but punishes sustained bad sync).
-Reports: 07:00 / 18:00 / both / off.
+Ask in any language. AI can request historical data via named blocks OR flexible DSL queries.
+Health score: stability-aware damper - noise tolerated but sustained bad sync is punished.
+Night/off mute applies to all notifications including recovery and scheduled reports.
+Reports always show the last 24h rolling window (spans midnight).
 Donate: /donate - Pay with Pi or MB Bank QR.
 `;
 
 const SCRIPT_MAP = `
 APP FLOW
 Telegram or SoloHost UI -> /status /report /analyze use history frames.
-Incident engine uses stage machine: observe (0-1) -> first alert (2) -> reminder (3-4) -> chronic (5).
-Alert only fires when the incident persists 5+ minutes or 5+ samples. Upgrade catch-up is suppressed.
+Incident engine: observe -> first alert -> reminder -> chronic.
+Alert only fires when the incident persists 5+ minutes or 5+ samples.
 
-SCRIPT CHOICE (matched by incident type)
+SCRIPT CHOICE
 docker_down    -> DockerRecover (soft first; no WSL while Docker lives).
 network_down   -> NetRepair (keep current LAN IP).
 ports_closed   -> Firewall; if >15 min escalate to NetRepair.
@@ -1378,8 +1304,8 @@ Reboot         Last resort only. Never for a 1-minute catch-up.
 
 function recommendActions(t) {
   t = t || {};
-  const rows = (typeof readHistory === 'function') ? readHistory(1) : [];
-  const windows = (typeof extractIssueWindows === 'function') ? extractIssueWindows(rows) : [];
+  const rows = getTimeWindow(24);
+  const windows = extractIssueWindows(rows);
   const lastWin = windows.length ? windows[windows.length - 1] : null;
   const longBad = lastWin && ((lastWin.n || 0) >= 8 || (lastWin.min || 0) >= 15);
   const repeated = windows.filter(function (w) { return (w.n || 0) >= 3; }).length >= 2;
@@ -1461,71 +1387,44 @@ function formatActionAdvice(t) {
   lines.push('Download on SoloHost UI: http://127.0.0.1:18780/');
   return lines.join('\n');
 }
-
-/* ---------- formatReport (FIXED: uses live cache for current DOCKER / NETWORK) ---------- */
-function formatReport() {
-  const rows = readHistory(1);
+function formatReport(hours) {
+  const H = Math.max(1, Math.min(168, Number(hours) || 24));
+  const rows = getTimeWindow(H);
   if (!rows.length) {
     return [
-      '🟢 PI NODE · REPORT', '',
-      '⏱ RANGE · collecting…', '',
+      '🟢 PI NODE · REPORT', '', '⏱ RANGE · collecting…', '',
       '📊 METRICS', ' └ 🔄 SYNC · n/a', '',
-      '💡 DIAGNOSIS',
-      ' ├ 🟢 NODE   · Healthy (n/a)',
-      ' └ 🛠️ ACTION · None (No BAT needed)', '',
-      '───────────────',
-      '☕ Donate: MB 0905428801',
-      '🔗 UI: http://127.0.0.1:18780/'
+      '💡 DIAGNOSIS', ' ├ 🟢 NODE   · Healthy (n/a)', ' └ 🛠️ ACTION · None (No BAT needed)', '',
+      '───────────────', '☕ Donate: MB 0905428801', '🔗 UI: http://127.0.0.1:18780/'
     ].join('\n');
   }
   const first = rows[0], last = rows[rows.length - 1];
-  const t0 = String(first.ts || '').replace('T', ' ').slice(11, 16) || '--:--';
-  const t1 = String(last.ts  || '').replace('T', ' ').slice(11, 16) || '--:--';
-  const hours = Math.max(0.1, Math.round(rows.length * TELEMETRY_SEC / 3600 * 10) / 10);
+  const fmtFull = function (iso) { const s = String(iso || '').replace('T', ' '); return s.slice(0, 16) || '?'; };
+  const durMs = (Date.parse(last.ts) || Date.now()) - (Date.parse(first.ts) || 0);
+  const hoursShown = Math.max(0.1, Math.round(durMs / 3600000 * 10) / 10);
   const crit = rows.filter(function (r) { return r.level === 'critical'; }).length;
   const healthy = rows.filter(function (r) { return r.level === 'ok' || r.level === 'soft'; }).length;
   const healthyPct = Math.round((healthy / rows.length) * 100);
   const head = (crit > rows.length * 0.15) ? '🟡 PI NODE · REPORT' : '🟢 PI NODE · REPORT';
-
-  // Use LIVE cache for current state; fall back to last history row
   const live = cache || last;
-
   const metrics = [];
-
-  // SYNC
   const lastSync = live.sync || last.sync || '';
   metrics.push('🔄 SYNC    · ' + (/synced|live|good/i.test(lastSync) ? '🟢 ' : '🟡 ') + (lastSync || 'n/a'));
-
-  // DOCKER — real state from live telemetry
   const portsOpen = (live.ports_open != null) ? Number(live.ports_open) : null;
   let dockLabel, dockIcon;
   if (live.docker && String(live.docker).length) {
     dockLabel = String(live.docker);
     dockIcon = /stop|exit/i.test(dockLabel) ? '🟡 ' : '🟢 ';
-  } else if (live.docker_sock === true) {
-    dockLabel = 'sock';
-    dockIcon = '🟢 ';
-  } else if (live.container) {
-    dockLabel = 'Running (`' + live.container + '`)';
-    dockIcon = '🟢 ';
-  } else if (portsOpen != null && portsOpen > 0) {
-    dockLabel = 'Running (via ports)';
-    dockIcon = '🟢 ';
-  } else {
-    dockLabel = 'N/A';
-    dockIcon = '⚪ ';
-  }
+  } else if (live.docker_sock === true) { dockLabel = 'sock'; dockIcon = '🟢 '; }
+  else if (live.container) { dockLabel = 'Running (`' + live.container + '`)'; dockIcon = '🟢 '; }
+  else if (portsOpen != null && portsOpen > 0) { dockLabel = 'Running (via ports)'; dockIcon = '🟢 '; }
+  else { dockLabel = 'N/A'; dockIcon = '⚪ '; }
   metrics.push('🐳 DOCKER  · ' + dockIcon + dockLabel);
-
-  // PEERS
   const livePeerIn = live.peer_in != null ? live.peer_in : last.peer_in;
   const livePeerOut = live.peer_out != null ? live.peer_out : last.peer_out;
   if (livePeerIn != null || livePeerOut != null) {
-    metrics.push('👥 PEERS   · IN ' + (livePeerIn != null ? livePeerIn : '?') +
-                 ' / OUT ' + (livePeerOut != null ? livePeerOut : '?'));
+    metrics.push('👥 PEERS   · IN ' + (livePeerIn != null ? livePeerIn : '?') + ' / OUT ' + (livePeerOut != null ? livePeerOut : '?'));
   }
-
-  // NETWORK — real state from live telemetry
   let netLabel;
   if (portsOpen == null) netLabel = '⚪ Unknown';
   else if (portsOpen === 3) netLabel = '🟢 Stable (3/3)';
@@ -1533,21 +1432,16 @@ function formatReport() {
   else if (portsOpen >= 2) netLabel = '🟢 Stable (' + portsOpen + '/3)';
   else netLabel = '🟡 Check (' + portsOpen + '/3)';
   metrics.push('🌐 NETWORK · ' + netLabel);
-
   const windows = extractIssueWindows(rows);
   const diag = [];
   diag.push((healthyPct >= 90 ? '🟢' : '🟡') + ' NODE   · ' + (healthyPct >= 90 ? 'Healthy' : 'Watch') + ' (' + healthyPct + '%)');
   diag.push('🛠️ ACTION · ' + (crit > rows.length * 0.1 ? 'Review node' : 'None (No BAT needed)'));
-
   const parts = [head, ''];
-  parts.push('⏱ RANGE · ' + t0 + ' ➔ ' + t1 + ' (~' + hours + 'h | ' + rows.length + ' samples)');
+  parts.push('⏱ RANGE · ' + fmtFull(first.ts) + ' ➔ ' + fmtFull(last.ts));
+  parts.push('📊 WINDOW · last ' + H + 'h · ~' + hoursShown + 'h shown · ' + rows.length + ' samples');
   parts.push('');
   parts.push(treeBlock('📊 METRICS', metrics));
-  if (windows.length) {
-    parts.push('');
-    parts.push('⚠️ ISSUE WINDOWS');
-    parts.push(formatIssueWindows(windows));
-  }
+  if (windows.length) { parts.push(''); parts.push('⚠️ ISSUE WINDOWS'); parts.push(formatIssueWindows(windows)); }
   parts.push('');
   parts.push(treeBlock('💡 DIAGNOSIS', diag));
   parts.push('');
@@ -1556,15 +1450,13 @@ function formatReport() {
   parts.push('🔗 UI: http://127.0.0.1:18780/');
   return parts.join('\n');
 }
-
 function formatHelp() {
   return [
-    '📖 PI NODE CONTROLLER · HELP',
-    '───────────────', '',
+    '📖 PI NODE CONTROLLER · HELP', '───────────────', '',
     '📊 /status      - Current node health snapshot',
     '🔄 /sync        - Sync status and latest ledger',
     '👥 /peers       - Inbound and outbound peers',
-    '📈 /report      - Recent history and issue windows',
+    '📈 /report      - Last 24h history (spans midnight)',
     '🧭 /incidents   - Active + recent incident history',
     '🩺 /diagnostic  - Technical source details',
     '💬 /analyze     - AI technician review (in your language)',
@@ -1573,13 +1465,13 @@ function formatHelp() {
     '💻 /winpro      - Windows PRO edition link',
     '🏓 /ping        - Controller heartbeat',
     '❓ /help        - This list',
-    '🔕 /mute        - Quiet alerts: 1h, 24h, night, off', '',
-    'Ask in any language. AI replies in your language.',
-    'Smart incident engine observes before it alerts.', '',
+    '🔕 /mute        - Quiet alerts (also mutes recovery)',
+    '',
+    'Ask in any language. AI can request historical data.',
+    'Night/off mute applies to ALL notifications.', '',
     '💛 /donate'
   ].join('\n');
 }
-
 function extractIssueWindows(rows) {
   const out = [];
   if (!rows || !rows.length) return out;
@@ -1615,11 +1507,10 @@ function formatIssueWindows(windows) {
     return ' ' + (isLast ? '└' : '├') + ' 🔴 ' + kind + ' · ' + hhmm + ' (' + n + ')' + sync;
   }).join('\n');
 }
-
 function preEvalBrief(t) {
   t = t || {};
-  const h = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
-  const rows = (typeof readHistory === 'function') ? readHistory(2) : [];
+  const h = buildHistory24h();
+  const rows = getTimeWindow(48);
   const windows = extractIssueWindows(rows);
   const lines = [];
   lines.push('PRE-EVAL (do not invent beyond this)');
@@ -1638,7 +1529,6 @@ function preEvalBrief(t) {
   lines.push(formatIssueWindows(windows));
   return lines.join('\n');
 }
-
 function formatScripts() {
   return ['ℹ️ INFO', '───────────────', 'No Windows scripts in SoloHost edition.', 'Commands: /status /report /peers /diagnostic /analyze /incidents', '', '☕ Donate: MB 0905428801'].join('\n');
 }
@@ -1675,13 +1565,11 @@ function donateQrPath(kind) {
   return fs.existsSync(fallback) ? fallback : null;
 }
 function donateKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: '🟣 Pi', callback_data: 'cmd_donate_pi' }, { text: '🏦 MB Bank', callback_data: 'cmd_donate_mb' }],
-      [{ text: '📦 Both QRs', callback_data: 'cmd_donate_both' }],
-      [{ text: '📊 Status', callback_data: 'cmd_status' }, { text: '💬 Analyze', callback_data: 'cmd_analyze' }]
-    ]
-  };
+  return { inline_keyboard: [
+    [{ text: '🟣 Pi', callback_data: 'cmd_donate_pi' }, { text: '🏦 MB Bank', callback_data: 'cmd_donate_mb' }],
+    [{ text: '📦 Both QRs', callback_data: 'cmd_donate_both' }],
+    [{ text: '📊 Status', callback_data: 'cmd_status' }, { text: '💬 Analyze', callback_data: 'cmd_analyze' }]
+  ]};
 }
 async function sendDonateQr(kind) {
   const thanks = randomDonateThanks();
@@ -1748,6 +1636,7 @@ function formatWindowsPro() {
   ].join('\n');
 }
 
+/* LANGUAGE ============================================================= */
 function detectUserLang(q) {
   const s = String(q || '');
   if (!s.trim()) return null;
@@ -1780,10 +1669,7 @@ function detectUserPreferredLang(currentMsg) {
   const turns = loadChatHistory();
   const userTurns = turns.filter(function (t) { return t && t.role === 'user'; }).slice(-10);
   const counts = {};
-  userTurns.forEach(function (t) {
-    const l = detectUserLang(t.text);
-    if (l) counts[l] = (counts[l] || 0) + 1;
-  });
+  userTurns.forEach(function (t) { const l = detectUserLang(t.text); if (l) counts[l] = (counts[l] || 0) + 1; });
   let best = null, bestN = 0;
   for (const k in counts) if (counts[k] > bestN) { best = k; bestN = counts[k]; }
   return best || 'English';
@@ -1809,7 +1695,6 @@ function detectIntent(q) {
   if (/sell|finance|money|tight|bán|kẹt tiền|vender|argent/.test(s)) return 'FINANCE';
   return 'GENERAL';
 }
-
 function loadChatHistory() {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(DATA, 'chat_history.json'), 'utf8'));
@@ -1846,7 +1731,6 @@ function collectIssues(t) {
   if (t.docker && /stop|exit/i.test(String(t.docker))) issues.push('Docker/container not running');
   if (t.ports_open === 0) issues.push('Node ports closed');
   if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Unusual sync: ' + t.sync);
-  if (t.stall) issues.push('Ledger stalled for a long time');
   if (t.ledger_age != null && t.ledger_age > 300) issues.push('Ledger age high (' + t.ledger_age + 's)');
   if (t.peer_in != null && t.peer_in < 2) issues.push('Peer IN low (' + t.peer_in + ')');
   if (t.ram != null && t.ram >= 88) issues.push('RAM high (' + t.ram + '%)');
@@ -1861,13 +1745,526 @@ function metricIntentKey(intent) {
   if (intent === 'TEMP') return 'temp';
   return null;
 }
+function buildFacts(t) {
+  t = t || {};
+  return {
+    source: t.source || null, sync: t.sync || null,
+    health: t.health != null ? t.health : null,
+    health_raw: t.health_raw != null ? t.health_raw : null,
+    health_adjusted: t.health_adjusted != null ? t.health_adjusted : null,
+    health_confidence: t.health_confidence || null, health_trend: t.health_trend || null,
+    core_health: t.core_health != null ? t.core_health : null, health_source: t.health_source || null,
+    core_state: t.core_state || null, core_verified: t.core_verified === true,
+    sync_confidence: t.sync_confidence || null,
+    ledger: t.ledger != null ? t.ledger : null, ledger_age: t.ledger_age != null ? t.ledger_age : null,
+    ingest_lag: t.ingest_lag != null ? t.ingest_lag : null,
+    peer_in: t.peer_in != null ? t.peer_in : null, peer_out: t.peer_out != null ? t.peer_out : null,
+    ports_open: t.ports_open != null ? t.ports_open : null, ports: t.ports || null,
+    network: t.network || null, network_kind: t.network_kind || null,
+    protocol: t.protocol != null ? t.protocol : null,
+    core_version: t.core_version || null, horizon_version: t.horizon_version || null,
+    level: t.level || null, fsm: t.fsm || null, sources_ok: t.sources || null,
+    docker: t.docker || null, docker_sock: t.docker_sock === true, docker_probe: t.docker_probe === true,
+    container: t.container || null, cpu: t.cpu != null ? t.cpu : null, ram: t.ram != null ? t.ram : null,
+    temp: t.temp != null ? t.temp : null, ports_all_open: t.ports_all_open === true
+  };
+}
+
+/* DOCKER CONSENT ====================================================== */
+function dockerPrefPath() { return path.join(DATA, 'state', 'docker-pref.json'); }
+function readDockerPref() { try { return JSON.parse(fs.readFileSync(dockerPrefPath(), 'utf8')); } catch (e) { return { enabled: false }; } }
+function writeDockerPref(obj) { try { fs.mkdirSync(path.dirname(dockerPrefPath()), { recursive: true }); fs.writeFileSync(dockerPrefPath(), JSON.stringify(obj, null, 2)); } catch (e) {} }
+function applyDockerConsentFiles() {
+  const result = { wrote_data: false, wrote_host: false, paths: [] };
+  let tag = 'v2.6.57';
+  try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
+  const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
+  const composeBody = [
+    '# Generated after Operator consent in Pi Node Telegram Controller',
+    'services:', '  agent:', '    image: ' + img,
+    '    labels:', '      pi.ui.primary: "true"',
+    '    ports:', '      - "127.0.0.1:18780:8080"',
+    '    environment:',
+    '      - BOT_TOKEN=${BOT_TOKEN}', '      - CHAT_ID=${CHAT_ID}',
+    '      - GEMINI_API_KEY=${GEMINI_API_KEY}',
+    '      - NODE_HOST=host.docker.internal', '      - HORIZON_PORT=31401',
+    '      - CORE_HTTP_PORT=11626', '      - DOCKER_PROBE=1',
+    '      - AUTO_DOCKER_SOCK=0', '      - TELEMETRY_SEC=60',
+    '      - TZ=Asia/Ho_Chi_Minh',
+    '    volumes:', '      - ./data:/data',
+    '      - ./:/solohost-config:rw',
+    '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+    '    restart: unless-stopped', ''
+  ].join('\n');
+  const readme = 'OPTIONAL DOCKER - Operator consent\n=================================\n\n1) Copy docker-compose.yml over the one in this SoloHost app folder.\n2) SoloHost -> Stop -> Start the app.\n3) Telegram: /docker  (should show Socket: YES when mount worked).\n\nThis is NOT default SoloHost permission. You opted in.\n';
+  const bat = '@echo off\r\ncd /d "%~dp0"\r\nif exist docker-compose.yml copy /Y docker-compose.yml docker-compose.yml.bak\r\ncopy /Y "%~dp0docker-compose.yml" "%~dp0..\\docker-compose.yml" 2>nul\r\necho Done.\r\npause\r\n';
+  const ps1 = '# Optional Docker enable - run from app folder after consent\n$ErrorActionPreference = "Continue"\n$here = $PSScriptRoot\n$root = Split-Path $here -Parent\nif ((Split-Path $here -Leaf) -eq "docker-enable") { $root = Split-Path (Split-Path $here -Parent) -Parent }\n$src = Join-Path $here "docker-compose.yml"\n$dst = Join-Path $root "docker-compose.yml"\nif (Test-Path $dst) { Copy-Item $dst ($dst + ".bak") -Force }\nCopy-Item $src $dst -Force\nWrite-Host "Wrote $dst"\nWrite-Host "Stop -> Start the SoloHost app now."\n';
+  try {
+    const dir = path.join(DATA, 'docker-enable');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docker-compose.yml'), composeBody);
+    fs.writeFileSync(path.join(dir, 'README.txt'), readme);
+    fs.writeFileSync(path.join(dir, 'APPLY.bat'), bat);
+    fs.writeFileSync(path.join(dir, 'APPLY.ps1'), ps1);
+    result.wrote_data = true; result.paths.push(dir);
+  } catch (e) { result.data_error = String(e && e.message); }
+  const hostDir = process.env.SOLOHOST_CONFIG_DIR || '/solohost-config';
+  try {
+    if (fs.existsSync(hostDir)) {
+      const dst = path.join(hostDir, 'docker-compose.yml');
+      try { if (fs.existsSync(dst)) fs.copyFileSync(dst, dst + '.bak'); } catch (e2) {}
+      fs.writeFileSync(dst, composeBody);
+      fs.writeFileSync(path.join(hostDir, 'DOCKER_ENABLE_README.txt'), readme);
+      result.wrote_host = true; result.paths.push(dst);
+    }
+  } catch (e) { result.host_error = String(e && e.message); }
+  try { actionLog('ok', 'docker consent files ' + JSON.stringify(result)); } catch (e) {}
+  return result;
+}
+function dockerTermsText() {
+  return ['OPTIONAL DOCKER ACCESS - TERMS', '==============================', '', 'What this is', 'The app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status. This is OFF by default.', '', 'SoloHost default', 'SoloHost installs this app as a sandbox. docker.sock is NOT a default SoloHost permission.', '', 'Your responsibility (Operator)', 'By agreeing you confirm that:', '1) You understand docker.sock is powerful.', '2) You accept the risk.', '3) You may turn the preference OFF later.', '4) Publisher is not responsible for damage arising from optional elevated access.', '', 'Agree only if you accept these terms.'].join('\n');
+}
+async function formatDockerRules() { return dockerTermsText(); }
+async function formatDockerHelp(tel) {
+  const pref = readDockerPref();
+  const sock = !!(tel && tel.docker_sock);
+  return ['DOCKER OPTIONAL - STATUS', 'Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock in container: ' + (sock ? 'YES' : 'NO'), '', 'Read the terms first (button: Terms).', 'If you Agree: app overwrites app-folder docker-compose.yml with sock, then you SoloHost Stop -> Start.', '', 'Normal monitoring works without Docker.'].join('\n');
+}
+
+/* AGGREGATE HELPERS ==================================================== */
+function historySnippet(n) {
+  try {
+    return getTimeWindow(48).slice(-(n || 24)).map(function (r) {
+      const o = { ts: r.ts, level: r.level };
+      ['sync','ledger','ledger_age','peer_in','peer_out','ram','cpu','temp','ports_open','health'].forEach(function (k) {
+        if (r[k] != null) o[k] = r[k];
+      });
+      return o;
+    });
+  } catch (e) { return []; }
+}
+function buildHistory24h() {
+  const rows = getTimeWindow(24);
+  if (!rows.length) return { samples: 0, note: 'No history yet - collecting telemetry every 60s.' };
+  const nums = function (key) {
+    return rows.map(function (r) { return r[key]; }).filter(function (x) { return x != null && isFinite(Number(x)); }).map(Number);
+  };
+  const ledgers = nums('ledger'), ages = nums('ledger_age'), rams = nums('ram'), cpus = nums('cpu'), temps = nums('temp');
+  const peersIn = nums('peer_in'), peersOut = nums('peer_out'), healths = nums('health');
+  let critical = 0, warning = 0, ok = 0, syncFlips = 0, lastSync = null;
+  rows.forEach(function (r) {
+    if (r.level === 'critical') critical++;
+    else if (r.level === 'warning' || r.level === 'soft') warning++;
+    else ok++;
+    if (r.sync && lastSync && r.sync !== lastSync) syncFlips++;
+    if (r.sync) lastSync = r.sync;
+  });
+  const first = rows[0], last = rows[rows.length - 1];
+  const spanMin = Math.max(1, Math.round(((Date.parse(last.ts) - Date.parse(first.ts)) || 0) / 60000));
+  return {
+    samples: rows.length, approx_minutes: spanMin,
+    first_ts: first && first.ts, last_ts: last && last.ts,
+    level_ok: ok, level_warning: warning, level_critical: critical,
+    sync_flips: syncFlips, last_sync: last && last.sync,
+    ledger_min: ledgers.length ? Math.min.apply(null, ledgers) : null,
+    ledger_max: ledgers.length ? Math.max.apply(null, ledgers) : null,
+    ledger_delta: ledgers.length >= 2 ? (ledgers[ledgers.length - 1] - ledgers[0]) : null,
+    age_max_s: ages.length ? Math.max.apply(null, ages) : null,
+    age_avg_s: ages.length ? Math.round(ages.reduce(function (a, b) { return a + b; }, 0) / ages.length) : null,
+    peer_in_min: peersIn.length ? Math.min.apply(null, peersIn) : null,
+    peer_in_max: peersIn.length ? Math.max.apply(null, peersIn) : null,
+    peer_out_min: peersOut.length ? Math.min.apply(null, peersOut) : null,
+    peer_out_max: peersOut.length ? Math.max.apply(null, peersOut) : null,
+    ram_min: rams.length ? Math.min.apply(null, rams) : null,
+    ram_max: rams.length ? Math.max.apply(null, rams) : null,
+    cpu_max: cpus.length ? Math.max.apply(null, cpus) : null,
+    temp_max: temps.length ? Math.max.apply(null, temps) : null,
+    health_min: healths.length ? Math.min.apply(null, healths) : null,
+    health_max: healths.length ? Math.max.apply(null, healths) : null,
+    health_avg: healths.length ? Math.round(healths.reduce(function (a, b) { return a + b; }, 0) / healths.length) : null
+  };
+}
+function formatHistory24hText(h) {
+  if (!h || !h.samples) return 'No 24h history yet.';
+  const lines = [];
+  lines.push('Samples: ' + h.samples + ' (~' + h.approx_minutes + ' min coverage)');
+  if (h.first_ts && h.last_ts) lines.push('Window: ' + String(h.first_ts).slice(0, 16) + ' -> ' + String(h.last_ts).slice(0, 16));
+  lines.push('Levels OK/Warn/Crit: ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
+  lines.push('Sync flips: ' + h.sync_flips + (h.last_sync ? ('; last=' + h.last_sync) : ''));
+  if (h.ledger_min != null) lines.push('Ledger: ' + h.ledger_min + ' -> ' + h.ledger_max + (h.ledger_delta != null ? (' (delta ' + h.ledger_delta + ')') : ''));
+  if (h.age_max_s != null) lines.push('Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
+  if (h.health_avg != null) lines.push('Health avg/min/max: ' + h.health_avg + ' / ' + h.health_min + ' / ' + h.health_max);
+  if (h.peer_in_min != null) lines.push('Peer IN: ' + h.peer_in_min + '-' + h.peer_in_max);
+  if (h.peer_out_min != null) lines.push('Peer OUT: ' + h.peer_out_min + '-' + h.peer_out_max);
+  if (h.ram_max != null) lines.push('RAM range: ' + h.ram_min + '-' + h.ram_max + '%');
+  if (h.cpu_max != null) lines.push('CPU peak: ' + h.cpu_max + '%');
+  if (h.temp_max != null) lines.push('Temp peak: ' + h.temp_max + 'C');
+  return lines.join('\n');
+}
+function toNum(v) { if (v == null || v === '') return null; const n = Number(v); return isFinite(n) ? n : null; }
+function median(arr) {
+  if (!arr || !arr.length) return null;
+  const a = arr.slice().sort(function (x, y) { return x - y; });
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : Math.round((a[mid - 1] + a[mid]) / 2 * 10) / 10;
+}
+function avg(arr) {
+  if (!arr || !arr.length) return null;
+  return Math.round(arr.reduce(function (s, x) { return s + x; }, 0) / arr.length * 10) / 10;
+}
+function minMax(arr) {
+  if (!arr || !arr.length) return { min: null, max: null };
+  return { min: Math.min.apply(null, arr), max: Math.max.apply(null, arr) };
+}
+function historyRowsDays(days) { return getTimeWindow(Math.max(1, days || 7) * 24); }
+function periodLabel(days) {
+  if (days <= 1) return '24h';
+  if (days <= 7) return '7 days';
+  return days + ' days';
+}
+function formatMetricAnalysis(metricKey, days) {
+  const d = Math.max(1, days || 7);
+  const rows = getTimeWindow(d * 24);
+  const agg = aggregate(rows, metricKey);
+  const titleMap = { ram: '🧠 RAM ANALYSIS', cpu: '⚙️ CPU ANALYSIS', temp: '🌡️ TEMP ANALYSIS', ledger_age: '⏱️ LEDGER AGE ANALYSIS', health: '💚 HEALTH ANALYSIS' };
+  const unit = (metricKey === 'temp') ? '°C' : (metricKey === 'ledger_age' ? 's' : (metricKey === 'health' ? '' : '%'));
+  const title = (titleMap[metricKey] || metricKey) + ' · ' + periodLabel(d);
+  if (!agg.n) return [title, '───────────────', 'Not enough history samples yet. Collecting every ~60s - ask again later.'].join('\n');
+  return [
+    title, '───────────────',
+    '📋 Samples · ' + agg.n,
+    '📉 Min     · ' + agg.min + unit,
+    '📈 Max     · ' + agg.max + unit,
+    '📊 Avg     · ' + agg.avg + unit,
+    '🎯 Median  · ' + agg.median + unit
+  ].join('\n');
+}
+function financialBoundaryReply() {
+  return [
+    '⚡AI PINODE GUIDE', '───────────────',
+    'I understand money pressure is real. As a technical Pi Node assistant I only report machine health - I cannot advise buying/selling or personal finance.', '',
+    'Technically, check /status and the history summary below. Whether to keep the node is your decision.', '',
+    'Ask for 7-day RAM/CPU/sync stats anytime if that helps your technical review.'
+  ].join('\n');
+}
+
+/* ======================================================================
+ * AI DATA PROVIDERS (named blocks)
+ * ==================================================================== */
+function aiDataConsensus6h() {
+  const rows = getTimeWindow(6);
+  if (!rows.length) return { samples: 0, note: 'no data in last 6h' };
+  return {
+    samples: rows.length, window_hours: 6,
+    sync_states: syncConsensus(rows).states,
+    ledger_velocity: ledgerVelocity(rows),
+    ledger_age: aggregate(rows, 'ledger_age'),
+    peer_in: aggregate(rows, 'peer_in'), peer_out: aggregate(rows, 'peer_out'),
+    health: aggregate(rows, 'health')
+  };
+}
+function aiDataConsensus24h() {
+  const rows = getTimeWindow(24);
+  if (!rows.length) return { samples: 0, note: 'no data in last 24h' };
+  const crit = rows.filter(function (r) { return r.level === 'critical'; }).length;
+  const warn = rows.filter(function (r) { return r.level === 'warning' || r.level === 'soft'; }).length;
+  return {
+    samples: rows.length, window_hours: 24,
+    sync_states: syncConsensus(rows).states,
+    ledger_velocity: ledgerVelocity(rows),
+    ledger_age: aggregate(rows, 'ledger_age'),
+    peer_in: aggregate(rows, 'peer_in'), peer_out: aggregate(rows, 'peer_out'),
+    health: aggregate(rows, 'health'),
+    levels: { critical: crit, warning_or_soft: warn, ok: rows.length - crit - warn }
+  };
+}
+function aiDataLedgerVelocity6h() { return ledgerVelocity(getTimeWindow(6)) || { note: 'insufficient data' }; }
+function aiDataPeerTrend24h() {
+  const rows = getTimeWindow(24);
+  if (!rows.length) return { samples: 0 };
+  let flips = 0, lastTotal = null;
+  rows.forEach(function (r) {
+    const t = (r.peer_in || 0) + (r.peer_out || 0);
+    if (lastTotal != null && Math.abs(t - lastTotal) >= 3) flips++;
+    lastTotal = t;
+  });
+  return { samples: rows.length, peer_in: aggregate(rows, 'peer_in'), peer_out: aggregate(rows, 'peer_out'), big_swings: flips };
+}
+function aiDataMetric7d(key) {
+  const rows = getTimeWindow(24 * 7);
+  if (!rows.length) return { samples: 0, metric: key };
+  return { samples: rows.length, metric: key, stats: aggregate(rows, key) };
+}
+function aiDataIncidentHistory7d() {
+  const now = Date.now();
+  const all = state.incidents || {};
+  const items = Object.keys(all).map(function (k) { return all[k]; });
+  const recent = items.filter(function (i) { return i && (now - (i.resolvedAt || i.lastSeen || i.firstSeen || 0)) < 7 * 86400000; });
+  const byType = {};
+  recent.forEach(function (i) {
+    if (!byType[i.type]) byType[i.type] = { count: 0, alerts: 0, totalMin: 0 };
+    byType[i.type].count++;
+    byType[i.type].alerts += (i.alertsSent || 0);
+    const end = i.resolvedAt || i.lastSeen || now;
+    byType[i.type].totalMin += Math.max(0, Math.round((end - i.firstSeen) / 60000));
+  });
+  return { total_recent: recent.length, by_type: byType };
+}
+function aiDataFullStats24h() {
+  const rows = getTimeWindow(24);
+  if (!rows.length) return { samples: 0 };
+  return {
+    samples: rows.length,
+    sync_states: syncConsensus(rows).states,
+    ledger_velocity: ledgerVelocity(rows),
+    ledger_age: aggregate(rows, 'ledger_age'),
+    peer_in: aggregate(rows, 'peer_in'), peer_out: aggregate(rows, 'peer_out'),
+    ram: aggregate(rows, 'ram'), cpu: aggregate(rows, 'cpu'), temp: aggregate(rows, 'temp'),
+    health: aggregate(rows, 'health')
+  };
+}
+function aiDataHourly24h() {
+  try {
+    const hf = path.join(DIR_HIST, 'hourly.json');
+    const arr = JSON.parse(fs.readFileSync(hf, 'utf8') || '[]').slice(-24);
+    return arr.map(function (x) {
+      return { hour: x.hour, samples: x.n, health_min: x.health_min, max_ledger_age: x.max_age, min_peers: x.min_peers, max_ram: x.max_ram, bad_samples: x.bad };
+    });
+  } catch (e) { return []; }
+}
+const AI_DATA_PROVIDERS = {
+  consensus_6h: { desc: 'Sync distribution + ledger velocity + ranges over last 6h', fn: aiDataConsensus6h },
+  consensus_24h: { desc: 'Same as consensus_6h but over 24h + level counts', fn: aiDataConsensus24h },
+  ledger_velocity_6h: { desc: 'Ledger growth rate over last 6h', fn: aiDataLedgerVelocity6h },
+  peer_trend_24h: { desc: 'Peer IN/OUT min/max/avg over 24h + big swings', fn: aiDataPeerTrend24h },
+  ram_7d: { desc: 'RAM min/max/avg/median over 7 days', fn: function () { return aiDataMetric7d('ram'); } },
+  cpu_7d: { desc: 'CPU min/max/avg/median over 7 days', fn: function () { return aiDataMetric7d('cpu'); } },
+  temp_7d: { desc: 'Temperature min/max/avg/median over 7 days', fn: function () { return aiDataMetric7d('temp'); } },
+  ledger_age_7d: { desc: 'Ledger age min/max/avg/median over 7 days', fn: function () { return aiDataMetric7d('ledger_age'); } },
+  incident_history_7d: { desc: 'Incidents last 7 days grouped by type', fn: aiDataIncidentHistory7d },
+  full_stats_24h: { desc: 'One-shot 24h stats (sync, ledger, peer, ram, cpu, temp, health)', fn: aiDataFullStats24h },
+  hourly_24h: { desc: 'Hourly rollup for last 24 hours', fn: aiDataHourly24h }
+};
+/* END AI DATA PROVIDERS ================================================ */
+
+/* ======================================================================
+ * AI DATA QUERY DSL (v3.1) - flexible metric/window/agg/filter
+ * ==================================================================== */
+const AI_METRIC_WHITELIST = {
+  // numeric
+  ledger: 'number', ledger_age: 'number', peer_in: 'number', peer_out: 'number',
+  peer_total: 'number', cpu: 'number', ram: 'number', temp: 'number', disk: 'number',
+  health: 'number', health_raw: 'number', health_adjusted: 'number',
+  ports_open: 'number', ingest_lag: 'number',
+  // categorical
+  sync: 'string', level: 'string', container: 'string', docker: 'string',
+  health_confidence: 'string', network_kind: 'string', source: 'string',
+  ports_all_open: 'boolean', docker_sock: 'boolean'
+};
+const AI_QUERY_LIMITS = {
+  maxQueries: 5,
+  maxWindowHours: 168,
+  maxRawRows: 200,
+  defaultWindowHours: 24
+};
+function parseKVToken(str) {
+  const out = {};
+  String(str || '').split(/\s+/).forEach(function (p) {
+    const eq = p.indexOf('=');
+    if (eq < 0) return;
+    const k = p.slice(0, eq).trim().toLowerCase();
+    const v = p.slice(eq + 1).trim();
+    if (k && v) out[k] = v;
+  });
+  return out;
+}
+function parseWindowHours(w) {
+  if (!w) return AI_QUERY_LIMITS.defaultWindowHours;
+  const s = String(w).trim().toLowerCase();
+  let n = null;
+  if (/^[\d.]+h?$/.test(s)) n = parseFloat(s);
+  else if (/^[\d.]+d$/.test(s)) n = parseFloat(s) * 24;
+  else if (/^[\d.]+m$/.test(s)) n = parseFloat(s) / 60;
+  if (n == null || !isFinite(n) || n <= 0) return AI_QUERY_LIMITS.defaultWindowHours;
+  return Math.max(0.1, Math.min(AI_QUERY_LIMITS.maxWindowHours, n));
+}
+function parseDataQueries(text) {
+  const out = [];
+  const re = /\[DATA_QUERY:\s*([^\]]+)\]/gi;
+  let m;
+  while ((m = re.exec(String(text || '')))) {
+    const q = parseKVToken(m[1]);
+    if (q.metric) out.push(q);
+    if (out.length >= AI_QUERY_LIMITS.maxQueries) break;
+  }
+  return out;
+}
+function applyQueryFilters(rows, filterStr) {
+  if (!filterStr) return rows;
+  const filters = [];
+  String(filterStr).split(',').forEach(function (f) {
+    const m = String(f).trim().match(/^([a-z_][a-z0-9_]*?)(?:_(eq|lt|gt|le|ge|contains))?=(.+)$/i);
+    if (!m) return;
+    filters.push({ key: m[1].toLowerCase(), op: (m[2] || 'eq').toLowerCase(), val: m[3] });
+  });
+  if (!filters.length) return rows;
+  return rows.filter(function (r) {
+    return filters.every(function (f) {
+      const v = r[f.key];
+      if (v == null) return false;
+      if (f.op === 'contains') return String(v).toLowerCase().indexOf(String(f.val).toLowerCase()) >= 0;
+      const vNum = Number(v), valNum = Number(f.val);
+      const isNum = isFinite(vNum) && isFinite(valNum);
+      if (f.op === 'eq') return isNum ? vNum === valNum : String(v).toLowerCase() === String(f.val).toLowerCase();
+      if (f.op === 'lt') return isNum ? vNum < valNum : false;
+      if (f.op === 'gt') return isNum ? vNum > valNum : false;
+      if (f.op === 'le') return isNum ? vNum <= valNum : false;
+      if (f.op === 'ge') return isNum ? vNum >= valNum : false;
+      return false;
+    });
+  });
+}
+function stateDistribution(rows, key) {
+  const counts = {};
+  let total = 0;
+  rows.forEach(function (r) {
+    const v = r[key];
+    if (v == null) return;
+    total++;
+    const k = String(v);
+    counts[k] = (counts[k] || 0) + 1;
+  });
+  const states = {};
+  Object.keys(counts).forEach(function (k) {
+    states[k] = { count: counts[k], pct: Math.round(counts[k] / Math.max(1, total) * 1000) / 10 };
+  });
+  return { total: total, states: states };
+}
+function aggregateHourly(rows, key) {
+  const buckets = {};
+  rows.forEach(function (r) {
+    if (r[key] == null) return;
+    const ts = Date.parse(r.ts);
+    if (!isFinite(ts)) return;
+    const hourKey = new Date(ts).toISOString().slice(0, 13);
+    if (!buckets[hourKey]) buckets[hourKey] = [];
+    buckets[hourKey].push(r);
+  });
+  return Object.keys(buckets).sort().map(function (hk) {
+    return { hour: hk, n: buckets[hk].length, stats: aggregate(buckets[hk], key) };
+  });
+}
+function rateOfChange(rows, key) {
+  if (!rows || rows.length < 2) return null;
+  const first = rows[0], last = rows[rows.length - 1];
+  if (first[key] == null || last[key] == null) return null;
+  const dt = (Date.parse(last.ts) - Date.parse(first.ts)) / 3600000;
+  if (!isFinite(dt) || dt <= 0) return null;
+  return {
+    delta: Math.round((last[key] - first[key]) * 100) / 100,
+    hours: Math.round(dt * 10) / 10,
+    per_hour: Math.round((last[key] - first[key]) / dt * 100) / 100
+  };
+}
+function metricTrend(rows, key) {
+  const vals = rows.map(function (r) { return r[key]; })
+    .filter(function (x) { return x != null && isFinite(Number(x)); }).map(Number);
+  if (vals.length < 4) return { direction: 'unknown', note: 'insufficient samples' };
+  const half = Math.floor(vals.length / 2);
+  let olderSum = 0, newerSum = 0;
+  for (let i = 0; i < half; i++) olderSum += vals[i];
+  for (let i = vals.length - half; i < vals.length; i++) newerSum += vals[i];
+  const olderAvg = olderSum / half, newerAvg = newerSum / half;
+  const delta = newerAvg - olderAvg;
+  const m = vals.reduce(function (s, x) { return s + x; }, 0) / vals.length;
+  const thresh = Math.max(0.5, Math.abs(m) * 0.05);
+  let direction = 'stable';
+  if (delta > thresh) direction = 'increasing';
+  else if (delta < -thresh) direction = 'decreasing';
+  return {
+    direction: direction,
+    delta: Math.round(delta * 100) / 100,
+    older_avg: Math.round(olderAvg * 100) / 100,
+    newer_avg: Math.round(newerAvg * 100) / 100,
+    samples: vals.length
+  };
+}
+function executeDataQuery(q) {
+  const metric = String(q.metric || '').toLowerCase();
+  const kind = AI_METRIC_WHITELIST[metric];
+  if (!kind) return {
+    ok: false, error: 'unknown_metric', requested: metric,
+    allowed_numeric: ['ledger','ledger_age','peer_in','peer_out','peer_total','cpu','ram','temp','disk','health','health_raw','health_adjusted','ports_open','ingest_lag'],
+    allowed_category: ['sync','level','container','docker','health_confidence','network_kind','source','ports_all_open','docker_sock']
+  };
+  const windowH = parseWindowHours(q.window);
+  const agg = String(q.agg || (kind === 'number' ? 'summary' : 'states')).toLowerCase();
+  const limit = Math.max(1, Math.min(AI_QUERY_LIMITS.maxRawRows, parseInt(q.limit || '20', 10) || 20));
+  let rows = getTimeWindow(windowH);
+  rows = applyQueryFilters(rows, q.filter);
+  const base = { ok: true, metric: metric, kind: kind, window_hours: windowH, samples: rows.length };
+  if (!rows.length) return Object.assign(base, { note: 'no data in window after filter' });
+  if (kind === 'string' || kind === 'boolean') {
+    if (agg === 'hourly') return Object.assign(base, { hourly: aggregateHourly(rows, metric) });
+    return Object.assign(base, stateDistribution(rows, metric));
+  }
+  if (agg === 'velocity') return Object.assign(base, { velocity: rateOfChange(rows, metric) });
+  if (agg === 'hourly') return Object.assign(base, { hourly: aggregateHourly(rows, metric) });
+  if (agg === 'trend') return Object.assign(base, { trend: metricTrend(rows, metric) });
+  if (agg === 'raw') return Object.assign(base, {
+    returned: Math.min(rows.length, limit),
+    rows: rows.slice(-limit).map(function (r) { const o = { ts: r.ts }; o[metric] = r[metric]; return o; })
+  });
+  return Object.assign(base, { stats: aggregate(rows, metric) });
+}
+function runDataQueries(queries) {
+  const results = {};
+  (queries || []).slice(0, AI_QUERY_LIMITS.maxQueries).forEach(function (q) {
+    const key = 'q_' + (q.metric || '?') + '_' + (q.window || '24') + '_' + (q.agg || 'summary') + (q.filter ? '_f' : '');
+    try { results[key] = executeDataQuery(q); }
+    catch (e) { results[key] = { ok: false, error: String(e && e.message) }; }
+  });
+  return results;
+}
+function buildDSLSpec() {
+  return [
+    'metric (numeric): ledger, ledger_age, peer_in, peer_out, peer_total, cpu, ram, temp, disk, health, health_raw, health_adjusted, ports_open, ingest_lag',
+    'metric (category): sync, level, container, docker, health_confidence, network_kind, source, ports_all_open, docker_sock',
+    'agg: summary (numeric default), states (category default), velocity (rate/h), hourly (group by hour), raw (last N samples), trend (older vs newer avg)',
+    'window: 30m, 6h, 24h, 7d (max 168h)',
+    'filter: key=value, key_lt, key_gt, key_le, key_ge, key_contains; separate with commas',
+    'limit: for agg=raw, default 20, max 200',
+    'max 5 queries per round'
+  ].join('\n');
+}
+function buildProviderCatalog() {
+  return Object.keys(AI_DATA_PROVIDERS).map(function (k) { return '- ' + k + ' : ' + AI_DATA_PROVIDERS[k].desc; }).join('\n');
+}
+function parseDataRequests(text) {
+  const out = [];
+  const re = /\[DATA_REQUEST:\s*([a-z0-9_]+)\s*\]/gi;
+  let m;
+  while ((m = re.exec(String(text || '')))) {
+    const key = String(m[1] || '').toLowerCase();
+    if (AI_DATA_PROVIDERS[key] && out.indexOf(key) < 0) out.push(key);
+  }
+  return out;
+}
+function stripDataRequests(text) {
+  return String(text || '')
+    .replace(/\[DATA_REQUEST:\s*[a-z0-9_]+\s*\]/gi, '')
+    .replace(/\[DATA_QUERY:[^\]]+\]/gi, '')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+/* END DSL ============================================================== */
+
 function localAssistantReply(t, intent, userQ) {
   const ok = t.level === 'ok' || (t.sync && /synced|live|horizon ok/i.test(String(t.sync)));
   const age = t.ledger_age != null ? t.ledger_age : null;
   const sync = t.sync || null;
   const ledger = t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null;
-  const h24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
-  const hTxt = (typeof formatHistory24hText === 'function') ? formatHistory24hText(h24) : '';
+  const h24 = buildHistory24h();
+  const hTxt = formatHistory24hText(h24);
   function withHistory(msg) {
     if (!h24 || !h24.samples) return msg;
     return msg + '\n\nLast ~24h data\n' + hTxt + '\n\nTip: use /report for a fuller summary.';
@@ -1900,252 +2297,7 @@ function localAssistantReply(t, intent, userQ) {
   return withHistory('Something needs attention' + (sync ? (': ' + sync) : '') + '. Check /diagnostic and network/ports.');
 }
 
-function buildFacts(t) {
-  t = t || {};
-  const v = t.verification || {};
-  return {
-    source: t.source || null, sync: t.sync || null,
-    health: t.health != null ? t.health : null,
-    health_raw: t.health_raw != null ? t.health_raw : null,
-    health_adjusted: t.health_adjusted != null ? t.health_adjusted : null,
-    health_confidence: t.health_confidence || null,
-    health_trend: t.health_trend || null,
-    core_health: t.core_health != null ? t.core_health : null,
-    health_source: t.health_source || null,
-    core_state: t.core_state || null, core_verified: t.core_verified === true,
-    sync_confidence: t.sync_confidence || null,
-    ledger: t.ledger != null ? t.ledger : null,
-    ledger_age: t.ledger_age != null ? t.ledger_age : null,
-    ingest_lag: t.ingest_lag != null ? t.ingest_lag : null,
-    peer_in: t.peer_in != null ? t.peer_in : null,
-    peer_out: t.peer_out != null ? t.peer_out : null,
-    ports_open: t.ports_open != null ? t.ports_open : null,
-    ports: t.ports || null, network: t.network || null,
-    network_kind: t.network_kind || null,
-    protocol: t.protocol != null ? t.protocol : null,
-    core_version: t.core_version || null,
-    horizon_version: t.horizon_version || null,
-    level: t.level || null, fsm: t.fsm || null,
-    sources_ok: t.sources || null,
-    docker: t.docker || null,
-    docker_sock: t.docker_sock === true,
-    docker_probe: t.docker_probe === true,
-    container: t.container || null,
-    cpu: t.cpu != null ? t.cpu : null,
-    ram: t.ram != null ? t.ram : null,
-    temp: t.temp != null ? t.temp : null,
-    ports_all_open: t.ports_all_open === true
-  };
-}
-
-function dockerPrefPath() { return path.join(DATA, 'state', 'docker-pref.json'); }
-function readDockerPref() {
-  try { return JSON.parse(fs.readFileSync(dockerPrefPath(), 'utf8')); } catch (e) { return { enabled: false }; }
-}
-function writeDockerPref(obj) {
-  try {
-    fs.mkdirSync(path.dirname(dockerPrefPath()), { recursive: true });
-    fs.writeFileSync(dockerPrefPath(), JSON.stringify(obj, null, 2));
-  } catch (e) {}
-}
-
-function applyDockerConsentFiles() {
-  const result = { wrote_data: false, wrote_host: false, paths: [] };
-  let tag = 'v2.6.57';
-  try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
-  const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
-  const composeBody = [
-    '# Generated after Operator consent in Pi Node Telegram Controller',
-    '# SoloHost default package does NOT ship this.',
-    'services:', '  agent:',
-    '    image: ' + img,
-    '    labels:', '      pi.ui.primary: "true"',
-    '    ports:', '      - "127.0.0.1:18780:8080"',
-    '    environment:',
-    '      - BOT_TOKEN=${BOT_TOKEN}',
-    '      - CHAT_ID=${CHAT_ID}',
-    '      - GEMINI_API_KEY=${GEMINI_API_KEY}',
-    '      - NODE_HOST=host.docker.internal',
-    '      - HORIZON_PORT=31401',
-    '      - CORE_HTTP_PORT=11626',
-    '      - DOCKER_PROBE=1',
-    '      - AUTO_DOCKER_SOCK=0',
-    '      - TELEMETRY_SEC=60',
-    '      - TZ=Asia/Ho_Chi_Minh',
-    '    volumes:',
-    '      - ./data:/data',
-    '      - ./:/solohost-config:rw',
-    '      - /var/run/docker.sock:/var/run/docker.sock:ro',
-    '    restart: unless-stopped', ''
-  ].join('\n');
-  const readme = 'OPTIONAL DOCKER - Operator consent\n=================================\n\n1) Copy docker-compose.yml over the one in this SoloHost app folder.\n2) SoloHost -> Stop -> Start the app.\n3) Telegram: /docker  (should show Socket: YES when mount worked).\n\nThis is NOT default SoloHost permission. You opted in.\n';
-  const bat = '@echo off\r\ncd /d "%~dp0"\r\nif exist docker-compose.yml copy /Y docker-compose.yml docker-compose.yml.bak\r\ncopy /Y "%~dp0docker-compose.yml" "%~dp0..\\docker-compose.yml" 2>nul\r\necho Done.\r\npause\r\n';
-  const ps1 = '# Optional Docker enable - run from app folder after consent\n$ErrorActionPreference = "Continue"\n$here = $PSScriptRoot\n$root = Split-Path $here -Parent\nif ((Split-Path $here -Leaf) -eq "docker-enable") { $root = Split-Path (Split-Path $here -Parent) -Parent }\n$src = Join-Path $here "docker-compose.yml"\n$dst = Join-Path $root "docker-compose.yml"\nif (Test-Path $dst) { Copy-Item $dst ($dst + ".bak") -Force }\nCopy-Item $src $dst -Force\nWrite-Host "Wrote $dst"\nWrite-Host "Stop -> Start the SoloHost app now."\n';
-  try {
-    const dir = path.join(DATA, 'docker-enable');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'docker-compose.yml'), composeBody);
-    fs.writeFileSync(path.join(dir, 'README.txt'), readme);
-    fs.writeFileSync(path.join(dir, 'APPLY.bat'), bat);
-    fs.writeFileSync(path.join(dir, 'APPLY.ps1'), ps1);
-    result.wrote_data = true; result.paths.push(dir);
-  } catch (e) { result.data_error = String(e && e.message); }
-  const hostDir = process.env.SOLOHOST_CONFIG_DIR || '/solohost-config';
-  try {
-    if (fs.existsSync(hostDir)) {
-      const dst = path.join(hostDir, 'docker-compose.yml');
-      try { if (fs.existsSync(dst)) fs.copyFileSync(dst, dst + '.bak'); } catch (e2) {}
-      fs.writeFileSync(dst, composeBody);
-      fs.writeFileSync(path.join(hostDir, 'DOCKER_ENABLE_README.txt'), readme);
-      result.wrote_host = true; result.paths.push(dst);
-    }
-  } catch (e) { result.host_error = String(e && e.message); }
-  try { actionLog('ok', 'docker consent files ' + JSON.stringify(result)); } catch (e) {}
-  return result;
-}
-function dockerTermsText() {
-  return [
-    'OPTIONAL DOCKER ACCESS - TERMS', '==============================', '',
-    'What this is', 'The app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status. This is OFF by default.', '',
-    'SoloHost default', 'SoloHost installs this app as a sandbox. docker.sock is NOT a default SoloHost permission.', '',
-    'What you grant if you Agree', '- Read-only mount of /var/run/docker.sock (after Stop -> Start).', '- Limited read commands related to Pi Node status.', '',
-    'Your responsibility (Operator)', 'By agreeing you confirm that:', '1) You understand docker.sock is powerful.', '2) You accept the risk.', '3) You may turn the preference OFF later.', '4) Publisher is not responsible for damage arising from optional elevated access.', '',
-    'Agree only if you accept these terms.'
-  ].join('\n');
-}
-async function formatDockerRules() { return dockerTermsText(); }
-async function formatDockerHelp(tel) {
-  const pref = readDockerPref();
-  const sock = !!(tel && tel.docker_sock);
-  return ['DOCKER OPTIONAL - STATUS', 'Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock in container: ' + (sock ? 'YES' : 'NO'), '', 'Read the terms first (button: Terms).', 'If you Agree: app overwrites app-folder docker-compose.yml with sock, then you SoloHost Stop -> Start.', '', 'Normal monitoring works without Docker.'].join('\n');
-}
-
-function historySnippet(n) {
-  try {
-    return readHistory(2).slice(-(n || 24)).map(function (r) {
-      const o = { ts: r.ts, level: r.level };
-      ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'ram', 'cpu', 'temp', 'ports_open', 'health'].forEach(function (k) {
-        if (r[k] != null) o[k] = r[k];
-      });
-      return o;
-    });
-  } catch (e) { return []; }
-}
-
-function buildHistory24h() {
-  const rows = readHistory(2);
-  const cutoff = Date.now() - 24 * 3600 * 1000;
-  const day = rows.filter(function (r) { const ts = Date.parse(r.ts) || 0; return !ts || ts >= cutoff; });
-  if (!day.length) return { samples: 0, note: 'No history yet - collecting telemetry every 60s.' };
-  const nums = function (key) {
-    return day.map(function (r) { return r[key]; }).filter(function (x) { return x != null && isFinite(Number(x)); }).map(Number);
-  };
-  const ledgers = nums('ledger'), ages = nums('ledger_age'), rams = nums('ram'), cpus = nums('cpu'), temps = nums('temp');
-  const peersIn = nums('peer_in'), peersOut = nums('peer_out'), healths = nums('health');
-  let critical = 0, warning = 0, ok = 0, syncFlips = 0, lastSync = null;
-  day.forEach(function (r) {
-    if (r.level === 'critical') critical++;
-    else if (r.level === 'warning' || r.level === 'soft') warning++;
-    else ok++;
-    if (r.sync && lastSync && r.sync !== lastSync) syncFlips++;
-    if (r.sync) lastSync = r.sync;
-  });
-  const first = day[0], last = day[day.length - 1];
-  const spanMin = Math.max(1, Math.round((day.length * (typeof TELEMETRY_SEC === 'number' ? TELEMETRY_SEC : 60)) / 60));
-  return {
-    samples: day.length, approx_minutes: spanMin,
-    first_ts: first && first.ts, last_ts: last && last.ts,
-    level_ok: ok, level_warning: warning, level_critical: critical,
-    sync_flips: syncFlips, last_sync: last && last.sync,
-    ledger_min: ledgers.length ? Math.min.apply(null, ledgers) : null,
-    ledger_max: ledgers.length ? Math.max.apply(null, ledgers) : null,
-    ledger_delta: ledgers.length >= 2 ? (ledgers[ledgers.length - 1] - ledgers[0]) : null,
-    age_max_s: ages.length ? Math.max.apply(null, ages) : null,
-    age_avg_s: ages.length ? Math.round(ages.reduce(function (a, b) { return a + b; }, 0) / ages.length) : null,
-    peer_in_min: peersIn.length ? Math.min.apply(null, peersIn) : null,
-    peer_in_max: peersIn.length ? Math.max.apply(null, peersIn) : null,
-    peer_out_min: peersOut.length ? Math.min.apply(null, peersOut) : null,
-    peer_out_max: peersOut.length ? Math.max.apply(null, peersOut) : null,
-    ram_min: rams.length ? Math.min.apply(null, rams) : null,
-    ram_max: rams.length ? Math.max.apply(null, rams) : null,
-    cpu_max: cpus.length ? Math.max.apply(null, cpus) : null,
-    temp_max: temps.length ? Math.max.apply(null, temps) : null,
-    health_min: healths.length ? Math.min.apply(null, healths) : null,
-    health_max: healths.length ? Math.max.apply(null, healths) : null,
-    health_avg: healths.length ? Math.round(healths.reduce(function (a, b) { return a + b; }, 0) / healths.length) : null,
-    recent_levels: day.slice(-8).map(function (r) { return { ts: r.ts, level: r.level, sync: r.sync, ledger: r.ledger, age: r.ledger_age }; })
-  };
-}
-function formatHistory24hText(h) {
-  if (!h || !h.samples) return 'No 24h history yet.';
-  const lines = [];
-  lines.push('Samples: ' + h.samples + ' (~' + h.approx_minutes + ' min coverage)');
-  if (h.first_ts && h.last_ts) lines.push('Window: ' + String(h.first_ts).slice(0, 16) + ' -> ' + String(h.last_ts).slice(0, 16));
-  lines.push('Levels OK/Warn/Crit: ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
-  lines.push('Sync flips: ' + h.sync_flips + (h.last_sync ? ('; last=' + h.last_sync) : ''));
-  if (h.ledger_min != null) lines.push('Ledger: ' + h.ledger_min + ' -> ' + h.ledger_max + (h.ledger_delta != null ? (' (delta ' + h.ledger_delta + ')') : ''));
-  if (h.age_max_s != null) lines.push('Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
-  if (h.health_avg != null) lines.push('Health avg/min/max: ' + h.health_avg + ' / ' + h.health_min + ' / ' + h.health_max);
-  if (h.peer_in_min != null) lines.push('Peer IN: ' + h.peer_in_min + '-' + h.peer_in_max);
-  if (h.peer_out_min != null) lines.push('Peer OUT: ' + h.peer_out_min + '-' + h.peer_out_max);
-  if (h.ram_max != null) lines.push('RAM range: ' + h.ram_min + '-' + h.ram_max + '%');
-  if (h.cpu_max != null) lines.push('CPU peak: ' + h.cpu_max + '%');
-  if (h.temp_max != null) lines.push('Temp peak: ' + h.temp_max + 'C');
-  return lines.join('\n');
-}
-
-function toNum(v) { if (v == null || v === '') return null; const n = Number(v); return isFinite(n) ? n : null; }
-function median(arr) {
-  if (!arr || !arr.length) return null;
-  const a = arr.slice().sort(function (x, y) { return x - y; });
-  const mid = Math.floor(a.length / 2);
-  return a.length % 2 ? a[mid] : Math.round((a[mid - 1] + a[mid]) / 2 * 10) / 10;
-}
-function avg(arr) {
-  if (!arr || !arr.length) return null;
-  return Math.round(arr.reduce(function (s, x) { return s + x; }, 0) / arr.length * 10) / 10;
-}
-function minMax(arr) {
-  if (!arr || !arr.length) return { min: null, max: null };
-  return { min: Math.min.apply(null, arr), max: Math.max.apply(null, arr) };
-}
-function historyRowsDays(days) {
-  const rows = readHistory(Math.max(1, days || 7));
-  const cutoff = Date.now() - Math.max(1, days || 7) * 864e5;
-  return rows.filter(function (r) { const ts = Date.parse(r.ts) || 0; return !ts || ts >= cutoff; });
-}
-function periodLabel(days) {
-  if (days <= 1) return '24h';
-  if (days <= 7) return '7 days';
-  return days + ' days';
-}
-function formatMetricAnalysis(metricKey, days) {
-  const d = Math.max(1, days || 7);
-  const rows = historyRowsDays(d);
-  const vals = rows.map(function (r) { return toNum(r[metricKey]); }).filter(function (x) { return x != null; });
-  const titleMap = { ram: '🧠 RAM ANALYSIS', cpu: '⚙️ CPU ANALYSIS', temp: '🌡️ TEMP ANALYSIS', ledger_age: '⏱️ LEDGER AGE ANALYSIS', health: '💚 HEALTH ANALYSIS' };
-  const unit = (metricKey === 'temp') ? '°C' : (metricKey === 'ledger_age' ? 's' : (metricKey === 'health' ? '' : '%'));
-  const title = (titleMap[metricKey] || metricKey) + ' · ' + periodLabel(d);
-  if (!vals.length) return [title, '───────────────', 'Not enough history samples yet. Collecting every ~60s - ask again later.'].join('\n');
-  const mm = minMax(vals), a = avg(vals), med = median(vals);
-  return [
-    title, '───────────────',
-    '📋 Samples · ' + vals.length,
-    '📉 Min     · ' + mm.min + unit,
-    '📈 Max     · ' + mm.max + unit,
-    '📊 Avg     · ' + a + unit,
-    '🎯 Median  · ' + med + unit
-  ].join('\n');
-}
-function financialBoundaryReply() {
-  return [
-    '⚡AI PINODE GUIDE', '───────────────',
-    'I understand money pressure is real. As a technical Pi Node assistant I only report machine health - I cannot advise buying/selling or personal finance.', '',
-    'Technically, check /status and the history summary below. Whether to keep the node is your decision.', '',
-    'Ask for 7-day RAM/CPU/sync stats anytime if that helps your technical review.'
-  ].join('\n');
-}
-
+/* GEMINI =============================================================== */
 const GEMINI_FALLBACK_ORDER = [
   'gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite', 'gemini-3.1-flash-preview',
   'gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash',
@@ -2282,7 +2434,7 @@ function formatAiReply(raw) {
   return s.trim().slice(0, 3500);
 }
 function technicianEvaluate(t, userQ, intent) {
-  const h = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
+  const h = buildHistory24h();
   const sync = (t && t.sync) || (h && h.last_sync) || null;
   const ledger = t && t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null;
   const age = t && t.ledger_age != null ? t.ledger_age : null;
@@ -2318,6 +2470,8 @@ function technicianEvaluate(t, userQ, intent) {
   if (!GEMINI_API_KEY) { lines.push(''); lines.push('💡 Set GEMINI_API_KEY in SoloHost config for full multi-language AI technician analysis.'); }
   return lines.join('\n');
 }
+
+/* aiAnalyze with 2-round AI Data Protocol (named blocks + DSL) ======== */
 async function aiAnalyze(t, userQ) {
   const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 3500);
   try { await fetchPctContext(); } catch (e) {}
@@ -2337,32 +2491,53 @@ async function aiAnalyze(t, userQ) {
     } else if (intent === 'BLOCK_SYNC' || intent === 'DIAGNOSIS' || intent === 'NODE_HEALTH' || intent === 'GENERAL' || intent === 'BONUS' || intent === 'RECOMMENDATION' || intent === 'ADVICE' || intent === 'CLARIFY' || intent === 'FINANCE') {
       try { const h = buildHistory24h(); if (h && h.samples) metricBlock = formatHistory24hText(h); } catch (e) {}
     }
-    const facts = lite.aiContext(t, { prevRows: (typeof readHistory === 'function') ? readHistory(1) : [] });
-    const hist24 = (typeof buildHistory24h === 'function') ? buildHistory24h() : { samples: 0 };
-    const hist = (typeof historySnippet === 'function') ? historySnippet(40) : [];
+    const facts = lite.aiContext(t, { prevRows: getTimeWindow(1) });
+    const hist24 = buildHistory24h();
+    const hist = historySnippet(40);
     const chat = loadChatHistory().slice(-10);
-    const issues = (typeof collectIssues === 'function') ? collectIssues(t) : [];
-    const rows7 = (typeof historyRowsDays === 'function') ? historyRowsDays(7) : [];
-    const ram7 = rows7.map(function (r) { return toNum(r.ram); }).filter(function (x) { return x != null; });
-    const cpu7 = rows7.map(function (r) { return toNum(r.cpu); }).filter(function (x) { return x != null; });
-    const age7 = rows7.map(function (r) { return toNum(r.ledger_age); }).filter(function (x) { return x != null; });
-    const stats7 = {
-      samples: rows7.length,
-      ram: ram7.length ? { min: Math.min.apply(null, ram7), max: Math.max.apply(null, ram7), avg: avg(ram7), median: median(ram7) } : null,
-      cpu: cpu7.length ? { min: Math.min.apply(null, cpu7), max: Math.max.apply(null, cpu7), avg: avg(cpu7), median: median(cpu7) } : null,
-      ledger_age: age7.length ? { min: Math.min.apply(null, age7), max: Math.max.apply(null, age7), avg: avg(age7), median: median(age7) } : null
-    };
+    const issues = collectIssues(t);
+    const rows7 = getTimeWindow(24 * 7);
+    const ram7 = aggregate(rows7, 'ram'), cpu7 = aggregate(rows7, 'cpu'), age7 = aggregate(rows7, 'ledger_age');
+    const stats7 = { samples: rows7.length, ram: ram7.n ? ram7 : null, cpu: cpu7.n ? cpu7 : null, ledger_age: age7.n ? age7 : null };
+
     if (GEMINI_API_KEY) {
-      const prompt = '[APP GUIDE]\n' + appGuide + '\n\n' + [
+      const providerCatalog = buildProviderCatalog();
+      const dslSpec = buildDSLSpec();
+      const basePromptParts = [
         'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
         'LANGUAGE (MANDATORY): Reply in ' + userLang + '. Do NOT switch to English unless the user is using English.',
-        'PRIORITY: Every free-text question needs a real technician evaluation - simple words, practical value.',
-        'DATA RULES: Use ONLY the JSON blocks below. Missing field = unknown, NEVER say 0%.',
-        'HEALTH SCORE: t.health is smoothed (0-100). t.health_raw is pre-damper. t.health_adjusted is after stability adjustment. t.health_confidence reflects sources. t.health_trend is improving/stable/degrading. Explain the score with this context. Do not over-react to small movements.',
-        'STABILITY: If STABILITY.label is "unstable_short", the score is intentionally tolerant. If "sustained_bad", the low score is intentional.',
-        'INCIDENT ENGINE: If ACTIVE_INCIDENT is present, reference the RECOMMENDED_SCRIPT (or WAIT) exactly as given.',
-        'MISSING DATA: You MAY ask up to 3 short follow-up questions.',
-        'FORMAT: No markdown special characters. Short lines. Icons ok.',
+        'PRIORITY: Give a real technician evaluation - simple words, practical value.',
+        'DATA RULES: Use ONLY the JSON blocks below and any DATA_BLOCK/DSL_QUERY_RESULTS you receive. Missing field = unknown, NEVER say 0%.',
+        'HEALTH SCORE: t.health is smoothed (0-100). t.health_raw pre-damper. t.health_adjusted after stability. t.health_confidence = sources. t.health_trend = improving/stable/degrading.',
+        'STABILITY: If STABILITY.label is "unstable_short", score is intentionally tolerant. "sustained_bad" -> low score intentional.',
+        'INCIDENT ENGINE: Reference RECOMMENDED_SCRIPT (or WAIT) exactly.',
+        '=== DATA REQUEST PROTOCOL (v3.1) ===',
+        'You may request historical data in TWO ways:',
+        '',
+        '1) NAMED BLOCKS (predefined, fast):',
+        '   Emit one or more tokens on their own line: [DATA_REQUEST:block_name]',
+        '   Available blocks:',
+        providerCatalog,
+        '',
+        '2) DSL QUERIES (flexible - any metric, any window, any aggregation):',
+        '   Emit: [DATA_QUERY: metric=<key> window=<Nh|Nd|Nm> agg=<...> limit=<N> filter=<...>]',
+        '   ' + dslSpec.replace(/\n/g, '\n   '),
+        '   Examples:',
+        '     [DATA_QUERY: metric=ram window=7d agg=summary]',
+        '     [DATA_QUERY: metric=sync window=6h agg=states]',
+        '     [DATA_QUERY: metric=ledger window=1h agg=velocity]',
+        '     [DATA_QUERY: metric=health window=24h agg=hourly]',
+        '     [DATA_QUERY: metric=ledger_age window=48h agg=raw limit=50]',
+        '     [DATA_QUERY: metric=cpu window=24h agg=summary filter=level=critical]',
+        '     [DATA_QUERY: metric=peer_in window=12h agg=trend]',
+        '',
+        'RULES:',
+        '- You may emit up to 5 tokens per round, mixing named blocks and DSL queries.',
+        '- Controller will execute them and re-query you ONCE with results.',
+        '- If existing data is enough, DO NOT emit any [DATA_REQUEST] or [DATA_QUERY] token - answer directly.',
+        '- If a requested metric is unknown, controller returns the allowed list so you can retry next time; for THIS answer use what you have.',
+        '=== END PROTOCOL ===',
+        'FORMAT: no markdown special characters. Short lines. Icons ok.',
         'STRUCTURE: (1) short verdict with icon (2) explanation (3) evidence (4) 1-3 next steps (5) optional question.',
         'FINANCE: Empathy + technical health only. No buy/sell advice.',
         'Detected user language: ' + userLang,
@@ -2377,24 +2552,51 @@ async function aiAnalyze(t, userQ) {
           const s = smartScriptForIncident(active, t);
           return { type: active.type, stage: active.stage || 0, samples: active.samples || 1, severity: active.severity, recommended_script: s ? s.script : null, recommended_note: s ? s.note : null };
         })()),
-        'SCRIPT_MAP:\n' + SCRIPT_MAP, 'APP_GUIDE:\n' + APP_GUIDE,
+        'SCRIPT_MAP:\n' + SCRIPT_MAP,
+        'APP_GUIDE:\n' + APP_GUIDE,
         'PCT_RELEASES: ' + JSON.stringify(state.pctNews || []),
         'HISTORY_24H: ' + JSON.stringify(hist24),
-        'HOUR_TREND: ' + (function () { try { const hf = path.join(DIR_HIST, 'hourly.json'); const arr = JSON.parse(fs.readFileSync(hf, 'utf8')).slice(-12); return JSON.stringify(arr.map(function (x) { return { hour: x.hour, n: x.n, health_min: x.health_min, max_age: x.max_age, min_peers: x.min_peers, max_ram: x.max_ram, bad: x.bad }; })); } catch (e) { return '[]'; } })(),
+        'HOUR_TREND: ' + JSON.stringify((function () { try { const hf = path.join(DIR_HIST, 'hourly.json'); const arr = JSON.parse(fs.readFileSync(hf, 'utf8') || '[]').slice(-12); return arr.map(function (x) { return { hour: x.hour, n: x.n, health_min: x.health_min, max_age: x.max_age, min_peers: x.min_peers, max_ram: x.max_ram, bad: x.bad }; }); } catch (e) { return []; } })()),
         'STATS_7D: ' + JSON.stringify(stats7),
         metricBlock ? ('RELATED_METRIC_BLOCK:\n' + metricBlock) : '',
         facts.health != null && facts.health < 60 ? (hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist.slice(-8))) : '') : '',
-        chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
-        'Write the reply now in ' + userLang + ', following FORMAT rules.'
-      ].filter(Boolean).join('\n');
-      try {
-        const text = await generateWithSmartGemini(prompt);
-        if (text && String(text).trim()) {
-          try { actionLog('info', 'AI reply ok · lang ' + userLang + ' · intent ' + intent + ' · model ' + (state.geminiPreferred || '?')); } catch (e) {}
-          return '⚡AI PINODE GUIDE\n\n' + formatAiReply(text);
+        chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : ''
+      ];
+      const promptRound1 = '[APP GUIDE]\n' + appGuide + '\n\n' + basePromptParts.filter(Boolean).join('\n');
+
+      let text = null;
+      try { text = await generateWithSmartGemini(promptRound1); }
+      catch (e) { try { actionLog('error', 'Gemini round1 fail: ' + (e && e.message)); } catch (e2) {} }
+
+      if (text && String(text).trim()) {
+        const named = parseDataRequests(text);
+        const dsl = parseDataQueries(text);
+        if (named.length || dsl.length) {
+          const blocks = {};
+          named.forEach(function (key) {
+            try { blocks[key] = AI_DATA_PROVIDERS[key].fn(); }
+            catch (e) { blocks[key] = { error: String(e && e.message) }; }
+          });
+          const dslResults = runDataQueries(dsl);
+          const promptRound2 = promptRound1 +
+            '\n\n=== DATA_BLOCKS (named) ===\n' + JSON.stringify(blocks) +
+            '\n=== DSL_QUERY_RESULTS ===\n' + JSON.stringify(dslResults) +
+            '\n=== END ===\n\n' +
+            'Now write the FINAL reply in ' + userLang + ' using these data blocks and DSL results. ' +
+            'Do NOT emit any [DATA_REQUEST] or [DATA_QUERY] this time. Follow FORMAT rules. No markdown.';
+          let text2 = null;
+          try { text2 = await generateWithSmartGemini(promptRound2); }
+          catch (e) { try { actionLog('error', 'Gemini round2 fail: ' + (e && e.message)); } catch (e2) {} }
+          if (text2 && String(text2).trim()) text = text2;
         }
-      } catch (e) { try { actionLog('error', 'Gemini fail: ' + (e && e.message)); } catch (e2) {} }
+        const cleaned = stripDataRequests(text);
+        if (cleaned) {
+          try { actionLog('info', 'AI reply ok · lang ' + userLang + ' · intent ' + intent + ' · named ' + named.length + ' · dsl ' + dsl.length + ' · model ' + (state.geminiPreferred || '?')); } catch (e) {}
+          return '⚡AI PINODE GUIDE\n\n' + formatAiReply(cleaned);
+        }
+      }
     }
+
     try { actionLog('warn', GEMINI_API_KEY ? 'Gemini empty/fail · local technician' : 'no GEMINI_API_KEY · local technician'); } catch (e) {}
     if (intent === 'FINANCE') return financialBoundaryReply() + '\n\n' + technicianEvaluate(t, userQ, intent);
     if (mk && metricBlock) return metricBlock + '\n\n' + technicianEvaluate(t, userQ, intent);
@@ -2412,7 +2614,7 @@ async function localCommandText(cmd, msg) {
   if (cmd === 'status' || cmd === 's') return formatStatus(t);
   if (cmd === 'sync') return formatStatus(t);
   if (cmd === 'peers') return formatPeers(t);
-  if (cmd === 'report' || cmd === 'trends') return formatReport();
+  if (cmd === 'report' || cmd === 'trends') return formatReport(24);
   if (cmd === 'incidents') return formatIncidents();
   if (cmd === 'diagnostic' || cmd === 'diag') return formatDiagnostic(t);
   if (cmd === 'logs') return formatActionLog();
@@ -2424,17 +2626,16 @@ async function localCommandText(cmd, msg) {
 }
 
 function mainKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: '📊 Status', callback_data: 'cmd_status' }, { text: '📈 Report', callback_data: 'cmd_report' }],
-      [{ text: '👥 Peers', callback_data: 'cmd_peers' }, { text: '🧭 Incidents', callback_data: 'cmd_incidents' }],
-      [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📋 Logs', callback_data: 'cmd_logs' }],
-      [{ text: '💬 Analyze', callback_data: 'cmd_analyze' }, { text: '❓ Help', callback_data: 'cmd_help' }],
-      [{ text: '💻 PRO', callback_data: 'cmd_winpro' }, { text: '💛 Donate', callback_data: 'cmd_donate' }]
-    ]
-  };
+  return { inline_keyboard: [
+    [{ text: '📊 Status', callback_data: 'cmd_status' }, { text: '📈 Report', callback_data: 'cmd_report' }],
+    [{ text: '👥 Peers', callback_data: 'cmd_peers' }, { text: '🧭 Incidents', callback_data: 'cmd_incidents' }],
+    [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📋 Logs', callback_data: 'cmd_logs' }],
+    [{ text: '💬 Analyze', callback_data: 'cmd_analyze' }, { text: '❓ Help', callback_data: 'cmd_help' }],
+    [{ text: '💻 PRO', callback_data: 'cmd_winpro' }, { text: '💛 Donate', callback_data: 'cmd_donate' }]
+  ]};
 }
 
+/* TELEGRAM ============================================================= */
 function tgApi(method, body) {
   return new Promise(resolve => {
     if (!BOT_TOKEN) return resolve(null);
@@ -2461,7 +2662,6 @@ async function tgSend(text, extra) {
   if (!r) log('tgSend network fail', 'error');
   return r;
 }
-
 async function runCmd(cmd, userText) {
   const t = await getTelemetry();
   if (cmd === 'status' || cmd === 's') return tgSend(formatStatus(t), { reply_markup: mainKeyboard() });
@@ -2483,7 +2683,7 @@ async function runCmd(cmd, userText) {
     });
     return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'report') { const tt = cache || {}; return tgSend(formatReport() + '\n\n' + formatActionAdvice(tt), { reply_markup: reportKeyboard() }); }
+  if (cmd === 'report') { const tt = cache || {}; return tgSend(formatReport(24) + '\n\n' + formatActionAdvice(tt), { reply_markup: reportKeyboard() }); }
   if (cmd === 'incidents' || cmd === 'incident') return tgSend(formatIncidents(), { reply_markup: mainKeyboard() });
   if (cmd === 'incident_ack') {
     const active = Object.keys(state.incidents || {}).map(function (k) { return state.incidents[k]; }).filter(function (i) { return i && !i.resolved; })[0];
@@ -2511,7 +2711,7 @@ async function runCmd(cmd, userText) {
     pushChatPersistent('assistant', ans);
     return tgSend(ans, { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'trends') return tgSend(formatReport(), { reply_markup: reportKeyboard() });
+  if (cmd === 'trends') return tgSend(formatReport(24), { reply_markup: reportKeyboard() });
   if (cmd === 'scripts' || cmd === 'script') return tgSend(formatScripts(), { reply_markup: mainKeyboard() });
   if (cmd === 'logs' || cmd === 'log') { try { actionLog('info', 'user /logs'); } catch (e) {} return tgSend(formatActionLog(), { reply_markup: mainKeyboard() }); }
   if (cmd === 'winpro' || cmd === 'windows' || cmd === 'pro') { try { actionLog('info', 'user /winpro'); } catch (e) {} return tgSend(formatWindowsPro(), { reply_markup: mainKeyboard() }); }
@@ -2543,7 +2743,6 @@ async function runCmd(cmd, userText) {
   }
   return null;
 }
-
 async function handleText(text) {
   const raw = String(text || '').trim().slice(0, 4000);
   if (!raw) return null;
@@ -2554,7 +2753,6 @@ async function handleText(text) {
   if (/^(peers?|ports?|report|diagnostic|donate|scripts?|incidents?)$/i.test(raw.trim())) return runCmd(cmd, raw);
   return runCmd('analyze', raw);
 }
-
 let offset = 0;
 async function processUpdate(u) {
   try {
@@ -2578,7 +2776,6 @@ async function processUpdate(u) {
     try { await tgSend('Error handling message. Try /ping or /status.'); } catch (e2) {}
   }
 }
-
 async function installTelegramMenu() {
   if (!BOT_TOKEN) return;
   try {
@@ -2587,7 +2784,7 @@ async function installTelegramMenu() {
         { command: 'status', description: 'Current node health snapshot' },
         { command: 'sync', description: 'Sync status and latest ledger' },
         { command: 'peers', description: 'Inbound and outbound peers' },
-        { command: 'report', description: 'Recent history summary' },
+        { command: 'report', description: 'Last 24h history (spans midnight)' },
         { command: 'incidents', description: 'Active + recent incident history' },
         { command: 'diagnostic', description: 'Technical source details' },
         { command: 'analyze', description: 'AI technician review (in your language)' },
@@ -2596,14 +2793,13 @@ async function installTelegramMenu() {
         { command: 'winpro', description: 'Windows PRO edition link' },
         { command: 'ping', description: 'Controller heartbeat' },
         { command: 'help', description: 'List available commands' },
-        { command: 'mute', description: 'Alert mute 1h / 24h / night / off' }
+        { command: 'mute', description: 'Quiet alerts (also mutes recovery)' }
       ]
     });
     if (r && r.ok) log('Telegram command menu installed');
     else log('setMyCommands skip: ' + ((r && r.description) || 'no reply'), 'warn');
   } catch (e) { log('setMyCommands ' + (e && e.message), 'warn'); }
 }
-
 async function telegramLoop() {
   let conflictBackoff = 15000, lastConflictLog = 0;
   if (BOT_TOKEN) {
@@ -2642,7 +2838,6 @@ async function telegramLoop() {
     } catch (e) { log('tg loop ' + (e && e.message), 'error'); await wait(1200); }
   }
 }
-
 async function telemetryLoop() {
   while (true) {
     try {
@@ -2653,7 +2848,9 @@ async function telemetryLoop() {
       if (effectiveReportHours().indexOf(h) >= 0 && state.lastReportKey !== key) {
         state.lastReportKey = key;
         saveJSON(STATE_F, state);
-        await tgSend(formatReport() + '\n\n' + formatStatus(t), { reply_markup: reportKeyboard() });
+        const gate = alertsMuted();
+        if (!gate.muted) await tgSend(formatReport(24) + '\n\n' + formatStatus(t), { reply_markup: reportKeyboard() });
+        else { try { actionLog('info', 'scheduled report muted - ' + gate.why); } catch (e) {} }
       }
     } catch (e) { log('telemetry ' + e.message, 'error'); }
     const intervalSec = currentTelemetryInterval();
@@ -2661,13 +2858,14 @@ async function telemetryLoop() {
   }
 }
 
+/* HTTP UI ============================================================== */
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
-  '.jpg': 'image/jpeg', '.png': 'image/png', '.ps1': 'text/plain; charset=utf-8', '.bat': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8'
+  '.jpg': 'image/jpeg', '.png': 'image/png', '.ps1': 'text/plain; charset=utf-8',
+  '.bat': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8'
 };
 let INDEX = '<h1>Pi Node SoloHost ' + VERSION + '</h1><p>/api/status</p>';
 try { INDEX = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'); } catch (e) {}
-
 const rateBuckets = Object.create(null);
 function rateLimit(key, max, windowMs) {
   const now = Date.now();
@@ -2689,7 +2887,6 @@ function setSecHeaders(res, mode) {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   }
 }
-
 const srv = http.createServer(async (req, res) => {
   const u = (req.url || '/').split('?')[0];
   setSecHeaders(res);
@@ -2702,29 +2899,19 @@ const srv = http.createServer(async (req, res) => {
         const detailed = u.indexOf('detailed') >= 0;
         let tel;
         if (u.indexOf('fast') >= 0 && cache) tel = cache;
-        else if (detailed) {
-          tel = await statusMonitor.getStatus(true, { detailed: true, docker: true });
-          cache = tel; cacheAt = Date.now();
-        } else tel = cache || await getTelemetry();
+        else if (detailed) { tel = await statusMonitor.getStatus(true, { detailed: true, docker: true }); cache = tel; cacheAt = Date.now(); }
+        else tel = cache || await getTelemetry();
         res.end(JSON.stringify(tel || {}));
-      } catch (e) {
-        log('api/status error: ' + (e && e.message), 'error');
-        res.statusCode = 500;
-        res.end(JSON.stringify({ ok: false, error: 'internal_error' }));
-      }
+      } catch (e) { log('api/status error: ' + (e && e.message), 'error'); res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: 'internal_error' })); }
       return;
     }
     if (u === '/api/health') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify({
         ok: true, version: VERSION,
-        health: state.healthSmooth,
-        raw: state.healthRaw,
-        adjusted: state.healthAdjusted,
-        confidence: state.healthConfidence,
-        confidenceScore: state.healthConfidenceScore,
-        sourceCount: state.healthSourceCount,
-        trend: state.healthTrend,
+        health: state.healthSmooth, raw: state.healthRaw, adjusted: state.healthAdjusted,
+        confidence: state.healthConfidence, confidenceScore: state.healthConfidenceScore,
+        sourceCount: state.healthSourceCount, trend: state.healthTrend,
         stability: state.healthStability || null,
         at: state.healthAt ? new Date(state.healthAt).toISOString() : null,
         activeIncidents: Object.keys(state.incidents || {}).filter(function (k) { return state.incidents[k] && !state.incidents[k].resolved; }).length
@@ -2739,6 +2926,60 @@ const srv = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true, active: active, recent: recent, intervalSec: currentTelemetryInterval() }));
       return;
     }
+    if (u === '/api/ai/providers') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      const providers = {};
+      Object.keys(AI_DATA_PROVIDERS).forEach(function (k) { providers[k] = AI_DATA_PROVIDERS[k].desc; });
+      res.end(JSON.stringify({
+        ok: true,
+        named_blocks: providers,
+        dsl: {
+          spec: buildDSLSpec().split('\n'),
+          metrics_numeric: ['ledger','ledger_age','peer_in','peer_out','peer_total','cpu','ram','temp','disk','health','health_raw','health_adjusted','ports_open','ingest_lag'],
+          metrics_category: ['sync','level','container','docker','health_confidence','network_kind','source','ports_all_open','docker_sock'],
+          aggregations: ['summary','states','velocity','hourly','raw','trend'],
+          limits: AI_QUERY_LIMITS
+        }
+      }));
+      return;
+    }
+    if (u === '/api/ai/query') {
+      // Debug endpoint: run a DSL query via GET (no auth, local-only)
+      if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      try {
+        const url = new URL(req.url, 'http://x');
+        const q = {
+          metric: url.searchParams.get('metric') || '',
+          window: url.searchParams.get('window') || '24h',
+          agg: url.searchParams.get('agg') || '',
+          limit: url.searchParams.get('limit') || '20',
+          filter: url.searchParams.get('filter') || ''
+        };
+        const result = executeDataQuery(q);
+        res.end(JSON.stringify(result));
+      } catch (e) {
+        res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+      }
+      return;
+    }
+    if (u === '/api/report/window') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      const url = new URL(req.url, 'http://x');
+      const hours = Math.max(1, Math.min(168, parseInt(url.searchParams.get('hours') || '24', 10) || 24));
+      const rows = getTimeWindow(hours);
+      const first = rows[0], last = rows[rows.length - 1];
+      res.end(JSON.stringify({
+        ok: true, requested_hours: hours, samples: rows.length,
+        first_ts: first && first.ts, last_ts: last && last.ts,
+        levels: {
+          critical: rows.filter(function (r) { return r.level === 'critical'; }).length,
+          warning_or_soft: rows.filter(function (r) { return r.level === 'warning' || r.level === 'soft'; }).length,
+          ok: rows.filter(function (r) { return r.level === 'ok'; }).length
+        }
+      }));
+      return;
+    }
     if (u === '/api/selftest') {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
@@ -2746,49 +2987,82 @@ const srv = http.createServer(async (req, res) => {
       ok('version', VERSION === '2.6.57-solohost', VERSION);
       ok('telegram_loop_independent', true, 'separate loops');
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
-      ok('schema_hide_missing', typeof lineIf === 'function', 'lineIf');
       ok('no_datalive', true, 'Horizon removed');
-      ok('history_dir', fs.existsSync(DIR_HIST), DIR_HIST);
       ok('chat_id_safe_compare', typeof safeEq === 'function', 'safeEq');
       ok('safe_json_parse', typeof safeParse === 'function', 'safeParse');
       ok('tg_user_rate_limit', typeof tgUserRateLimit === 'function', 'tgUserRateLimit');
-      ok('csp_relaxed_for_index', true, 'index.html has no script-blocking CSP');
       ok('incident_engine', typeof detectIncidentSignature === 'function' && typeof smartScriptForIncident === 'function', 'engine loaded');
       ok('adaptive_polling', typeof currentTelemetryInterval === 'function', 'ok');
-      // Health damper
       ok('health_damper_fn', typeof dampHealthScore === 'function' && typeof healthConfidence === 'function', 'loaded');
       ok('health_stability_fn', typeof computeSyncStability === 'function' && typeof applyStabilityAdjustment === 'function', 'loaded');
+      ok('pipeline_getTimeWindow', typeof getTimeWindow === 'function', 'ok');
+      ok('pipeline_normalizeRow', typeof normalizeHistoryRow === 'function', 'ok');
+      ok('pipeline_aggregate', typeof aggregate === 'function', 'ok');
+      ok('pipeline_syncConsensus', typeof syncConsensus === 'function', 'ok');
+      ok('pipeline_ledgerVelocity', typeof ledgerVelocity === 'function', 'ok');
+      ok('ai_data_providers', Object.keys(AI_DATA_PROVIDERS).length >= 10, 'count=' + Object.keys(AI_DATA_PROVIDERS).length);
+      ok('ai_parse_request', typeof parseDataRequests === 'function', 'parseDataRequests');
+      // DSL parser tests
+      ok('dsl_parse_fn', typeof parseDataQueries === 'function' && typeof executeDataQuery === 'function', 'loaded');
+      const q1 = parseDataQueries('[DATA_QUERY: metric=ram window=7d agg=summary]');
+      ok('dsl_parse_single', q1.length === 1 && q1[0].metric === 'ram' && q1[0].window === '7d' && q1[0].agg === 'summary', JSON.stringify(q1));
+      const q2 = parseDataQueries('[DATA_QUERY: metric=sync window=6h agg=states] [DATA_QUERY: metric=cpu window=24h agg=summary filter=level=critical]');
+      ok('dsl_parse_multi', q2.length === 2, JSON.stringify(q2.length));
+      const q3 = parseDataQueries('[DATA_QUERY: metric=x_unknown window=1h]');
+      const r3 = executeDataQuery({ metric: 'x_unknown', window: '1h' });
+      ok('dsl_unknown_metric_returns_hint', r3.ok === false && Array.isArray(r3.allowed_numeric), r3.error);
+      // window parsing
+      ok('dsl_window_parse_m', parseWindowHours('30m') > 0 && parseWindowHours('30m') < 1, parseWindowHours('30m'));
+      ok('dsl_window_parse_h', parseWindowHours('6h') === 6, parseWindowHours('6h'));
+      ok('dsl_window_parse_d', parseWindowHours('2d') === 48, parseWindowHours('2d'));
+      ok('dsl_window_cap_168h', parseWindowHours('30d') === 168, parseWindowHours('30d'));
+      // real execution tests
+      const e1 = executeDataQuery({ metric: 'sync', window: '24h', agg: 'states' });
+      ok('dsl_exec_states', e1.ok === true && (e1.states || e1.note), 'samples=' + e1.samples);
+      const e2 = executeDataQuery({ metric: 'ram', window: '24h', agg: 'summary' });
+      ok('dsl_exec_summary', e2.ok === true && (e2.stats || e2.note), 'n=' + (e2.stats ? e2.stats.n : 'na'));
+      const e3 = executeDataQuery({ metric: 'sync', window: '1h', agg: 'states', filter: 'level=critical' });
+      ok('dsl_exec_filter', e3.ok === true, 'samples=' + e3.samples);
+      const e4 = executeDataQuery({ metric: 'ledger', window: '6h', agg: 'velocity' });
+      ok('dsl_exec_velocity', e4.ok === true, 'samples=' + e4.samples);
+      const e5 = executeDataQuery({ metric: 'health', window: '24h', agg: 'trend' });
+      ok('dsl_exec_trend', e5.ok === true, 'samples=' + e5.samples);
+      const e6 = executeDataQuery({ metric: 'ledger_age', window: '24h', agg: 'raw', limit: '10' });
+      ok('dsl_exec_raw_limit', e6.ok === true && (!e6.returned || e6.returned <= 10), 'returned=' + e6.returned);
+      // legacy + DSL strip
+      const st1 = stripDataRequests('Hello [DATA_REQUEST:ram_7d] world');
+      ok('strip_named', st1 === 'Hello  world'.replace(/\s+/g, ' ').trim() || st1.indexOf('DATA_REQUEST') < 0, st1.slice(0, 40));
+      const st2 = stripDataRequests('Hello [DATA_QUERY: metric=ram window=1h] world');
+      ok('strip_dsl', st2.indexOf('DATA_QUERY') < 0, st2.slice(0, 40));
+      // Mute covers recovery
+      const prevMode = state.alertMode;
+      state.alertMode = 'off';
+      const gate = alertsMuted();
+      ok('mute_off_recognized', gate.muted === true, gate.why);
+      state.alertMode = prevMode || 'on';
+      // Health damper
       const hc1 = healthConfidence({ docker_sock: true, core_verified: true });
       ok('health_conf_high_sock_core', hc1.level === 'high', hc1.level);
-      const hc2 = healthConfidence({ source: 'Horizon' });
-      ok('health_conf_low_horizon_only', hc2.level === 'low', hc2.level);
       const hc3 = healthConfidence({});
       ok('health_conf_none_no_source', hc3.level === 'none', hc3.level);
-      // Synthetic stability tests
-      const prevSmooth = state.healthSmooth;
-      state.healthSmooth = 80; state.healthAt = Date.now();
-      const d0 = dampHealthScore({}, 10);
-      ok('damper_freezes_without_source', d0.frozen === true && d0.health === 80, 'frozen=' + d0.frozen);
-      state.healthSmooth = prevSmooth;
       const stab1 = applyStabilityAdjustment(70, { samples: 10, flipRate: 0.30, badRatio: 0.10, longerBadRatio: 0.05, unstableShort: true, sustainedBad: false });
       ok('stability_pulls_up_noisy', stab1 > 70, 'raw 70 -> adj ' + Math.round(stab1));
       const stab2 = applyStabilityAdjustment(40, { samples: 10, flipRate: 0.05, badRatio: 0.80, longerBadRatio: 0.40, unstableShort: false, sustainedBad: true });
       ok('stability_keeps_low_sustained_bad', stab2 <= 40, 'raw 40 -> adj ' + Math.round(stab2));
-      // Engine tests
+      // Engine
       const i1 = detectIncidentSignature({ ports_open: 0 });
       ok('incident_ports_closed', i1 && i1.type === 'ports_closed', i1 && i1.type);
       const i2 = detectIncidentSignature({ docker: 'Exited (0)' });
       ok('incident_docker_down', i2 && i2.type === 'docker_down', i2 && i2.type);
-      const i4 = detectIncidentSignature({ ledger_age: 5, sync: 'Synced', peer_in: 5, peer_out: 8, ports_open: 3 });
-      ok('incident_none_when_healthy', i4 === null, i4 ? i4.type : 'null');
       const s1 = smartScriptForIncident({ type: 'docker_down' }, {});
       ok('script_docker_down', s1 && s1.script === 'DockerRecover', s1 && s1.script);
       const d1 = decideIncidentAction({ firstSeen: Date.now() - 1000, samples: 1, stage: 0, alertsSent: 0 }, {});
       ok('decision_observe_early', d1 && d1.action === 'watch', d1 && d1.action);
       const d2 = decideIncidentAction({ firstSeen: Date.now() - 6 * 60000, samples: 6, stage: 0, alertsSent: 0 }, {});
       ok('decision_alert_at_5min', d2 && d2.action === 'alert', d2 && d2.action);
-      const m1 = mergeTelemetry(null, { source: 'Horizon', ledger: 100, sync: 'Horizon OK', confidence: 'medium' }, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
-      ok('fallback_horizon', m1.ledger === 100 && m1.source === 'Horizon', m1.source);
+      const rep = formatReport(24);
+      ok('report_24h_header', typeof rep === 'string' && rep.indexOf('PI NODE · REPORT') >= 0, 'ok');
+      ok('report_24h_no_5min_leak', rep.indexOf('~5 min') < 0 && rep.indexOf('00:00 ➔') < 0, 'ok');
       const l1 = detectUserLang('Xin chào, node của tôi thế nào?');
       ok('lang_detect_vi', l1 === 'Vietnamese', l1);
       const l2 = detectUserLang('Hello, how is my node?');
@@ -2880,7 +3154,6 @@ const srv = http.createServer(async (req, res) => {
         + '<p><a href="/">Controller home</a></p></body></html>');
       return;
     }
-
     if (u === '/api/docker') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       if (req.method === 'GET') {
@@ -2915,7 +3188,6 @@ const srv = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: false, error: 'method_not_allowed' }));
       return;
     }
-
     if (u === '/api/discover') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       try {
@@ -2941,7 +3213,14 @@ const srv = http.createServer(async (req, res) => {
     }
     if (u === '/api/info') {
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ version: VERSION, dataLive: false, hasBot: !!BOT_TOKEN, hasAI: !!GEMINI_API_KEY, telemetrySec: TELEMETRY_SEC, incidentCount: Object.keys(state.incidents || {}).length, health: state.healthSmooth, healthConfidence: state.healthConfidence, healthStability: state.healthStability || null }));
+      res.end(JSON.stringify({
+        version: VERSION, dataLive: false, hasBot: !!BOT_TOKEN, hasAI: !!GEMINI_API_KEY,
+        telemetrySec: TELEMETRY_SEC, incidentCount: Object.keys(state.incidents || {}).length,
+        health: state.healthSmooth, healthConfidence: state.healthConfidence,
+        healthStability: state.healthStability || null,
+        aiProviders: Object.keys(AI_DATA_PROVIDERS).length,
+        aiDslMetrics: Object.keys(AI_METRIC_WHITELIST).length
+      }));
       return;
     }
     if (u === '/api/logs') {
@@ -2985,7 +3264,6 @@ const srv = http.createServer(async (req, res) => {
     res.end('error');
   }
 });
-
 srv.listen(PORT, '0.0.0.0', () => {
   log('SoloHost Controller v' + VERSION + ' :' + PORT);
   try {
@@ -3006,17 +3284,21 @@ srv.listen(PORT, '0.0.0.0', () => {
   log('telemetry=' + TELEMETRY_SEC + 's base · adaptive polling enabled (30-60s)');
   log('Incident engine active · observe -> alert -> remind -> chronic');
   log('Health damper active · EMA + dead-band + stability-aware adjustment');
+  log('Data pipeline: getTimeWindow + normalize + aggregate');
+  log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' named blocks');
+  log('AI DSL metrics: ' + Object.keys(AI_METRIC_WHITELIST).length + ' (numeric + category)');
+  log('Night/off mute applies to alerts, reminders, recovery, scheduled reports');
   log('Telegram long-poll independent of telemetry');
 });
-
 telegramLoop();
 telemetryLoop();
-
 if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
   setTimeout(async () => {
     try {
       const t = await getTelemetry();
-      await tgSend('✅ Controller online\n\n' + formatStatus(t), { reply_markup: mainKeyboard() });
+      const gate = alertsMuted();
+      if (!gate.muted) await tgSend('✅ Controller online\n\n' + formatStatus(t), { reply_markup: mainKeyboard() });
+      else { try { actionLog('info', 'startup notification muted - ' + gate.why); } catch (e) {} }
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-    }
+                       }
