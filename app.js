@@ -6,7 +6,7 @@
  * - Normalized schema; hide missing fields
  * - Alert state machine; history; optional Gemini
  * - NO docker.sock required
- * - International build: English-only output, aligned tree layout
+ * - International build: English-only static messages + AI replies in user's language
  */
 const http = require('http');
 const https = require('https');
@@ -29,7 +29,7 @@ DEFAULT CAPABILITIES (no docker.sock):
 - TCP probes on node ports 31401-31403
 - History for trends/reports
 - Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /donate /winpro /ping
-- Natural-language questions answered with AI when GEMINI_API_KEY is set (or local rules)
+- Natural-language questions answered by AI in the user's language (when GEMINI_API_KEY is set) or English fallback
 - Alerts on meaningful changes (not spam)
 - Local UI http://127.0.0.1:18780/ status + chat
 
@@ -46,16 +46,12 @@ CONFIG (SoloHost):
 - NODE_HOST=host.docker.internal, HORIZON_PORT=31401
 
 SECURITY / PRIVACY:
-- Only responds to configured CHAT_ID
+- Only responds to configured CHAT_ID (constant-time compare)
 - No wallet/key access
 - Logs redact tokens
 - docker.sock is Operator opt-in only
 
-COMMANDS:
-/status current health - /sync ledger+sync - /peers IN/OUT - /report history
-/diagnostic sources - /analyze AI review - /logs app log - /donate - /winpro - /ping - /help
-
-STYLE: Always answer in English. Use short lines, emoji icons, and tree symbols.
+STYLE: Static system messages stay English for consistency. Free-text AI replies MUST match the user's language (or their last-used language in chat history).
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
@@ -77,6 +73,7 @@ const FAIL_THRESHOLD = Math.max(2, parseInt(process.env.FAIL_THRESHOLD || '3', 1
 const ALERT_COOLDOWN = Math.max(60, parseInt(process.env.ALERT_COOLDOWN_SEC || '180', 10) || 180);
 const GITHUB_PRO = 'https://github.com/cannoi/pinode-telegram-controller';
 const NODE_PORTS = [31401, 31402, 31403];
+const NODE_PORTS_STR = NODE_PORTS.map(String);
 const statusMonitor = new PiNodeStatusMonitor({
   nodeHost: NODE_HOST,
   horizonPort: HORIZON_PORT,
@@ -115,12 +112,28 @@ function saveJSON(f, obj) {
     fs.renameSync(t, f);
   } catch (e) {}
 }
+/** Safe JSON.parse: strips dangerous prototype-pollution keys */
+function safeParse(s) {
+  try {
+    return JSON.parse(s, function (k, v) {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') return undefined;
+      return v;
+    });
+  } catch (e) { return null; }
+}
+/** Constant-time string compare (for CHAT_ID / tokens) */
+function safeEq(a, b) {
+  a = String(a || ''); b = String(b || '');
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
 function nowISO() {
   try {
     return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }).replace(' ', 'T') + '+07:00';
   } catch (e) { return new Date().toISOString(); }
 }
-/* English-only short time for messages ("14:59 10-09") */
 function nowHM() {
   try {
     return new Date().toLocaleString('en-GB', {
@@ -151,12 +164,6 @@ function treeBlock(header, lines) {
   });
   return out.join('\n');
 }
-/** Pad a value so its first visible glyph starts at same column
- *  whether or not it begins with a wide status emoji. */
-function padValue(v, hasEmoji) {
-  if (v == null) return '';
-  return hasEmoji ? v : '   ' + v; // 3 spaces ~ width of one status emoji
-}
 function footerTime() {
   try {
     return new Date().toLocaleString('en-GB', {
@@ -171,7 +178,6 @@ function sourceLabel(t) {
   if (t.docker_sock && !/docker/i.test(src)) src = 'DockerExec+' + src;
   return src;
 }
-/* ---------- End helpers ---------- */
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function fmtN(n) { return n == null ? null : Number(n).toLocaleString('en-US'); }
@@ -215,6 +221,16 @@ function pushChatTurn(role, text) {
 let cache = null;
 let cacheAt = 0;
 
+/* ---------- Telegram per-user rate limit (in-memory) ---------- */
+const tgUserBuckets = Object.create(null);
+function tgUserRateLimit(userKey, max, windowMs) {
+  const now = Date.now();
+  let b = tgUserBuckets[userKey];
+  if (!b || now > b.reset) b = tgUserBuckets[userKey] = { n: 0, reset: now + windowMs };
+  b.n++;
+  return b.n <= max;
+}
+
 // ---------- HTTP helpers ----------
 function httpGetUrl(urlStr, headers, timeout) {
   return new Promise(resolve => {
@@ -257,7 +273,8 @@ async function fetchHorizon() {
       const r = await httpGetUrl('http://' + host + ':' + port + '/', {}, 2800);
       if (!r || r.status !== 200 || !r.body) continue;
       try {
-        let j = JSON.parse(r.body);
+        let j = safeParse(r.body);
+        if (!j) continue;
         const pick = (...keys) => {
           for (const k of keys) {
             if (j[k] != null && j[k] !== '') return j[k];
@@ -313,7 +330,7 @@ async function fetchHorizon() {
           ledger: ledger,
           ledger_age: ledger_age,
           sync: syncStatus,
-          sync_confidence: typeof sync_confidence !== 'undefined' ? sync_confidence : 'low',
+          sync_confidence: sync_confidence,
           core_verified: false,
           core_version: pick('core_version') || null,
           horizon_version: pick('horizon_version', 'version') || null,
@@ -342,7 +359,8 @@ async function fetchCoreHttp() {
       const r = await httpGetUrl('http://' + host + ':' + port + '/info', {}, 2500);
       if (!r || r.status !== 200 || !r.body) continue;
       try {
-        const j = JSON.parse(r.body);
+        const j = safeParse(r.body);
+        if (!j) continue;
         const info = j.info || j;
         const o = { source: 'Core', core_port: port, core_host: host, core_verified: true };
         const stateRaw = info.state != null ? String(info.state) : (info.state_details != null ? String(info.state_details) : null);
@@ -353,23 +371,17 @@ async function fetchCoreHttp() {
         if (stateRaw) {
           const s = stateRaw;
           o.core_state = s;
-          if (/synced/i.test(s) && !/not\s*synced|unsynced/i.test(s)) {
-            o.sync = 'Synced'; o.sync_confidence = 'high';
-          } else if (/catching\s*up/i.test(s)) {
-            o.sync = 'Catching up'; o.sync_confidence = 'high';
-          } else if (/joining|scp|booting|starting/i.test(s)) {
-            o.sync = s.length > 40 ? s.slice(0, 40) : s; o.sync_confidence = 'high';
-          } else if (/stop|error|fail/i.test(s)) {
-            o.sync = s; o.sync_confidence = 'high';
-          } else {
-            o.sync = s; o.sync_confidence = 'high';
-          }
+          if (/synced/i.test(s) && !/not\s*synced|unsynced/i.test(s)) { o.sync = 'Synced'; o.sync_confidence = 'high'; }
+          else if (/catching\s*up/i.test(s)) { o.sync = 'Catching up'; o.sync_confidence = 'high'; }
+          else if (/joining|scp|booting|starting/i.test(s)) { o.sync = s.length > 40 ? s.slice(0, 40) : s; o.sync_confidence = 'high'; }
+          else if (/stop|error|fail/i.test(s)) { o.sync = s; o.sync_confidence = 'high'; }
+          else { o.sync = s; o.sync_confidence = 'high'; }
         }
         try {
           const pr = await httpGetUrl('http://' + host + ':' + port + '/peers', {}, 2000);
           if (pr && pr.status === 200 && pr.body) {
-            const pj = JSON.parse(pr.body);
-            if (pj.authenticated_peers) {
+            const pj = safeParse(pr.body);
+            if (pj && pj.authenticated_peers) {
               const inn = pj.authenticated_peers.inbound;
               const out = pj.authenticated_peers.outbound;
               o.peer_in = Array.isArray(inn) ? inn.length : (inn ? Object.keys(inn).length : 0);
@@ -635,7 +647,6 @@ function alertsMuted() {
   return { muted: false, why: '' };
 }
 
-/* ---------- Keyboards: 2-per-row, compact ---------- */
 function reportKeyboard() {
   return {
     inline_keyboard: [
@@ -733,7 +744,7 @@ async function fetchPctContext() {
       r.on('data', function (d) { b += d; });
       r.on('end', function () {
         try {
-          const j = JSON.parse(b);
+          const j = safeParse(b);
           const list = Array.isArray(j) ? j.slice(0, 3).map(function (x) {
             return { tag: x.tag_name || x.name, at: x.published_at || x.created_at, name: x.name };
           }) : [];
@@ -750,6 +761,7 @@ async function fetchPctContext() {
   });
 }
 
+/** Internal alert classifier — kept in English to match static alert format */
 async function aiClassifyIncident(t, kind, durationMin) {
   if (!GEMINI_API_KEY) return null;
   if (state.incidentAiAt && Date.now() - state.incidentAiAt < 25 * 60 * 1000) return state.incidentAiText || null;
@@ -757,7 +769,7 @@ async function aiClassifyIncident(t, kind, durationMin) {
     const pct = await fetchPctContext();
     const brief = (typeof preEvalBrief === 'function') ? preEvalBrief(t) : '';
     const q = [
-      'Classify this Pi Node incident for the operator. Reply in English, short.',
+      'Classify this Pi Node incident for the operator. Reply in English, short (alerts are English-only).',
       'Kind guess: ' + kind + '. Duration minutes: ' + durationMin + '.',
       'Decide: TRANSIENT (upgrade/catch-up, brief network blip, regional cable) vs ACTION (node really needs operator fix).',
       'Mention if it looks like official Pi Node software catch-up after update.',
@@ -882,7 +894,7 @@ async function runAlertMachine(t) {
   saveJSON(STATE_F, state);
 }
 
-// ---------- format (hide missing) ----------
+// ---------- format helpers ----------
 function lineIf(icon, label, value) {
   if (value == null || value === '') return null;
   return icon + '  ' + label + '  ' + value;
@@ -923,7 +935,7 @@ function formatActionLog() {
   return lines.join('\n');
 }
 
-/* ---------- formatStatus: aligned values ---------- */
+/* ---------- formatStatus ---------- */
 function formatStatus(t, mode) {
   t = t || {};
   const age = t._age != null ? t._age : (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0);
@@ -938,7 +950,6 @@ function formatStatus(t, mode) {
   else if (!nodeOk) head = '🟡 PI NODE · QUICK STATUS';
   else head = '🟢 PI NODE · QUICK STATUS';
 
-  // RUNTIME
   const runtime = [];
   if (t.sync) {
     const ic = /synced|live/i.test(syncStr) ? '🟢'
@@ -951,13 +962,9 @@ function formatStatus(t, mode) {
   } else if (t.docker) {
     const ic = /stop|exit/i.test(String(t.docker)) ? '🔴' : '🟢';
     runtime.push('NODE    · ' + ic + ' ' + t.docker);
-  } else if (t.docker_sock) {
-    runtime.push('NODE    · 🟢 sock');
-  } else if (t.ports_all_open) {
-    runtime.push('NODE    · 🟢 Running');
-  } else if (t.ports_open === 0) {
-    runtime.push('NODE    · 🔴 Ports closed');
-  }
+  } else if (t.docker_sock) runtime.push('NODE    · 🟢 sock');
+  else if (t.ports_all_open) runtime.push('NODE    · 🟢 Running');
+  else if (t.ports_open === 0) runtime.push('NODE    · 🔴 Ports closed');
 
   if (netOk) {
     let netKind = '';
@@ -965,21 +972,15 @@ function formatStatus(t, mode) {
     else if (t.network_kind === 'Mainnet') netKind = 'Pi Mainnet';
     else if (t.network_kind) netKind = t.network_kind;
     runtime.push('NET     · 🟢 Good' + (netKind ? ' (' + netKind + ')' : ''));
-  } else if (t.ports_open != null) {
-    runtime.push('NET     · 🟡 Partial');
-  }
+  } else if (t.ports_open != null) runtime.push('NET     · 🟡 Partial');
 
   if (t.ledger != null) {
-    // No emoji status: add 3 spaces so value starts at same column
     let s = '#' + Number(t.ledger).toLocaleString('en-US');
     if (t.ledger_age != null) s += ' (Age ' + t.ledger_age + 's)';
     runtime.push('LEDGER  ·    ' + s);
   }
-  if (t.core_version) {
-    runtime.push('CORE    ·    ' + t.core_version);
-  }
+  if (t.core_version) runtime.push('CORE    ·    ' + t.core_version);
 
-  // SYSTEM
   const sys = [];
   if (t.ram != null) sys.push('RAM     ·    ' + Math.round(t.ram) + '%');
   if (t.cpu != null) {
@@ -988,18 +989,10 @@ function formatStatus(t, mode) {
   }
   if (t.temp != null) sys.push('TEMP    ·    ' + t.temp + '°C');
 
-  // RESULT
   const result = [];
-  if (nodeOk) {
-    result.push('STATUS  · 🟢 OK');
-    result.push('ACTION  · None (No Issues)');
-  } else if (t.level === 'critical') {
-    result.push('STATUS  · 🔴 CRITICAL');
-    result.push('ACTION  · Inspect node');
-  } else {
-    result.push('STATUS  · 🟡 WATCH');
-    result.push('ACTION  · Review');
-  }
+  if (nodeOk) { result.push('STATUS  · 🟢 OK'); result.push('ACTION  · None (No Issues)'); }
+  else if (t.level === 'critical') { result.push('STATUS  · 🔴 CRITICAL'); result.push('ACTION  · Inspect node'); }
+  else { result.push('STATUS  · 🟡 WATCH'); result.push('ACTION  · Review'); }
 
   const parts = [head, ''];
   if (runtime.length) parts.push(treeBlock('⚙️ RUNTIME', runtime));
@@ -1061,12 +1054,8 @@ function formatPeers(t) {
 
       const trendLines = [];
       trendLines.push('TOTAL · ' + ta + ' ➔ ' + tb + ' (' + totalTrend + ')');
-      if (a.peer_in != null && b.peer_in != null) {
-        trendLines.push('IN    · ' + a.peer_in + ' ➔ ' + b.peer_in + ' (🟢 Stable)');
-      }
-      if (a.peer_out != null && b.peer_out != null) {
-        trendLines.push('OUT   · ' + a.peer_out + ' ➔ ' + b.peer_out + ' (🟢 Stable)');
-      }
+      if (a.peer_in != null && b.peer_in != null) trendLines.push('IN    · ' + a.peer_in + ' ➔ ' + b.peer_in + ' (🟢 Stable)');
+      if (a.peer_out != null && b.peer_out != null) trendLines.push('OUT   · ' + a.peer_out + ' ➔ ' + b.peer_out + ' (🟢 Stable)');
       trendLines.forEach(function (l, i) {
         const isLast = i === trendLines.length - 1;
         parts.push(' ' + (isLast ? '└' : '├') + ' ' + l);
@@ -1087,12 +1076,11 @@ function formatPeers(t) {
 /* ---------- formatDiagnostic ---------- */
 function formatDiagnostic(t) {
   t = t || {};
-
   const net = [];
-  if (t.network_kind === 'Testnet')   net.push('Network · Pi Testnet');
+  if (t.network_kind === 'Testnet') net.push('Network · Pi Testnet');
   else if (t.network_kind === 'Mainnet') net.push('Network · Pi Mainnet');
-  else if (t.network_kind)            net.push('Network · ' + t.network_kind);
-  else if (t.network)                 net.push('Network · ' + t.network);
+  else if (t.network_kind) net.push('Network · ' + t.network_kind);
+  else if (t.network) net.push('Network · ' + t.network);
 
   if (t.sync) {
     const ic = /synced|live/i.test(String(t.sync)) ? '🟢'
@@ -1108,11 +1096,10 @@ function formatDiagnostic(t) {
     net.push(s);
   }
   if (t.peer_in != null || t.peer_out != null) {
-    net.push('Peers   · IN ' + (t.peer_in != null ? t.peer_in : '?') +
-             ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
+    net.push('Peers   · IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?'));
   }
   if (t.ports) {
-    const openCount = [31401,31402,31403].filter(function (p) { return t.ports[String(p)] === 'OPEN'; }).length;
+    const openCount = NODE_PORTS_STR.filter(function (p) { return t.ports[p] === 'OPEN'; }).length;
     const pic = openCount === 3 ? '🟢 OPEN' : (openCount === 0 ? '🔴 CLOSED' : '🟡 ' + openCount + '/3');
     net.push('Ports   · 31401-31403 ' + pic);
   }
@@ -1122,13 +1109,9 @@ function formatDiagnostic(t) {
   if (t.docker) {
     const dic = /stop|exit/i.test(String(t.docker)) ? '🔴' : '🟢';
     eng.push('Docker    · ' + dic + ' ' + String(t.docker).toUpperCase() + ' (Sock: ' + (sockYes ? 'Yes' : 'No') + ')');
-  } else if (sockYes) {
-    eng.push('Docker    · 🟢 Sock (Sock: Yes)');
-  }
-  if (t.container)  eng.push('Container · ' + t.container);
-  if (t.core_version) {
-    eng.push('Core      · ' + t.core_version + (t.protocol != null ? ' (Proto ' + t.protocol + ')' : ''));
-  }
+  } else if (sockYes) eng.push('Docker    · 🟢 Sock (Sock: Yes)');
+  if (t.container) eng.push('Container · ' + t.container);
+  if (t.core_version) eng.push('Core      · ' + t.core_version + (t.protocol != null ? ' (Proto ' + t.protocol + ')' : ''));
   if (t.horizon_version) eng.push('Horizon   · ' + t.horizon_version);
 
   let levelIc = '🟢';
@@ -1161,20 +1144,9 @@ const APP_GUIDE = `
 HOW TO USE THIS APP
 Telegram: talk to the bot from your phone. Commands: /status /sync /peers /report /diagnostic /analyze /logs /donate /help /mute.
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
-Ask in any language. AI answers as a Pi Node technician using real telemetry + 24h history.
+Ask in any language. AI answers as a Pi Node technician using real telemetry + 24h history, replying in the user's language.
 Alerts: only after a problem lasts. Mute 1h / 24h / night / off on the alert buttons.
 Reports: 07:00 / 18:00 / both / off.
-Scripts (Windows, double-click, auto Admin):
- CleanRAM    - PC slow, node still synced.
- DnsFlush    - peers dropped, ports open.
- Firewall    - local Pi ports closed.
- NetRepair   - internet/Horizon down a long time; keeps LAN IP.
- LanSetup    - first setup; lock current LAN IP.
- NodeReset   - Pi container stuck; Docker Engine OK.
- DockerRecover - Docker Engine down; Soft first.
- Maintain    - weekly cleanup when healthy.
- Reboot      - last resort only.
-Optional Docker probe is enabled only in this SoloHost window on the PC (Terms + Confirm + Stop/Start). Telegram cannot raise Docker rights.
 Donate: /donate - Pay with Pi or MB Bank QR.
 `;
 
@@ -1287,7 +1259,7 @@ function formatActionAdvice(t) {
   return lines.join('\n');
 }
 
-/* ---------- formatReport: no redundant ISSUES block ---------- */
+/* ---------- formatReport ---------- */
 function formatReport() {
   const rows = readHistory(1);
   if (!rows.length) {
@@ -1324,35 +1296,29 @@ function formatReport() {
 
   const dockRows = rows.filter(function (r) { return r.docker || r.docker_sock || r.container; });
   const lastDock = dockRows.length ? dockRows[dockRows.length - 1] : last;
-  const dockLabel = lastDock.docker
-    || (lastDock.docker_sock ? 'sock' : (last.ports_open > 0 ? 'Running' : 'N/A'));
+  const dockLabel = lastDock.docker || (lastDock.docker_sock ? 'sock' : (last.ports_open > 0 ? 'Running' : 'N/A'));
   metrics.push('🐳 DOCKER  · ' + (/stop|exit|n\/a/i.test(String(dockLabel)) ? '🟡 ' : '🟢 ') + dockLabel);
 
   if (last.peer_in != null || last.peer_out != null) {
-    metrics.push('👥 PEERS   · IN ' + (last.peer_in != null ? last.peer_in : '?') +
-                 ' / OUT ' + (last.peer_out != null ? last.peer_out : '?'));
+    metrics.push('👥 PEERS   · IN ' + (last.peer_in != null ? last.peer_in : '?') + ' / OUT ' + (last.peer_out != null ? last.peer_out : '?'));
   }
   metrics.push('🌐 NETWORK · ' + ((last.ports_all_open || last.ports_open >= 2) ? '🟢 Stable' : '🟡 Check'));
 
   const windows = extractIssueWindows(rows);
 
   const diag = [];
-  diag.push((healthyPct >= 90 ? '🟢' : '🟡') + ' NODE   · ' +
-            (healthyPct >= 90 ? 'Healthy' : 'Watch') + ' (' + healthyPct + '%)');
+  diag.push((healthyPct >= 90 ? '🟢' : '🟡') + ' NODE   · ' + (healthyPct >= 90 ? 'Healthy' : 'Watch') + ' (' + healthyPct + '%)');
   diag.push('🛠️ ACTION · ' + (crit > rows.length * 0.1 ? 'Review node' : 'None (No BAT needed)'));
 
   const parts = [head, ''];
   parts.push('⏱ RANGE · ' + t0 + ' ➔ ' + t1 + ' (~' + hours + 'h | ' + rows.length + ' samples)');
   parts.push('');
   parts.push(treeBlock('📊 METRICS', metrics));
-
-  // Only render ISSUE WINDOWS when there is at least one window -> removes "None" noise
   if (windows.length) {
     parts.push('');
     parts.push('⚠️ ISSUE WINDOWS');
     parts.push(formatIssueWindows(windows));
   }
-
   parts.push('');
   parts.push(treeBlock('💡 DIAGNOSIS', diag));
   parts.push('');
@@ -1372,7 +1338,7 @@ function formatHelp() {
     '👥 /peers       - Inbound and outbound peers',
     '📈 /report      - Recent history and issue windows',
     '🩺 /diagnostic  - Technical source details',
-    '💬 /analyze     - AI technician review',
+    '💬 /analyze     - AI technician review (in your language)',
     '📋 /logs        - App activity and errors',
     '💛 /donate      - Support the project',
     '💻 /winpro      - Windows PRO edition link',
@@ -1380,7 +1346,7 @@ function formatHelp() {
     '❓ /help        - This list',
     '🔕 /mute        - Quiet alerts: 1h, 24h, night, off',
     '',
-    'Ask in any language. AI uses live + history data.',
+    'Ask in any language. AI replies in your language.',
     'Optional Docker: SoloHost UI on this PC only.',
     '',
     '💛 /donate'
@@ -1533,8 +1499,7 @@ async function sendDonateQr(kind) {
   if (kind === 'mb' || kind === 'both') {
     const qr = donateQrPath('mb');
     if (qr) {
-      await tgSendPhotoFile(qr,
-        '🏦 MB Bank\n0905428801 · TRAN HUU NGHI\n\n🙏 ' + thanks);
+      await tgSendPhotoFile(qr, '🏦 MB Bank\n0905428801 · TRAN HUU NGHI\n\n🙏 ' + thanks);
     } else {
       try { actionLog('warn', 'donate MB QR missing'); } catch (e) {}
     }
@@ -1571,7 +1536,7 @@ async function tgSendPhotoFile(filePath, caption) {
         r.on('data', function (d) { b += d; });
         r.on('end', function () {
           try {
-            const j = JSON.parse(b);
+            const j = safeParse(b);
             if (!(j && j.ok)) try { actionLog('warn', 'donate QR telegram: ' + String((j && j.description) || r.statusCode)); } catch (e) {}
           } catch (e) {}
           resolve();
@@ -1608,31 +1573,72 @@ function formatWindowsPro() {
   ].join('\n');
 }
 
+/* ---------- Language detection (multi-script) ---------- */
 function detectUserLang(q) {
   const s = String(q || '');
-  if (/[\u3040-\u30ff\u3400-\u9fff]/.test(s)) return 'cjk';
-  return 'en';
+  if (!s.trim()) return null;
+  if (/[\u3040-\u30ff]/.test(s)) return 'Japanese';
+  if (/[\uac00-\ud7af]/.test(s)) return 'Korean';
+  if (/[\u4e00-\u9fff]/.test(s)) return 'Chinese';
+  if (/[\u0400-\u04ff]/.test(s)) return 'Russian';
+  if (/[\u0600-\u06ff]/.test(s)) return 'Arabic';
+  if (/[\u0590-\u05ff]/.test(s)) return 'Hebrew';
+  if (/[\u0e00-\u0e7f]/.test(s)) return 'Thai';
+  if (/[\u0900-\u097f]/.test(s)) return 'Hindi';
+  if (/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(s)) return 'Vietnamese';
+  if (/\b(hola|gracias|c[oó]mo|est[aá]|buenos|qu[eé]|por favor|ayuda)\b/i.test(s)) return 'Spanish';
+  if (/\b(ol[aá]|obrigado|voc[eê]|est[aá]|por favor|ajuda)\b/i.test(s)) return 'Portuguese';
+  if (/\b(bonjour|merci|vous|comment|s'il|aidez)\b/i.test(s)) return 'French';
+  if (/\b(ciao|grazie|come|perch[eé]|aiuto)\b/i.test(s)) return 'Italian';
+  if (/\b(hallo|danke|bitte|wie geht|hilfe)\b/i.test(s)) return 'German';
+  if (/\b(merhaba|te[sş]ekk[uü]r|nas[iı]l|yard[iı]m)\b/i.test(s)) return 'Turkish';
+  if (/\b(selamat|terima kasih|bagaimana|tolong)\b/i.test(s)) return 'Indonesian';
+  if (/\b(привет|спасибо|помощь)\b/i.test(s)) return 'Russian';
+  if (/\b(γειά|ευχαριστώ|βοήθεια)\b/i.test(s)) return 'Greek';
+  if (/\b(cześć|dziękuję|pomoc)\b/i.test(s)) return 'Polish';
+  if (/\b(hei|takk|hjelp)\b/i.test(s)) return 'Norwegian';
+  if (/\b(hej|tack|hjälp)\b/i.test(s)) return 'Swedish';
+  return 'English';
+}
+
+/**
+ * Combine current message language with recent chat history.
+ * Priority: current detected language > most common in last 10 user turns > English.
+ */
+function detectUserPreferredLang(currentMsg) {
+  const current = detectUserLang(currentMsg);
+  if (current) return current;
+  const turns = loadChatHistory();
+  const userTurns = turns.filter(function (t) { return t && t.role === 'user'; }).slice(-10);
+  const counts = {};
+  userTurns.forEach(function (t) {
+    const l = detectUserLang(t.text);
+    if (l) counts[l] = (counts[l] || 0) + 1;
+  });
+  let best = null, bestN = 0;
+  for (const k in counts) if (counts[k] > bestN) { best = k; bestN = counts[k]; }
+  return best || 'English';
 }
 
 function detectIntent(q) {
   const s = String(q || '').toLowerCase();
-  if (/^(hello|hi|hey)\b/.test(s) || s === 'hello' || s === 'hi') return 'GREETING';
-  if (/what day|what time|today/.test(s)) return 'SMALLTALK';
-  if (/explain|clarify/.test(s)) return 'CLARIFY';
-  if (/ram|memory/.test(s)) return 'RAM';
-  if (/\bcpu\b|processor/.test(s)) return 'CPU';
-  if (/temp|temperature/.test(s)) return 'TEMP';
-  if (/disk|storage/.test(s)) return 'DISK';
+  if (/^(hello|hi|hey|xin chào|chào|hola|hallo|bonjour|ciao|olá)\b/.test(s) || s === 'hello' || s === 'hi') return 'GREETING';
+  if (/what day|what time|today|hôm nay|thứ mấy|qué día|quel jour/.test(s)) return 'SMALLTALK';
+  if (/explain|clarify|giải thích|expl[ií]came|explique/.test(s)) return 'CLARIFY';
+  if (/\bram\b|memory|bộ nhớ|memoria|mémoire/.test(s)) return 'RAM';
+  if (/\bcpu\b|processor|procesador|processeur/.test(s)) return 'CPU';
+  if (/\btemp\b|temperature|nhiệt|nóng|temp[eé]rature/.test(s)) return 'TEMP';
+  if (/\bdisk\b|storage|ổ cứng|disco|disque/.test(s)) return 'DISK';
   if (/docker|container/.test(s)) return 'DOCKER';
-  if (/port|31401|31402|31403/.test(s)) return 'PORT';
-  if (/peer|incoming|outgoing/.test(s)) return 'PEERS';
-  if (/sync|ledger/.test(s)) return 'BLOCK_SYNC';
-  if (/bonus|reward|points/.test(s)) return 'BONUS';
-  if (/upgrade|add ram|ssd|buy/.test(s)) return 'ADVICE';
-  if (/why|error|slow|issue|problem/.test(s)) return 'DIAGNOSIS';
-  if (/ok\?|how is|status|my node|health/.test(s)) return 'NODE_HEALTH';
-  if (/should i|recommend|advice|what to do/.test(s)) return 'RECOMMENDATION';
-  if (/sell|finance|money|tight/.test(s)) return 'FINANCE';
+  if (/\bport\b|31401|31402|31403|cổng|puerto/.test(s)) return 'PORT';
+  if (/peer|incoming|outgoing|đồng nghiệp/.test(s)) return 'PEERS';
+  if (/sync|ledger|đồng bộ|sincronizaci[oó]n|synchronisation/.test(s)) return 'BLOCK_SYNC';
+  if (/bonus|reward|points|điểm thưởng|recompensa/.test(s)) return 'BONUS';
+  if (/upgrade|add ram|ssd|nâng cấp|mejorar|améliorer/.test(s)) return 'ADVICE';
+  if (/\bwhy\b|error|slow|issue|problem|tại sao|lỗi|por qué|pourquoi/.test(s)) return 'DIAGNOSIS';
+  if (/\bok\??\b|how is|status|my node|health|ổn không|tình trạng|c[oó]mo est[aá]/.test(s)) return 'NODE_HEALTH';
+  if (/should i|recommend|advice|what to do|tư vấn|recomiendas|conseil/.test(s)) return 'RECOMMENDATION';
+  if (/sell|finance|money|tight|bán|kẹt tiền|vender|argent/.test(s)) return 'FINANCE';
   return 'GENERAL';
 }
 
@@ -1658,8 +1664,7 @@ function evidenceSummary(t) {
   if (t.sync) parts.push('Sync: ' + t.sync);
   if (t.ledger != null) parts.push('Ledger: ' + Number(t.ledger).toLocaleString('en-US'));
   if (t.ledger_age != null) parts.push('Age: ' + t.ledger_age + 's');
-  if (t.peer_in != null || t.peer_out != null)
-    parts.push('Peer IN/OUT: ' + (t.peer_in != null ? t.peer_in : '?') + '/' + (t.peer_out != null ? t.peer_out : '?'));
+  if (t.peer_in != null || t.peer_out != null) parts.push('Peer IN/OUT: ' + (t.peer_in != null ? t.peer_in : '?') + '/' + (t.peer_out != null ? t.peer_out : '?'));
   if (t.docker) parts.push('Docker: ' + t.docker);
   if (t.ports_all_open) parts.push('Ports 31401-3: OPEN');
   else if (t.ports_open != null) parts.push('Ports open: ' + t.ports_open + '/3');
@@ -1680,8 +1685,7 @@ function collectIssues(t) {
   if (t.ram != null && t.ram >= 88) issues.push('RAM high (' + t.ram + '%)');
   if (t.cpu != null && t.cpu >= 90) issues.push('CPU high (' + t.cpu + '%)');
   if (t.temp != null && t.temp >= 78) issues.push('High temperature (' + t.temp + '°C)');
-  if (!t.source && t.ports_open === 0)
-    issues.push('No telemetry source and ports closed');
+  if (!t.source && t.ports_open === 0) issues.push('No telemetry source and ports closed');
   return issues;
 }
 
@@ -1692,7 +1696,7 @@ function metricIntentKey(intent) {
   return null;
 }
 
-/* English-only local assistant */
+/* English-only local assistant (fallback when GEMINI key absent) */
 function localAssistantReply(t, intent, userQ) {
   const ok = t.level === 'ok' || (t.sync && /synced|live|horizon ok/i.test(String(t.sync)));
   const age = t.ledger_age != null ? t.ledger_age : null;
@@ -1705,63 +1709,31 @@ function localAssistantReply(t, intent, userQ) {
     return msg + '\n\nLast ~24h data\n' + hTxt + '\n\nTip: use /report for a fuller summary.';
   }
 
-  if (intent === 'GREETING') {
-    return 'Hi! I am watching your Pi Node. Right now it looks ' + (ok ? 'fine' : 'like it needs attention') + '. Ask about sync, ports, bonus, or upgrades anytime.';
-  }
-  if (intent === 'SMALLTALK') {
-    return 'Around ' + nowHM() + ' local time. I can help with your Node - ask naturally.';
-  }
-  if (intent === 'CLARIFY') {
-    return 'Simply put: the node looks ' + (ok ? 'healthy' : 'unstable') + (sync ? ('; sync: ' + sync) : '') + (ledger ? ('; ledger ~' + ledger) : '') + '. What should I explain more?';
-  }
-  if (intent === 'BONUS') {
-    return 'Bonus depends on stable uptime, open ports, and good sync - this app does not show bonus points. ' +
-      (ok
-        ? ('Your node looks ' + (sync || 'synced') + (age != null ? (', age ' + age + 's') : '') + '. Keep online 24/7, ports open, avoid constant restarts.')
-        : 'Something looks off - check sync and ports first.');
-  }
+  if (intent === 'GREETING') return 'Hi! I am watching your Pi Node. Right now it looks ' + (ok ? 'fine' : 'like it needs attention') + '. Ask about sync, ports, bonus, or upgrades anytime.';
+  if (intent === 'SMALLTALK') return 'Around ' + nowHM() + ' local time. I can help with your Node - ask naturally.';
+  if (intent === 'CLARIFY') return 'Simply put: the node looks ' + (ok ? 'healthy' : 'unstable') + (sync ? ('; sync: ' + sync) : '') + (ledger ? ('; ledger ~' + ledger) : '') + '. What should I explain more?';
+  if (intent === 'BONUS') return 'Bonus depends on stable uptime, open ports, and good sync - this app does not show bonus points. ' + (ok ? ('Your node looks ' + (sync || 'synced') + (age != null ? (', age ' + age + 's') : '') + '. Keep online 24/7, ports open, avoid constant restarts.') : 'Something looks off - check sync and ports first.');
   if (intent === 'BLOCK_SYNC' || intent === 'DIAGNOSIS') {
-    if (ok && age != null && age <= 60) {
-      return withHistory('I get the concern about losing sync. Right now it is ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's - blocks are closing on time. Short blips often recover alone; if it keeps happening, check network and /report.');
-    }
-    if (age != null && age > 120) {
-      return 'Sync looks slow: age ' + age + 's (' + (sync || '?') + '). It may be catching up or the network is congested. Check ports; restart Pi Node if this lasts >10 minutes.';
-    }
+    if (ok && age != null && age <= 60) return withHistory('I get the concern about losing sync. Right now it is ' + (sync || 'Synced') + ', ledger ~' + (ledger || '?') + ', age ' + age + 's - blocks are closing on time. Short blips often recover alone; if it keeps happening, check network and /report.');
+    if (age != null && age > 120) return 'Sync looks slow: age ' + age + 's (' + (sync || '?') + '). It may be catching up or the network is congested. Check ports; restart Pi Node if this lasts >10 minutes.';
     return 'On sync: ' + (sync || 'unclear') + (ledger ? (', ledger ' + ledger) : '') + (age != null ? (', age ' + age + 's') : '') + '. If dropouts are frequent, send /report.';
   }
-  if (intent === 'NODE_HEALTH') {
-    return withHistory('Overall the node looks ' + (ok ? 'healthy' : 'like it needs attention') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Safe to keep running; check /peers and /report for more confidence.' : 'Open /diagnostic and verify ports/network.'));
-  }
-  if (intent === 'ADVICE' || intent === 'RECOMMENDATION') {
-    return 'Practical tips: (1) keep online, (2) keep ports 31401-31403 open, (3) enough RAM and cooling, (4) avoid constant resets. Windows PRO: https://github.com/cannoi/pinode-telegram-controller';
-  }
-  if (intent === 'RAM') {
-    return formatMetricAnalysis('ram', 7) + (t.ram != null ? ('\n\nNow · ' + t.ram + '%') : '');
-  }
-  if (intent === 'CPU') {
-    return formatMetricAnalysis('cpu', 7) + (t.cpu != null ? ('\n\nNow · ' + t.cpu + '%') : '');
-  }
-  if (intent === 'TEMP') {
-    return formatMetricAnalysis('temp', 7) + (t.temp != null ? ('\n\nNow · ' + t.temp + '°C') : '');
-  }
-  if (intent === 'FINANCE') {
-    return financialBoundaryReply() + (h24 && h24.samples ? ('\n\n' + hTxt) : '');
-  }
+  if (intent === 'NODE_HEALTH') return withHistory('Overall the node looks ' + (ok ? 'healthy' : 'like it needs attention') + (sync ? (', ' + sync) : '') + (ledger ? (', ledger ' + ledger) : '') + '. ' + (ok ? 'Safe to keep running; check /peers and /report for more confidence.' : 'Open /diagnostic and verify ports/network.'));
+  if (intent === 'ADVICE' || intent === 'RECOMMENDATION') return 'Practical tips: (1) keep online, (2) keep ports 31401-31403 open, (3) enough RAM and cooling, (4) avoid constant resets. Windows PRO: https://github.com/cannoi/pinode-telegram-controller';
+  if (intent === 'RAM') return formatMetricAnalysis('ram', 7) + (t.ram != null ? ('\n\nNow · ' + t.ram + '%') : '');
+  if (intent === 'CPU') return formatMetricAnalysis('cpu', 7) + (t.cpu != null ? ('\n\nNow · ' + t.cpu + '%') : '');
+  if (intent === 'TEMP') return formatMetricAnalysis('temp', 7) + (t.temp != null ? ('\n\nNow · ' + t.temp + '°C') : '');
+  if (intent === 'FINANCE') return financialBoundaryReply() + (h24 && h24.samples ? ('\n\n' + hTxt) : '');
   if (intent === 'PEERS') {
-    if (t.peer_in == null && t.peer_out == null)
-      return 'Peer counts unavailable. Try /ports.';
+    if (t.peer_in == null && t.peer_out == null) return 'Peer counts unavailable. Try /ports.';
     return 'Peers IN ' + (t.peer_in != null ? t.peer_in : '?') + ' / OUT ' + (t.peer_out != null ? t.peer_out : '?');
   }
   if (intent === 'PORT') {
     if (!t.ports) return 'Ports not probed yet.';
-    return [31401, 31402, 31403].map(function (p) { return p + ': ' + (t.ports[String(p)] || '?'); }).join('\n');
+    return NODE_PORTS.map(function (p) { return p + ': ' + (t.ports[String(p)] || '?'); }).join('\n');
   }
-  if (intent === 'DOCKER') {
-    return 'SoloHost does not control host Docker. Container label: ' + (t.container || 'n/a') + '.';
-  }
-  if (ok) {
-    return withHistory('From current data the node looks fine' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Brief sync drops are often temporary - keep it online and check /report if it repeats.');
-  }
+  if (intent === 'DOCKER') return 'SoloHost does not control host Docker. Container label: ' + (t.container || 'n/a') + '.';
+  if (ok) return withHistory('From current data the node looks fine' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Brief sync drops are often temporary - keep it online and check /report if it repeats.');
   return withHistory('Something needs attention' + (sync ? (': ' + sync) : '') + '. Check /diagnostic and network/ports.');
 }
 
@@ -1828,7 +1800,6 @@ function writeDockerPref(obj) {
 
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
-  const image = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + String(VERSION).replace(/-solohost$/, '').replace(/^/, 'v').replace(/^vv/, 'v'));
   let tag = 'v2.6.24';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
@@ -1971,7 +1942,7 @@ function dockerTermsText() {
     'The app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.',
     '',
     'SoloHost default',
-    'SoloHost installs this app as a sandbox: CPU/memory, one localhost port, its own data folder, and outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring (Horizon, ports, reports, AI).',
+    'SoloHost installs this app as a sandbox: CPU/memory, one localhost port, its own data folder, and outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring.',
     '',
     'What you grant if you Agree',
     '- Read-only mount of /var/run/docker.sock into this app container (after Stop -> Start).',
@@ -1996,9 +1967,7 @@ function dockerTermsText() {
     'Agree only if you accept these terms.'
   ].join('\n');
 }
-async function formatDockerRules() {
-  return dockerTermsText();
-}
+async function formatDockerRules() { return dockerTermsText(); }
 async function formatDockerHelp(tel) {
   const pref = readDockerPref();
   const sock = !!(tel && tel.docker_sock);
@@ -2032,9 +2001,7 @@ function buildHistory24h() {
     const ts = Date.parse(r.ts) || 0;
     return !ts || ts >= cutoff;
   });
-  if (!day.length) {
-    return { samples: 0, note: 'No history yet - collecting telemetry every 60s.' };
-  }
+  if (!day.length) return { samples: 0, note: 'No history yet - collecting telemetry every 60s.' };
   const nums = function (key) {
     return day.map(function (r) { return r[key]; }).filter(function (x) { return x != null && isFinite(Number(x)); }).map(Number);
   };
@@ -2138,21 +2105,10 @@ function formatMetricAnalysis(metricKey, days) {
   const d = Math.max(1, days || 7);
   const rows = historyRowsDays(d);
   const vals = rows.map(function (r) { return toNum(r[metricKey]); }).filter(function (x) { return x != null; });
-  const titleMap = {
-    ram: '🧠 RAM ANALYSIS',
-    cpu: '⚙️ CPU ANALYSIS',
-    temp: '🌡️ TEMP ANALYSIS',
-    ledger_age: '⏱️ LEDGER AGE ANALYSIS'
-  };
+  const titleMap = { ram: '🧠 RAM ANALYSIS', cpu: '⚙️ CPU ANALYSIS', temp: '🌡️ TEMP ANALYSIS', ledger_age: '⏱️ LEDGER AGE ANALYSIS' };
   const unit = (metricKey === 'temp') ? '°C' : (metricKey === 'ledger_age' ? 's' : '%');
   const title = (titleMap[metricKey] || metricKey) + ' · ' + periodLabel(d);
-  if (!vals.length) {
-    return [
-      title,
-      '───────────────',
-      'Not enough history samples yet. Collecting every ~60s - ask again later.'
-    ].join('\n');
-  }
+  if (!vals.length) return [title, '───────────────', 'Not enough history samples yet. Collecting every ~60s - ask again later.'].join('\n');
   const mm = minMax(vals);
   const a = avg(vals);
   const med = median(vals);
@@ -2169,7 +2125,7 @@ function formatMetricAnalysis(metricKey, days) {
 
 function financialBoundaryReply() {
   return [
-    '🤖 AI APP GUIDE',
+    '⚡AI PINODE GUIDE',
     '───────────────',
     'I understand money pressure is real. As a technical Pi Node assistant I only report machine health - I cannot advise buying/selling or personal finance.',
     '',
@@ -2225,7 +2181,7 @@ async function httpGetGemini(pathSuffix) {
       let b = '';
       r.on('data', function (d) { b += d; });
       r.on('end', function () {
-        try { resolve({ status: r.statusCode, body: JSON.parse(b) }); } catch (e) { resolve(null); }
+        try { resolve({ status: r.statusCode, body: safeParse(b) }); } catch (e) { resolve(null); }
       });
     });
     req.on('error', function () { resolve(null); });
@@ -2237,9 +2193,7 @@ async function httpGetGemini(pathSuffix) {
 async function discoverGeminiModels(force) {
   if (!GEMINI_API_KEY) return [];
   const now = Date.now();
-  if (!force && state.geminiModels && state.geminiModels.length) {
-    return state.geminiModels;
-  }
+  if (!force && state.geminiModels && state.geminiModels.length) return state.geminiModels;
   const r = await httpGetGemini('models');
   let names = [];
   if (r && r.body && Array.isArray(r.body.models)) {
@@ -2315,12 +2269,12 @@ async function callGeminiGenerate(model, body) {
       r.on('data', function (d) { b += d; });
       r.on('end', function () {
         try {
-          const j = JSON.parse(b);
-          if (j.error) {
+          const j = safeParse(b);
+          if (j && j.error) {
             resolve({ ok: false, error: String(j.error.message || j.error.status || 'error').slice(0, 160) });
             return;
           }
-          const text = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text;
+          const text = j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text;
           if (text && String(text).trim()) resolve({ ok: true, text: String(text).trim() });
           else resolve({ ok: false, error: 'empty candidates' });
         } catch (e) { resolve({ ok: false, error: 'parse' }); }
@@ -2344,10 +2298,7 @@ async function generateWithSmartGemini(promptText) {
     if (!model || tried[model]) return null;
     tried[model] = true;
     const res = await callGeminiGenerate(model, body);
-    if (res.ok) {
-      rememberGeminiSuccess(model);
-      return res.text;
-    }
+    if (res.ok) { rememberGeminiSuccess(model); return res.text; }
     try { actionLog('warn', 'Gemini ' + model + ': ' + (res.error || 'fail')); } catch (e) {}
     rememberGeminiFailure(model);
     return null;
@@ -2399,28 +2350,20 @@ function technicianEvaluate(t, userQ, intent) {
     lines.push('The node needs closer watching - data is limited or some signals are not ideal.');
   }
   lines.push('');
-
   lines.push('What the numbers mean:');
   if (sync) lines.push('• Sync: ' + sync + (age != null ? (' (age ' + age + 's)') : ''));
   if (ledger) lines.push('• Current ledger: ' + ledger);
   if (h.samples) {
     lines.push('• Last ~' + (h.approx_minutes || '?') + ' min: ' + h.samples + ' samples, OK/Warn/Crit = ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
-    if (h.ledger_delta != null) {
-      lines.push('• Ledger moved: ' + h.ledger_min + ' -> ' + h.ledger_max + ' (delta ' + h.ledger_delta + ')');
-    }
-    if (h.sync_flips != null) {
-      lines.push('• Sync flips: ' + h.sync_flips + (h.sync_flips === 0 ? ' (stable)' : ' (watch if frequent)'));
-    }
-    if (h.age_max_s != null) {
-      lines.push('• Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
-    }
+    if (h.ledger_delta != null) lines.push('• Ledger moved: ' + h.ledger_min + ' -> ' + h.ledger_max + ' (delta ' + h.ledger_delta + ')');
+    if (h.sync_flips != null) lines.push('• Sync flips: ' + h.sync_flips + (h.sync_flips === 0 ? ' (stable)' : ' (watch if frequent)'));
+    if (h.age_max_s != null) lines.push('• Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
     if (h.cpu_max != null) lines.push('• CPU peak (container): ' + h.cpu_max + '%');
     if (h.ram_max != null) lines.push('• RAM peak (container): ' + h.ram_max + '%');
   } else {
     lines.push('• History still short - samples every ~60s. Run longer for a solid 24h review.');
   }
   lines.push('');
-
   lines.push('Practical next steps:');
   if (ok) {
     lines.push('1) Keep the machine online; avoid frequent restarts.');
@@ -2432,34 +2375,38 @@ function technicianEvaluate(t, userQ, intent) {
   }
   lines.push('');
   lines.push('Want a deeper look at sync, peers, or resources (RAM/CPU)?');
-
   if (!GEMINI_API_KEY) {
     lines.push('');
-    lines.push('💡 Set GEMINI_API_KEY in SoloHost config for full AI technician analysis.');
+    lines.push('💡 Set GEMINI_API_KEY in SoloHost config for full multi-language AI technician analysis.');
   }
   return lines.join('\n');
 }
 
+/**
+ * Main AI analyzer.
+ * - Detects user's language (current message + chat history).
+ * - Forces Gemini to reply in that language.
+ * - Keeps static templates (system messages, alerts) in English.
+ */
 async function aiAnalyze(t, userQ) {
   const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 3500);
   try { await fetchPctContext(); } catch (e) {}
 
   try {
     const intent = detectIntent(userQ || '');
+    const userLang = detectUserPreferredLang(userQ || '');
     const q = String(userQ || '');
 
     let days = 7;
-    if (/24\s*h|24h|today|1\s*day/i.test(q)) days = 1;
-    if (/30\s*day|30d|month/i.test(q)) days = 30;
+    if (/24\s*h|24h|today|1\s*day|h[oô]m nay/i.test(q)) days = 1;
+    if (/30\s*day|30d|month|th[aá]ng/i.test(q)) days = 30;
     days = Math.min(days, 7);
 
     const mk = metricIntentKey(intent);
     let metricBlock = '';
     if (mk) {
       metricBlock = formatMetricAnalysis(mk, days);
-      if (t && t[mk] != null) {
-        metricBlock += '\n\nNow · ' + t[mk] + (mk === 'temp' ? '°C' : '%');
-      }
+      if (t && t[mk] != null) metricBlock += '\n\nNow · ' + t[mk] + (mk === 'temp' ? '°C' : '%');
     } else if (intent === 'BLOCK_SYNC' || intent === 'DIAGNOSIS' || intent === 'NODE_HEALTH' || intent === 'GENERAL' || intent === 'BONUS' || intent === 'RECOMMENDATION' || intent === 'ADVICE' || intent === 'CLARIFY' || intent === 'FINANCE') {
       try {
         const h = buildHistory24h();
@@ -2486,13 +2433,14 @@ async function aiAnalyze(t, userQ) {
     if (GEMINI_API_KEY) {
       const prompt = '[APP GUIDE]\n' + appGuide + '\n\n' + [
         'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
-        'LANGUAGE: Reply in English only. Keep it short and practical.',
+        'LANGUAGE (MANDATORY): Reply in ' + userLang + '. This is the user\'s detected language from their message and/or recent chat history. Do NOT switch to English unless the user is using English. Match the user\'s tone (informal/formal) too.',
         'PRIORITY: Every free-text question needs a real technician evaluation - simple words, practical value.',
         'DATA RULES: Use ONLY the JSON blocks below. If container_cpu / container_ram / ledger_per_min / peers / health exist, you MUST use them. Missing field = unknown, NEVER say 0%.',
         'MISSING DATA: You MAY ask up to 3 short follow-up questions when needed. Do not invent answers.',
         'FORMAT: No markdown special characters (no **, __, `, #). Short lines. Icons ok (🟢 🟡 🔴 ✅ ⚠️ 📊 🔄 💡 🧠 🔧).',
         'STRUCTURE: (1) short verdict with icon (2) explanation (3) evidence (4) 1-3 next steps (5) optional question.',
         'FINANCE: Empathy + technical health only. No buy/sell advice.',
+        'Detected user language: ' + userLang,
         'Intent: ' + intent,
         'User question: ' + q.slice(0, 900),
         'Issues: ' + JSON.stringify(issues),
@@ -2508,14 +2456,14 @@ async function aiAnalyze(t, userQ) {
         metricBlock ? ('RELATED_METRIC_BLOCK:\n' + metricBlock) : '',
         facts.health != null && facts.health < 60 ? (hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist.slice(-8))) : '') : '',
         chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : '',
-        'Write the reply now following FORMAT rules.'
+        'Write the reply now in ' + userLang + ', following FORMAT rules.'
       ].filter(Boolean).join('\n');
 
       try {
         const text = await generateWithSmartGemini(prompt);
         if (text && String(text).trim()) {
-          try { actionLog('info', 'AI reply ok · intent ' + intent + ' · model ' + (state.geminiPreferred || '?')); } catch (e) {}
-          return '🤖 AI APP GUIDE\n\n' + formatAiReply(text);
+          try { actionLog('info', 'AI reply ok · lang ' + userLang + ' · intent ' + intent + ' · model ' + (state.geminiPreferred || '?')); } catch (e) {}
+          return '⚡AI PINODE GUIDE\n\n' + formatAiReply(text);
         }
       } catch (e) {
         try { actionLog('error', 'Gemini fail: ' + (e && e.message)); } catch (e2) {}
@@ -2523,13 +2471,8 @@ async function aiAnalyze(t, userQ) {
     }
 
     try { actionLog('warn', GEMINI_API_KEY ? 'Gemini empty/fail · local technician' : 'no GEMINI_API_KEY · local technician'); } catch (e) {}
-    if (intent === 'FINANCE') {
-      const base = financialBoundaryReply();
-      return base + '\n\n' + technicianEvaluate(t, userQ, intent);
-    }
-    if (mk && metricBlock) {
-      return metricBlock + '\n\n' + technicianEvaluate(t, userQ, intent);
-    }
+    if (intent === 'FINANCE') return financialBoundaryReply() + '\n\n' + technicianEvaluate(t, userQ, intent);
+    if (mk && metricBlock) return metricBlock + '\n\n' + technicianEvaluate(t, userQ, intent);
     return technicianEvaluate(t, userQ, intent);
   } catch (e) {
     try { actionLog('error', 'aiAnalyze ' + (e && e.message)); } catch (e2) {}
@@ -2554,7 +2497,6 @@ async function localCommandText(cmd, msg) {
   return null;
 }
 
-/* ---------- mainKeyboard: 2 per row, compact labels ---------- */
 function mainKeyboard() {
   return {
     inline_keyboard: [
@@ -2593,7 +2535,7 @@ function tgApi(method, body) {
       headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}
     }, r => {
       let b = ''; r.on('data', d => b += d);
-      r.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { resolve(null); } });
+      r.on('end', () => { try { resolve(safeParse(b)); } catch (e) { resolve(null); } });
     });
     req.on('error', () => resolve(null));
     req.setTimeout(35000, () => { try { req.destroy(); } catch (e) {} resolve(null); });
@@ -2628,7 +2570,7 @@ async function runCmd(cmd, userText) {
   if (cmd === 'peers') return tgSend(formatPeers(t), { reply_markup: mainKeyboard() });
   if (cmd === 'ports') {
     const lines = ['PORTS', '───────────────'];
-    [31401,31402,31403].forEach(p => {
+    NODE_PORTS.forEach(p => {
       const st = t.ports && t.ports[String(p)];
       lines.push((st === 'OPEN' ? '🟢' : '🔴') + ' ' + p + ' · ' + (st || '?'));
     });
@@ -2709,7 +2651,7 @@ async function runCmd(cmd, userText) {
 }
 
 async function handleText(text) {
-  const raw = (text || '').trim();
+  const raw = String(text || '').trim().slice(0, 4000);
   if (!raw) return null;
   const low = raw.toLowerCase();
   const cmd = low.split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
@@ -2719,7 +2661,6 @@ async function handleText(text) {
   }
   if (/^(status|ping)$/i.test(raw.trim())) return runCmd(raw.toLowerCase(), raw);
   if (/^(peers?|ports?|report|diagnostic|donate|scripts?)$/i.test(raw.trim())) return runCmd(cmd, raw);
-
   return runCmd('analyze', raw);
 }
 
@@ -2727,17 +2668,27 @@ let offset = 0;
 
 async function processUpdate(u) {
   try {
+    if (!u || typeof u !== 'object' || u.update_id == null) return;
+
     if (u.callback_query) {
       const cq = u.callback_query;
-      if (CHAT_ID && String(cq.message && cq.message.chat && cq.message.chat.id) !== String(CHAT_ID)) return;
+      if (!cq || !cq.message || !cq.message.chat) return;
+      if (CHAT_ID && !safeEq(String(cq.message.chat.id), CHAT_ID)) return;
       await tgApi('answerCallbackQuery', { callback_query_id: cq.id });
       if ((cq.data || '').startsWith('cmd_')) await runCmd(cq.data.slice(4));
       return;
     }
+
     const msg = u.message;
-    if (!msg || !msg.text) return;
-    if (CHAT_ID && String(msg.chat.id) !== String(CHAT_ID)) {
-      log('ignore chat ' + msg.chat.id + ' want ' + CHAT_ID, 'warn');
+    if (!msg || !msg.text || !msg.chat) return;
+    if (CHAT_ID && !safeEq(String(msg.chat.id), CHAT_ID)) {
+      log('ignore chat ' + msg.chat.id + ' want [redacted]', 'warn');
+      return;
+    }
+    // Per-user rate limit (20 messages/minute)
+    const userKey = String(msg.chat.id);
+    if (!tgUserRateLimit(userKey, 20, 60000)) {
+      log('rate limit hit for chat ' + userKey, 'warn');
       return;
     }
     await handleText(msg.text);
@@ -2757,7 +2708,7 @@ async function installTelegramMenu() {
         { command: 'peers', description: 'Inbound and outbound peers' },
         { command: 'report', description: 'Recent history summary' },
         { command: 'diagnostic', description: 'Technical source details' },
-        { command: 'analyze', description: 'AI technician review' },
+        { command: 'analyze', description: 'AI technician review (in your language)' },
         { command: 'logs', description: 'App activity and errors' },
         { command: 'donate', description: 'Support the project' },
         { command: 'winpro', description: 'Windows PRO edition link' },
@@ -2813,7 +2764,7 @@ async function telegramLoop() {
       conflictBackoff = 15000;
       if (!Array.isArray(r.result)) { await wait(1000); continue; }
       for (const u of r.result) {
-        offset = u.update_id + 1;
+        if (u && u.update_id != null) offset = u.update_id + 1;
         processUpdate(u);
       }
     } catch (e) {
@@ -2860,11 +2811,14 @@ function isLocalReq(req) {
   const ip = String(req.socket && req.socket.remoteAddress || '');
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('172.') || ip.startsWith('10.');
 }
-function setSecHeaders(res) {
+function setSecHeaders(res, html) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store');
+  if (html) {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'");
+  }
 }
 
 const srv = http.createServer(async (req, res) => {
@@ -2887,8 +2841,9 @@ const srv = http.createServer(async (req, res) => {
         } else tel = cache || await getTelemetry();
         res.end(JSON.stringify(tel || {}));
       } catch (e) {
+        log('api/status error: ' + (e && e.message), 'error');
         res.statusCode = 500;
-        res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+        res.end(JSON.stringify({ ok: false, error: 'internal_error' }));
       }
       return;
     }
@@ -2904,6 +2859,9 @@ const srv = http.createServer(async (req, res) => {
       ok('schema_hide_missing', typeof lineIf === 'function', 'lineIf');
       ok('no_datalive', true, 'Horizon removed');
       ok('history_dir', fs.existsSync(DIR_HIST), DIR_HIST);
+      ok('chat_id_safe_compare', typeof safeEq === 'function', 'safeEq');
+      ok('safe_json_parse', typeof safeParse === 'function', 'safeParse');
+      ok('tg_user_rate_limit', typeof tgUserRateLimit === 'function', 'tgUserRateLimit');
       const m1 = mergeTelemetry(null, { source: 'Horizon', ledger: 100, sync: 'Horizon OK', confidence: 'medium' }, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
       ok('fallback_horizon', m1.ledger === 100 && m1.source === 'Horizon', m1.source);
       ok('datalive_offline_not_node_offline', m1.level !== 'critical', m1.level);
@@ -2911,6 +2869,12 @@ const srv = http.createServer(async (req, res) => {
       ok('primary_datalive', m2.source === 'Horizon' && m2.ledger === 200, m2.source);
       const m3 = mergeTelemetry(null, null, { ports: { '31401': 'CLOSED', '31402': 'CLOSED', '31403': 'CLOSED' }, openCount: 0 });
       ok('ports_closed_critical', m3.level === 'critical', m3.level);
+      const l1 = detectUserLang('Xin chào, node của tôi thế nào?');
+      ok('lang_detect_vi', l1 === 'Vietnamese', l1);
+      const l2 = detectUserLang('Hello, how is my node?');
+      ok('lang_detect_en', l2 === 'English', l2);
+      const l3 = detectUserLang('Hola, ¿cómo está mi nodo?');
+      ok('lang_detect_es', l3 === 'Spanish', l3);
       const all = checks.every(c => c.pass);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: all, version: VERSION, checks }));
@@ -2921,7 +2885,7 @@ const srv = http.createServer(async (req, res) => {
       if (!rateLimit('chat:' + (req.socket.remoteAddress || ''), 12, 60000)) {
         res.statusCode = 429;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: false, error: 'rate limit' }));
+        res.end(JSON.stringify({ ok: false, error: 'rate_limit' }));
         return;
       }
       let body = '';
@@ -2929,7 +2893,7 @@ const srv = http.createServer(async (req, res) => {
         body = await new Promise(resolve => {
           let b = '';
           let n = 0;
-          req.on('data', d => { n += d.length; if (n > 8000) return; b += d; });
+          req.on('data', d => { n += d.length; if (n > 8000) { req.destroy(); return; } b += d; });
           req.on('end', () => resolve(b));
           req.on('error', () => resolve(''));
         });
@@ -2939,7 +2903,7 @@ const srv = http.createServer(async (req, res) => {
         const q = new URL(req.url, 'http://x').searchParams.get('msg');
         if (q) msg = q;
         if (body) {
-          const j = JSON.parse(body);
+          const j = safeParse(body);
           if (j && j.message) msg = j.message;
           if (j && j.msg) msg = j.msg;
         }
@@ -2983,14 +2947,16 @@ const srv = http.createServer(async (req, res) => {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(JSON.stringify(payload));
       } catch (e) {
+        log('api/chat error: ' + (e && e.message), 'error');
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+        res.end(JSON.stringify({ ok: false, error: 'internal_error' }));
       }
       return;
     }
 
     if (u === '/docker' || u === '/docker/' || u.indexOf('/docker/confirm') === 0 || u.indexOf('/docker/off') === 0) {
+      setSecHeaders(res, true);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       const pref = readDockerPref();
       if (u.indexOf('/docker/confirm') === 0) {
@@ -3021,7 +2987,7 @@ const srv = http.createServer(async (req, res) => {
         + '<div class="box"><p><b>Preference:</b> ' + (pref.enabled ? 'ON' : 'OFF') + '<br>'
         + '<b>Socket in container:</b> ' + (sockExists ? 'YES' : 'NO') + '</p>'
         + '<p><b>Purpose:</b> optional Core/container probe when you mount the engine socket.</p>'
-        + '<p><b>SoloHost:</b> install does <u>not</u> include docker.sock. Mounting it is Operator choice under SoloHost Terms.</p></div>'
+        + '<p><b>SoloHost:</b> install does <u>not</u> include docker.sock. Mounting it is Operator choice.</p></div>'
         + '<div class="box"><p><b>After you click Agree:</b></p><ol>'
         + '<li>App prepares a ready <code>docker-compose.yml</code> (with sock)</li>'
         + '<li>If the app folder is writable, it is filled automatically</li>'
@@ -3051,10 +3017,10 @@ const srv = http.createServer(async (req, res) => {
       }
       if (req.method === 'POST') {
         let body = '';
-        req.on('data', function (c) { body += c; if (body.length > 8000) req.destroy(); });
+        req.on('data', function (c) { body += c; if (body.length > 8000) { req.destroy(); return; } });
         req.on('end', function () {
           try {
-            const j = JSON.parse(body || '{}');
+            const j = safeParse(body) || {};
             const on = !!j.enabled;
             if (on && !j.consent) {
               res.statusCode = 400;
@@ -3089,14 +3055,15 @@ const srv = http.createServer(async (req, res) => {
                 : 'Sandbox default.'
             }));
           } catch (e) {
+            log('api/docker error: ' + (e && e.message), 'error');
             res.statusCode = 400;
-            res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+            res.end(JSON.stringify({ ok: false, error: 'bad_request' }));
           }
         });
         return;
       }
       res.statusCode = 405;
-      res.end(JSON.stringify({ ok: false, error: 'method' }));
+      res.end(JSON.stringify({ ok: false, error: 'method_not_allowed' }));
       return;
     }
 
@@ -3107,8 +3074,9 @@ const srv = http.createServer(async (req, res) => {
         const d = await statusMonitor.discovery.discover(force);
         res.end(JSON.stringify({ ok: true, discovery: d, report: statusMonitor.discovery.getReport() }));
       } catch (e) {
+        log('api/discover error: ' + (e && e.message), 'error');
         res.statusCode = 500;
-        res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+        res.end(JSON.stringify({ ok: false, error: 'internal_error' }));
       }
       return;
     }
@@ -3141,6 +3109,7 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
     if (u === '/' || u === '/index.html') {
+      setSecHeaders(res, true);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.end(INDEX);
       return;
@@ -3156,9 +3125,9 @@ const srv = http.createServer(async (req, res) => {
       }
     }
     const rel = path.normalize(u).replace(/^(\.\.[/\\])+/, '').replace(/^[/\\]+/, '');
-    if (rel.includes('..')) { res.statusCode = 400; res.end('bad path'); return; }
+    if (rel.includes('..')) { res.statusCode = 400; res.end('bad_path'); return; }
     const f = path.join(PUBLIC, rel);
-    if (!f.startsWith(PUBLIC)) { res.statusCode = 400; res.end('bad path'); return; }
+    if (!f.startsWith(PUBLIC)) { res.statusCode = 400; res.end('bad_path'); return; }
     fs.readFile(f, (err, data) => {
       if (err) { res.statusCode = 404; return res.end('not found'); }
       const ext = path.extname(f).toLowerCase();
@@ -3169,6 +3138,7 @@ const srv = http.createServer(async (req, res) => {
       res.end(data);
     });
   } catch (e) {
+    log('http error: ' + (e && e.message), 'error');
     res.statusCode = 500;
     res.end('error');
   }
