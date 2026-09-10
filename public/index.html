@@ -1,771 +1,133 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pi Node Controller PRO</title>
 <style>
-:root {
-  --p: rgba(16, 22, 34, 0.58);
-  --p-card: rgba(255, 255, 255, 0.12);
-  --bd: rgba(255, 255, 255, 0.22);
-  --t: #ffffff;
-  --m: #c5d0de;
-  --win: #0078d7;
-  --acc: #4cc2ff;
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --glass: blur(24px) saturate(160%);
-  --bg-image: url("/bg-cave.jpg");
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-}
-
-html, body {
-  min-height: 100vh;
-  color: var(--t);
-  background-color: #0d1117;
-  background-image: linear-gradient(180deg, rgba(8, 12, 20, 0.45), rgba(4, 6, 12, 0.65)), var(--bg-image);
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-}
-
-body {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 12px;
-}
-
-.w {
-  width: 100%;
-  max-width: 1100px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.glass {
-  background: var(--p);
-  border: 1px solid var(--bd);
-  border-radius: 18px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-}
-
-.top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.top-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.top img.av {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid var(--acc);
-}
-
-.top h1 {
-  font-size: 1.15rem;
-  font-weight: 800;
-  letter-spacing: -0.2px;
-}
-
-.sub {
-  font-size: 0.75rem;
-  color: var(--m);
-}
-
-.top-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.conn {
-  font-size: 0.78rem;
-  color: var(--ok);
-  font-weight: 700;
-  background: rgba(52, 211, 153, 0.15);
-  border: 1px solid var(--ok);
-  padding: 4px 10px;
-  border-radius: 20px;
-}
-
-.bellwrap {
-  position: relative;
-}
-
-.bell {
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  color: #fff;
-  border-radius: 10px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-
-.badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  background: var(--bad);
-  color: #fff;
-  border-radius: 10px;
-  font-size: 0.65rem;
-  min-width: 18px;
-  text-align: center;
-  padding: 2px 5px;
-  display: none;
-  font-weight: 800;
-}
-
-.nav {
-  display: flex;
-  gap: 8px;
-}
-
-.nav button {
-  flex: 1;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.nav button.on, .nav button:hover {
-  background: rgba(0, 120, 215, 0.45);
-  border-color: var(--acc);
-}
-
-.page {
-  display: none;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.page.on {
-  display: flex;
-}
-
-.card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.card h2 {
-  font-size: 0.78rem;
-  color: var(--m);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  font-weight: 800;
-}
-
-.hero-weather-card {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 16px;
-  align-items: center;
-}
-
-.hero-main {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.weather-icon-large {
-  font-size: 3.5rem;
-  line-height: 1;
-}
-
-.ringwrap {
-  width: 110px;
-  height: 110px;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.ringwrap svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.ringwrap .lab {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-
-.ringwrap .lab b {
-  font-size: 1.05rem;
-}
-
-.ringwrap .lab span {
-  font-size: 0.6rem;
-  color: var(--m);
-}
-
-.weather-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.big-score {
-  font-size: 2.2rem;
-  font-weight: 900;
-  line-height: 1.1;
-}
-
-.weather-status-tag {
-  font-size: 0.95rem;
-  font-weight: 800;
-  color: var(--ok);
-  margin-top: 4px;
-}
-
-.hero-sub-details {
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sub-detail-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.8rem;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.12);
-  padding-bottom: 4px;
-}
-
-.sub-detail-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.sub-detail-row .lbl { color: var(--m); }
-.sub-detail-row .val { font-weight: 700; }
-
-.grid3 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-}
-
-.mini {
-  padding: 12px 10px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.mini .ic { font-size: 1.4rem; }
-.mini .k { font-size: 0.7rem; color: var(--m); }
-.mini .v { font-size: 0.92rem; font-weight: 800; }
-.mini .s { font-size: 0.65rem; color: var(--m); }
-
-.res {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 10px;
-}
-
-.res .met {
-  text-align: center;
-  padding: 10px 8px;
-  border-radius: 12px;
-  background: var(--p-card);
-  border: 1px solid var(--bd);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.res .met b { font-size: 1.1rem; color: #fff; }
-.res .met span { font-size: 0.68rem; color: var(--m); }
-.res .met.off { opacity: 0.5; }
-
-.chartbox {
-  height: 80px;
-  width: 100%;
-}
-
-.chartbox svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.info .row, .log .item {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.14);
-  font-size: 0.8rem;
-}
-
-.k { color: var(--m); }
-.val { font-weight: 700; }
-
-.scripts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-}
-
-.scripts button {
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: var(--p-card);
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 700;
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.2s ease;
-}
-
-.scripts button:hover {
-  border-color: var(--acc);
-  background: rgba(76, 194, 255, 0.22);
-}
-
-#chatbox {
-  height: 240px;
-  overflow-y: auto;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  padding: 10px;
-  font-size: 0.82rem;
-}
-
-.msg {
-  margin: 6px 0;
-  padding: 8px 12px;
-  border-radius: 12px;
-  max-width: 90%;
-  white-space: pre-wrap;
-}
-
-.msg.user {
-  background: rgba(0, 120, 215, 0.45);
-  margin-left: auto;
-  text-align: right;
-}
-
-.msg.bot {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.bar {
-  display: flex;
-  gap: 8px;
-}
-
-.bar input {
-  flex: 1;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--t);
-  outline: none;
-}
-
-.bar button {
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: 0;
-  background: linear-gradient(180deg, var(--acc), var(--win));
-  color: #fff;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.qbar, .bgbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.qbar button, .bgbar button, .bgbar label {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--t);
-  font-size: 0.7rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.bgbar button.on {
-  background: rgba(0, 120, 215, 0.5);
-  border-color: var(--acc);
-}
-
-.panel {
-  display: none;
-  padding: 10px;
-  max-height: 200px;
-  overflow: auto;
-  font-size: 0.75rem;
-}
-
-.panel.on { display: block; }
-
-.foot {
-  text-align: center;
-  font-size: 0.7rem;
-  color: var(--m);
-  padding: 6px;
-}
-
-.link {
-  color: var(--acc);
-  cursor: pointer;
-  text-decoration: underline;
-  background: none;
-  border: 0;
-  font: inherit;
-}
-
-.modal {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 100;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  backdrop-filter: blur(10px);
-}
-
-.modal.on { display: flex; }
-
-.modal .box {
-  background: rgba(20, 28, 40, 0.9);
-  border: 1px solid var(--bd);
-  border-radius: 16px;
-  max-width: 480px;
-  width: 100%;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal h3 {
-  padding: 14px;
-  font-size: 0.95rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.terms {
-  padding: 14px;
-  overflow-y: auto;
-  flex: 1;
-  font-size: 0.78rem;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  color: #eef3f8;
-}
-
-.modal .footbar {
-  padding: 12px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.modal label {
-  font-size: 0.75rem;
-  color: var(--m);
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.btn {
-  padding: 10px;
-  border-radius: 8px;
-  border: 0;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-ok { background: var(--win); color: #fff; }
-.btn-no { background: rgba(255, 255, 255, 0.18); color: #fff; }
-
-.tile { cursor: grab; }
-.tile .grip { font-size: 0.62rem; color: var(--m); margin-bottom: 4px; user-select: none; }
-
-@media (min-width: 880px) {
-  .w {
-    display: grid;
-    grid-template-columns: 200px 1fr;
-    grid-template-rows: auto 1fr auto;
-  }
-  .top { grid-column: 1 / -1; }
-  .nav {
-    grid-column: 1;
-    flex-direction: column;
-  }
-  .page.on { grid-column: 2; }
-  .foot { grid-column: 1 / -1; }
-  .home-two-col {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-}
-
-@media (max-width: 768px) {
-  .hero-weather-card { grid-template-columns: 1fr; }
-  .big-score { font-size: 1.8rem; }
-}
+:root{--p:rgba(255,255,255,.16);--bd:rgba(255,255,255,.42);--t:#f3f6fb;--m:#d7deea;--gold:#4cc2ff;--ok:#16c60c;--win:#0078d7}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Segoe UI",system-ui,sans-serif;color:var(--t);min-height:100vh;
+background-color:#1b140c;
+background-image:linear-gradient(180deg,rgba(10,18,30,.32),rgba(8,12,18,.46)),var(--bg-image,url("/bg-cave.jpg"));
+background-position:center top;background-size:cover;background-repeat:no-repeat;background-attachment:fixed;
+padding:14px;display:flex;justify-content:center}
+.w{width:100%;max-width:480px}
+.hero{text-align:center;margin-bottom:10px}
+.ring{width:72px;height:72px;margin:0 auto 8px;border-radius:50%;padding:2px;background:linear-gradient(135deg,#4cc2ff,#0078d7)}
+.ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+h1{font-size:1.12rem;font-weight:700;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.45)}
+.sub{font-size:.75rem;color:var(--m)}
+.card{background:var(--p);border:1px solid var(--bd);border-radius:6px;padding:12px;margin-bottom:10px;
+backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
+box-shadow:0 8px 28px rgba(0,0,0,.18)}
+.card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.16);font-size:.85rem}
+.k{color:var(--m)}.val{font-weight:700}
+
+/* Styling cho phần hiển thị Healthy Score Gauge */
+.status-layout{display:flex;align-items:center;justify-content:space-between;padding:4px 0}
+.status-col{display:flex;flex-direction:column;gap:10px;font-size:.85rem;min-width:70px}
+.status-col.left{text-align:left}
+.status-col.right{text-align:right}
+.gauge-wrap{position:relative;width:200px;height:115px;display:flex;flex-direction:column;align-items:center;margin:0 auto}
+.gauge-svg{width:100%;height:100px;overflow:visible}
+.gauge-center{position:absolute;top:28px;left:0;right:0;text-align:center;display:flex;flex-direction:column;align-items:center;line-height:1.2}
+.gauge-score{font-size:1.5rem;font-weight:800;letter-spacing:.5px}
+.gauge-label{font-size:.75rem;font-weight:700;color:#fff;margin-top:1px}
+.gauge-status{font-size:.72rem;color:#fff;margin-top:1px}
+.gauge-status span{font-weight:700}
+
+#chatbox{height:200px;overflow-y:auto;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);border-radius:4px;padding:8px;margin-bottom:8px;font-size:.8rem}
+.msg{margin:6px 0;padding:7px 9px;border-radius:4px;max-width:96%;white-space:pre-wrap}
+.msg.user{background:rgba(0,120,215,.28);margin-left:auto;text-align:right}
+.msg.bot{background:rgba(255,255,255,.14)}
+.hint{font-size:.72rem;color:var(--m);margin-top:4px}
+.bar{display:flex;gap:6px}
+.bar input{flex:1;padding:10px;border-radius:4px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14);color:var(--t);outline:none}
+.bar input:focus{border-color:#4cc2ff;box-shadow:0 0 0 2px rgba(76,194,255,.25)}
+.bar button{padding:10px 14px;border-radius:4px;border:0;background:linear-gradient(180deg,#4cc2ff,#0078d7);color:#fff;font-weight:700;cursor:pointer}
+.qbar{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 8px}
+.qbar button{padding:6px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:var(--t);font-size:.68rem;font-weight:650;cursor:pointer;backdrop-filter:blur(12px)}
+.qbar button:hover{background:rgba(76,194,255,.28);border-color:#4cc2ff}
+.bgbar{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:8px 0 2px}
+.bgbar button,.bgbar label{padding:5px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font-size:.64rem;font-weight:650;cursor:pointer}
+.bgbar button.on{background:rgba(0,120,215,.45);border-color:#4cc2ff}
+.bellwrap{position:relative;display:inline-block;margin-left:8px;vertical-align:middle}
+.bell{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:4px 8px;cursor:pointer;font-size:.85rem}
+.badge{position:absolute;top:-6px;right:-6px;background:#e81123;color:#fff;border-radius:8px;font-size:.6rem;min-width:16px;text-align:center;padding:1px 4px;display:none}
+.panel{display:none;text-align:left;background:rgba(20,28,40,.72);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:8px;margin:8px auto 0;max-width:480px;max-height:220px;overflow:auto;font-size:.75rem;backdrop-filter:blur(18px)}
+.panel.on{display:block}
+.panel .item{border-bottom:1px dashed rgba(255,255,255,.2);padding:6px 0;white-space:pre-wrap}
+.foot{text-align:center;font-size:.62rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+.link{color:#9ad8ff;cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
+.modal.on{display:flex}
+.modal .box{background:rgba(20,28,40,.55);border:1px solid rgba(255,255,255,.35);border-radius:6px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;backdrop-filter:blur(24px)}
+.modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(255,255,255,.2)}
+.terms{padding:12px 14px;overflow-y:auto;flex:1;font-size:.78rem;line-height:1.45;white-space:pre-wrap;color:#eef3f8}
+.modal .footbar{padding:10px 14px;border-top:1px solid rgba(255,255,255,.2);display:flex;flex-direction:column;gap:8px}
+.modal label{font-size:.75rem;color:var(--m);display:flex;gap:8px;align-items:flex-start}
+.btn{padding:10px;border-radius:4px;border:0;font-weight:700;cursor:pointer}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-ok{background:var(--win);color:#fff}
+.btn-no{background:rgba(255,255,255,.18);color:#fff}
 </style>
 </head>
 <body>
-
 <div class="w">
-  <!-- TOP BAR -->
-  <div class="top glass">
-    <div class="top-left">
-      <img class="av" src="/avatar.jpg" alt="Avatar">
-      <div>
-        <h1>Pi Node Controller PRO</h1>
-        <div class="sub">SoloHost · v2.6.56</div>
-      </div>
-    </div>
-    <div class="top-right">
-      <span class="conn" id="conn">● Connected</span>
-      <span class="bellwrap">
-        <button type="button" class="bell" id="bell">🔔 Alerts</button>
-        <span class="badge" id="badge">0</span>
-      </span>
+  <div class="hero">
+    <div class="ring"><img src="/avatar.jpg" alt=""></div>
+    <h1>Pi Node Controller PRO <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
+    <p class="sub">SoloHost · v2.6.51</p>
+    <div class="bgbar">
+      <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
+      <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
+      <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
+      <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
     </div>
   </div>
-
-  <!-- NAVIGATION TABS -->
-  <div class="nav">
-    <button type="button" class="on" data-page="home">⚡ Node Status</button>
-    <button type="button" data-page="ai">🤖 AI & Maintenance</button>
-    <button type="button" data-page="set">⚙️ Settings</button>
-  </div>
-
-  <!-- ALERTS PANEL -->
-  <div class="panel glass" id="alertPanel"></div>
-
-  <!-- PAGE 1: HOME / NODE STATUS -->
-  <div class="page on" id="page-home">
-    
-    <!-- HERO STATUS CARD -->
-    <div class="card glass hero-weather-card tile" data-id="score" draggable="true">
-      <div class="hero-main">
-        <div class="weather-icon-large" id="weatherIcon">⚡</div>
-        <div class="ringwrap">
-          <svg viewBox="0 0 100 100" aria-hidden="true">
-            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="8"/>
-            <circle id="scoreArc" cx="50" cy="50" r="42" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 264"/>
-          </svg>
-          <div class="lab">
-            <span>Score</span>
-            <b id="scoreVal">—</b>
-          </div>
-        </div>
-        <div class="weather-info">
-          <div class="big-score" id="availVal">Availability —</div>
-          <div class="weather-status-tag" id="scoreTag">Collecting Data…</div>
-        </div>
-      </div>
-
-      <div class="hero-sub-details">
-        <div class="sub-detail-row">
-          <span class="lbl">Sync State:</span>
-          <span class="val" id="stSync">—</span>
-        </div>
-        <div class="sub-detail-row">
-          <span class="lbl">Consensus Protocol:</span>
-          <span class="val" id="stCons">—</span>
-        </div>
-        <div class="sub-detail-row">
-          <span class="lbl">Active Peers:</span>
-          <span class="val" id="stPeers">—</span>
-        </div>
-        <div class="sub-detail-row">
-          <span class="lbl">Health Verification:</span>
-          <span class="val" id="stHealth">—</span>
-        </div>
-      </div>
+  <div class="panel" id="alertPanel"></div>
+  <div class="card"><h2>Live status</h2><div id="s">…</div></div>
+  <div class="card">
+    <h2>Chat</h2>
+    <div class="qbar" id="abar">
+      <button type="button" data-dl="/actions/CleanRAM.bat">🧹 CleanRAM</button>
+      <button type="button" data-dl="/actions/DnsFlush.bat">🌐 DnsFlush</button>
+      <button type="button" data-dl="/actions/Firewall.bat">🧱 Firewall</button>
+      <button type="button" data-dl="/actions/NetRepair.bat">🔧 NetRepair</button>
+      <button type="button" data-dl="/actions/LanSetup.bat">📌 LanSetup</button>
+      <button type="button" data-dl="/actions/NodeReset.bat">♻️ NodeReset</button>
+      <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Docker</button>
+      <button type="button" data-dl="/actions/Maintain.bat">🗓️ Maintain</button>
     </div>
-
-    <!-- MINI SUMMARY METRICS -->
-    <div class="grid3">
-      <div class="mini glass tile" data-id="state" draggable="true">
-        <div class="ic">🧊</div>
-        <div class="k">Block Consensus</div>
-        <div class="v" id="stSrc">horizon</div>
-        <div class="s">Verification Source</div>
-      </div>
-      <div class="mini glass tile" data-id="cons" draggable="true">
-        <div class="ic">🌐</div>
-        <div class="k">Port Status</div>
-        <div class="v" id="stPorts">—</div>
-        <div class="s">Network Gateway</div>
-      </div>
-      <div class="mini glass tile" data-id="peers" draggable="true">
-        <div class="ic">👥</div>
-        <div class="k">Peer Traffic</div>
-        <div class="v" id="stPeerMini">—</div>
-        <div class="s">P2P Mesh Connections</div>
-      </div>
+    <div id="chatbox"></div>
+    <div class="qbar" id="qbar">
+      <button type="button" data-cmd="/help">❓ HELP</button>
+      <button type="button" data-cmd="/status">📊 STATUS</button>
+      <button type="button" data-cmd="/report">📈 REPORT</button>
+      <button type="button" data-cmd="/peers">👥 PEERS</button>
+      <button type="button" data-cmd="/diagnostic">🩺 DIAG</button>
+      <button type="button" data-cmd="/analyze">💬 ANALYZE</button>
+      <button type="button" data-cmd="/logs">📋 LOGS</button>
+      <button type="button" data-cmd="/donate">💛 DONATE</button>
     </div>
-
-    <!-- LIVE HARDWARE METRICS -->
-    <div class="card glass tile" data-id="res" draggable="true">
-      <div class="grip">⠿ Live Hardware Metrics</div>
-      <h2>System Pressure & Telemetry</h2>
-      <div class="res" id="resBox"></div>
-    </div>
-
-    <!-- TWO COLUMN LAYOUT FOR TREND & LOGS -->
-    <div class="home-two-col">
-      <div class="card glass tile" data-id="chart" draggable="true">
-        <h2>24-Hour Availability Trend</h2>
-        <div class="chartbox">
-          <svg id="healthSvg" viewBox="0 0 240 72" preserveAspectRatio="none"></svg>
-        </div>
-      </div>
-
-      <div class="card glass log tile" data-id="log" draggable="true">
-        <h2>Telemetry Log</h2>
-        <div class="item" id="actLine">Waiting for telemetry…</div>
-      </div>
-    </div>
-
-    <!-- DETAILED PI NODE INFORMATION -->
-    <div class="card glass info tile" data-id="info" draggable="true">
-      <h2>Detailed Pi Node Parameters</h2>
-      <div id="s"></div>
-    </div>
-
-    <p class="sub">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
-  </div>
-
-  <!-- PAGE 2: AI ASSISTANT & SCRIPTS -->
-  <div class="page" id="page-ai">
-    <div class="card glass">
-      <h2>Pi Node Maintenance Actions</h2>
-      <div class="scripts" id="abar">
-        <button type="button" data-dl="/actions/CleanRAM.bat">🧹 Optimize RAM</button>
-        <button type="button" data-dl="/actions/DnsFlush.bat">🔄 Flush DNS</button>
-        <button type="button" data-dl="/actions/Firewall.bat">🛡️ Open Firewall</button>
-        <button type="button" data-dl="/actions/NetRepair.bat">🌐 Net Repair</button>
-        <button type="button" data-dl="/actions/LanSetup.bat">📡 LAN Setup</button>
-        <button type="button" data-dl="/actions/NodeReset.bat">⚙️ Reset Node Container</button>
-        <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Repair Docker</button>
-        <button type="button" data-dl="/actions/Maintain.bat">🛠️ Weekly Maintain</button>
-      </div>
-    </div>
-
-    <div class="card glass">
-      <h2>AI Weather & Node Assistant</h2>
-      <div id="chatbox"></div>
-      <div class="qbar" id="qbar">
-        <button type="button" data-cmd="/help">HELP</button>
-        <button type="button" data-cmd="/status">STATUS</button>
-        <button type="button" data-cmd="/report">REPORT</button>
-        <button type="button" data-cmd="/peers">PEERS</button>
-        <button type="button" data-cmd="/diagnostic">DIAG</button>
-        <button type="button" data-cmd="/analyze">ANALYZE</button>
-        <button type="button" data-cmd="/logs">LOGS</button>
-        <button type="button" data-cmd="/donate">DONATE</button>
-      </div>
-      <div class="bar">
-        <input id="inp" type="text" placeholder="Ask AI Assistant anything about your node..." autocomplete="off" maxlength="2000">
-        <button id="send" type="button">Send ➤</button>
-      </div>
+    <p class="hint">Optional Docker probe (advanced) is configured only on this PC. <button type="button" class="link" id="dkTip">Optional Docker…</button></p>
+    <div class="bar">
+      <input id="inp" type="text" placeholder="Message…" autocomplete="off" maxlength="2000">
+      <button id="send" type="button">Send</button>
     </div>
   </div>
-
-  <!-- PAGE 3: SETTINGS -->
-  <div class="page" id="page-set">
-    <div class="card glass">
-      <h2>Weather Theme Wallpaper</h2>
-      <p class="sub">Choose a glass background theme for the app layout.</p>
-      <div class="bgbar">
-        <button type="button" data-bg="cave" id="bgCave">🌄 Cave View</button>
-        <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic Blue</button>
-        <button type="button" data-bg="pi" id="bgPi">🟣 Pi Network</button>
-        <label>📤 Upload<input type="file" id="bgFile" accept="image/*" hidden></label>
-      </div>
-    </div>
-
-    <div class="card glass">
-      <h2>System Information</h2>
-      <div class="sub-detail-row"><span class="lbl">Application:</span><span class="val">SoloHost Pro v2.6.56</span></div>
-      <div class="sub-detail-row"><span class="lbl">UI Style:</span><span class="val">Windows 10 Glassmorphism</span></div>
-      <div class="sub-detail-row"><span class="lbl">Responsive Layout:</span><span class="val">Adaptive Multi-Device View</span></div>
-    </div>
-    <p class="sub">Optional Docker probe is configured only on this PC. <button type="button" class="link dkTip">Optional Docker…</button></p>
-  </div>
-
-  <p class="foot">Telegram remote status support • Docker diagnostics via SoloHost UI</p>
+  <p class="foot">Telegram for remote status · Docker only via this SoloHost UI</p>
 </div>
 
-<!-- DOCKER TERMS MODAL -->
 <div class="modal" id="dkModal" role="dialog" aria-modal="true">
   <div class="box">
     <h3>Optional Docker Access — Terms</h3>
     <div class="terms" id="termsBox"></div>
     <div class="footbar">
       <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read the full terms</label>
-      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms and understand this is my choice on this machine</label>
-      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm — Apply Configuration</button>
+      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms and understand this is my Operator choice on this machine</label>
+      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm — write compose</button>
       <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
     </div>
   </div>
@@ -774,332 +136,239 @@ body {
 <script>
 const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
 
-What this is:
+What this is
 This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.
 
-SoloHost default permissions:
-Sandbox: CPU and memory, one localhost port, the app data folder, outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring.
+SoloHost default permissions
+Sandbox: CPU and memory, one localhost port, the app data folder, outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring (Horizon, ports, reports, AI chat).
 
-What you grant if you Confirm:
+What you grant if you Confirm
 • The app may overwrite docker-compose.yml in this app folder to mount /var/run/docker.sock read-only.
 • The app may list containers and run limited read/exec commands for node status.
+• A higher privilege level than the default sandbox.
 
-Your responsibility (Operator):
-Under SoloHost Terms you decide permissions on this machine. By confirming you accept:
+What we do not claim
+• No access to your Pi wallet or keys.
+• No guarantee of host security after you enable elevated access.
+• The publisher does not operate your Docker daemon.
+
+Your responsibility (Operator)
+Under SoloHost Terms you decide permissions on your machine. By confirming you accept:
 1) docker.sock is powerful and may expose Docker on this PC.
 2) Risk of optional diagnostics is yours.
 3) You can disable later and remove the socket volume, then Stop → Start.
+4) Pi Network, SoloHost, and the publisher are not responsible for damage, data loss, or misuse from elevated access you enable.
+
+Purpose of the app
+Provide the best monitoring help within clear limits. Docker access is optional, user-controlled, and never required for core features.
+
+After Confirm
+SoloHost UI: press Stop, then Start the app again so the new compose applies.
 
 Confirm only if you accept these terms in full.`;
 
-const box = document.getElementById('chatbox');
-const termsBox = document.getElementById('termsBox');
-termsBox.textContent = TERMS;
+const box=document.getElementById('chatbox');
+const termsBox=document.getElementById('termsBox');
+termsBox.textContent=TERMS;
 
-document.querySelectorAll('.nav button').forEach(function(b) {
-  b.onclick = function() {
-    document.querySelectorAll('.nav button').forEach(x => x.classList.remove('on'));
-    b.classList.add('on');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
-    document.getElementById('page-' + b.getAttribute('data-page')).classList.add('on');
-  };
-});
+function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
 
-function add(role, text) {
-  const d = document.createElement('div');
-  d.className = 'msg ' + role;
-  d.textContent = text;
-  box.appendChild(d);
-  box.scrollTop = box.scrollHeight;
-}
-
-function setupTermsScroll() {
-  const read = document.getElementById('dkRead');
-  const agree = document.getElementById('dkAgree');
-  const conf = document.getElementById('dkConfirm');
-  function refresh() { conf.disabled = !(read.checked && agree.checked); }
-  read.onchange = refresh;
-  agree.onchange = refresh;
-  termsBox.onscroll = function() {
-    if (termsBox.scrollTop + termsBox.clientHeight >= termsBox.scrollHeight - 8) {
-      read.disabled = false;
+function setupTermsScroll(){
+  const read=document.getElementById('dkRead');
+  const agree=document.getElementById('dkAgree');
+  const conf=document.getElementById('dkConfirm');
+  function refresh(){conf.disabled=!(read.checked&&agree.checked);}
+  read.onchange=refresh;agree.onchange=refresh;
+  termsBox.onscroll=function(){
+    const el=termsBox;
+    if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){
+      read.disabled=false;
     }
   };
-  setTimeout(function() {
-    if (termsBox.scrollHeight <= termsBox.clientHeight + 4) read.disabled = false;
-  }, 400);
+  // short screens: allow mark read after brief delay if content fits
+  setTimeout(function(){
+    if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
+  },400);
 }
 
-function setArc(id, pct, maxDash) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const p = Math.max(0, Math.min(100, Number(pct) || 0));
-  el.setAttribute('stroke-dasharray', (p / 100 * maxDash).toFixed(1) + ' ' + maxDash);
-}
-
-function loadStatus() {
-  return fetch('/api/status').then(r => r.json()).then(function(t) {
-    const rows = [];
-    const addR = (k, v) => {
-      if (v != null && v !== '') rows.push('<div class="sub-detail-row"><span class="lbl">' + k + ':</span><span class="val">' + String(v) + '</span></div>');
-    };
-    addR('Sync Status', t.sync);
-    addR('Ledger Block', t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null);
-    addR('Ledger Age', t.ledger_age != null ? t.ledger_age + 's' : null);
-    addR('Source', t.source || null);
-    addR('Horizon Version', t.horizon_version || null);
-    addR('Core Version', t.core_version || null);
-    addR('Protocol Version', t.protocol || null);
-    addR('Ingest Lag', t.ingest_lag != null ? t.ingest_lag : null);
-    addR('Peers', t.peers != null ? t.peers : ((t.peer_in != null || t.peer_out != null) ? ((t.peer_in ?? 0) + ' in / ' + (t.peer_out ?? 0) + ' out') : null));
-    addR('Health Score', t.health != null ? t.health + ' / 100' : '');
-    document.getElementById('s').innerHTML = rows.join('') || '<span class="k">Collecting telemetry data…</span>';
-
-    const health = t.health != null ? Number(t.health) : (t.ledger && t.sync ? 88 : null);
-    document.getElementById('scoreVal').textContent = health != null ? health.toFixed(health % 1 ? 1 : 0) + '/100' : '—';
-    document.getElementById('availVal').textContent = health != null ? ('Availability ' + health.toFixed(2) + '%') : 'Availability —';
-    setArc('scoreArc', health || 0, 264);
-
-    const live = /horizon live|synced|ok/i.test(String(t.sync || ''));
-    const catchup = /catch|behind|slow|lag/i.test(String(t.sync || ''));
+async function loadStatus(){
+  try{
+    const t=await fetch('/api/status').then(r=>r.json());
+    const syncVal = t.sync ?? '—';
+    const ledgerVal = t.ledger!=null ? Number(t.ledger).toLocaleString('en-US') : '—';
+    const ageVal = t.ledger_age!=null ? t.ledger_age+'s' : '—';
+    const peersVal = t.peers!=null ? String(t.peers) : ((t.peer_in!=null||t.peer_out!=null)?String((t.peer_in??0)+(t.peer_out??0)):'—');
     
-    const weatherIcon = document.getElementById('weatherIcon');
-    if (live) {
-      document.getElementById('scoreTag').textContent = 'Optimal Sync';
-      document.getElementById('scoreArc').setAttribute('stroke', '#34d399');
-      if (weatherIcon) weatherIcon.textContent = '⚡';
-    } else if (catchup) {
-      document.getElementById('scoreTag').textContent = 'Catching Up';
-      document.getElementById('scoreArc').setAttribute('stroke', '#fbbf24');
-      if (weatherIcon) weatherIcon.textContent = '🔄';
-    } else {
-      document.getElementById('scoreTag').textContent = 'Connection Issues';
-      document.getElementById('scoreArc').setAttribute('stroke', '#f87171');
-      if (weatherIcon) weatherIcon.textContent = '⚠️';
-    }
+    const health = t.health!=null ? Number(t.health) : 0;
+    let color = '#16c60c';
+    let statusText = 'Excellent';
+    if(health < 50){ color='#e81123'; statusText='Poor'; }
+    else if(health < 75){ color='#ffc107'; statusText='Fair'; }
+    else if(health < 90){ color='#a3e635'; statusText='Good'; }
 
-    document.getElementById('stSync').textContent = t.sync || '—';
-    document.getElementById('stHealth').textContent = t.core_verified ? 'Core Verified' : (t.source || 'Horizon');
-    document.getElementById('stCons').textContent = (t.fsm || (t.verification && t.verification.consensus)) || (t.source || '—');
-    document.getElementById('stSrc').textContent = t.source || 'source';
-    
-    const pin = t.peer_in, pout = t.peer_out;
-    document.getElementById('stPeers').textContent = (pin != null || pout != null) ? ((pin ?? '—') + ' in / ' + (pout ?? '—') + ' out') : (t.peers != null ? t.peers : '—');
-    const peerMini = document.getElementById('stPeerMini');
-    if (peerMini) peerMini.textContent = document.getElementById('stPeers').textContent;
-    const portEl = document.getElementById('stPorts');
-    if (portEl) {
-      const po = t.ports_open != null ? t.ports_open : null;
-      const pa = t.ports_all_open != null ? t.ports_all_open : null;
-      if (po != null) portEl.textContent = String(po) + (t.ports && typeof t.ports === 'object' ? ('/' + Object.keys(t.ports).length) : '') + ' open';
-      else portEl.textContent = '—';
-    }
+    const maxArc = 235.62;
+    const offset = maxArc * (1 - Math.min(100, Math.max(0, health))/100);
 
-    const cpu = t.container_cpu != null ? t.container_cpu : (t.cpu != null ? t.cpu : null);
-    const ram = t.container_ram != null ? t.container_ram : (t.ram != null ? t.ram : null);
-    const disk = t.disk != null ? t.disk : null;
-    const ports = t.ports_open != null ? t.ports_open : (t.ports && typeof t.ports === 'object' ? Object.keys(t.ports).length : null);
-    const mets = [];
-
-    function chip(label, val, ok) {
-      mets.push('<div class="met' + (ok ? '' : ' off') + '"><b>' + val + '</b><span>' + label + '</span></div>');
-    }
-    if (cpu != null) chip('CPU Pressure', Math.round(cpu) + '%', true);
-    if (ram != null) chip('RAM Usage', Math.round(ram) + '%', true);
-    if (disk != null) chip('Storage Disk', Math.round(disk) + '%', true);
-    if (t.ledger_age != null) chip('Ledger Age', t.ledger_age + 's', true);
-    if (t.ingest_lag != null) chip('Ingest Delay', String(t.ingest_lag), true);
-    if (ports != null) chip('Ports Open', String(ports) + ' Active', true);
-    if (t.ledger != null) chip('Block Ledger', Number(t.ledger).toLocaleString('en-US'), true);
-    if (!mets.length) chip('Telemetry', 'Waiting…', false);
-    document.getElementById('resBox').innerHTML = mets.join('');
-
-    document.getElementById('actLine').textContent =
-      new Date().toISOString().replace('T', ' ').slice(11, 19) + ' • Status: ' + (t.sync || '?') + ' • Ledger: ' + (t.ledger != null ? t.ledger : '?');
-    document.getElementById('conn').textContent = '● Connected';
-
-    try {
-      const key = 'pinode_health_hist';
-      let hist = [];
-      try { hist = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { hist = []; }
-      if (health != null) {
-        hist.push({ t: Date.now(), v: Number(health) });
-        const cut = Date.now() - 24 * 3600 * 1000;
-        hist = hist.filter(function(p) { return p.t >= cut; });
-        if (hist.length > 96) hist = hist.slice(-96);
-        localStorage.setItem(key, JSON.stringify(hist));
-      }
-      const svg = document.getElementById('healthSvg');
-      if (svg && hist.length) {
-        const w = 240, h = 72, pad = 4;
-        const min = 0, max = 100;
-        const pts = hist.map(function(p, i) {
-          const x = pad + (hist.length === 1 ? w / 2 : (i / (hist.length - 1)) * (w - pad * 2));
-          const y = h - pad - ((p.v - min) / (max - min)) * (h - pad * 2);
-          return x.toFixed(1) + ',' + y.toFixed(1);
-        });
-        const last = hist[hist.length - 1].v;
-        svg.innerHTML = '<polyline fill="none" stroke="#34d399" stroke-width="2.5" points="' + pts.join(' ') + '"/>' +
-          '<text x="' + (w - 4) + '" y="14" text-anchor="end" fill="#34d399" font-size="10" font-weight="bold">' + last.toFixed(1) + '%</text>';
-      }
-    } catch (e) {}
-  }).catch(function() {
-    document.getElementById('s').textContent = 'Status error / Offline';
-    document.getElementById('conn').textContent = '○ Offline';
-  });
+    document.getElementById('s').innerHTML = `
+      <div class="status-layout">
+        <div class="status-col left">
+          <span class="k">Sync</span>
+          <span class="k">Ledger</span>
+          <span class="k">Age</span>
+          <span class="k">Peers</span>
+        </div>
+        <div class="gauge-wrap">
+          <svg viewBox="0 0 200 115" class="gauge-svg">
+            <path d="M 25 90 A 75 75 0 0 1 175 90" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="12" stroke-linecap="round"/>
+            <path d="M 25 90 A 75 75 0 0 1 175 90" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round" stroke-dasharray="235.62" stroke-dashoffset="${offset}" style="transition: stroke-dashoffset 0.5s ease, stroke 0.5s ease;"/>
+            <text x="25" y="108" fill="#d7deea" font-size="11" font-weight="600" text-anchor="middle">0</text>
+            <text x="175" y="108" fill="#d7deea" font-size="11" font-weight="600" text-anchor="middle">100</text>
+          </svg>
+          <div class="gauge-center">
+            <div class="gauge-score" style="color:${color}">${health} / 100</div>
+            <div class="gauge-label">Node Health</div>
+            <div class="gauge-status">Status: <span style="color:${color}">${statusText}</span></div>
+          </div>
+        </div>
+        <div class="status-col right">
+          <span class="val">${syncVal}</span>
+          <span class="val">${ledgerVal}</span>
+          <span class="val">${ageVal}</span>
+          <span class="val">${peersVal}</span>
+        </div>
+      </div>
+    `;
+  }catch(e){document.getElementById('s').textContent='Status error';}
 }
 
-async function send() {
-  const inp = document.getElementById('inp');
-  let msg = (inp.value || '').trim();
-  if (!msg) return;
-  if (msg.length > 2000) msg = msg.slice(0, 2000);
-  inp.value = '';
-  add('user', msg);
-  add('bot', '…');
-  try {
-    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
-    const j = await r.json();
-    box.lastChild.textContent = j.reply || j.error || 'No reply';
-    if (j.images && j.images.length) {
-      const wrap = document.createElement('div');
-      wrap.className = 'msg bot';
-      wrap.style.textAlign = 'center';
-      j.images.forEach(function(src) {
-        const im = document.createElement('img');
-        im.src = src; im.alt = 'QR'; im.style.maxWidth = '46%'; im.style.margin = '4px'; im.style.borderRadius = '8px';
+async function send(){
+  const inp=document.getElementById('inp');let msg=(inp.value||'').trim();if(!msg)return;
+  if(msg.length>2000)msg=msg.slice(0,2000);
+  inp.value='';
+  add('user',msg);add('bot','…');
+  try{
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    const j=await r.json();
+    box.lastChild.textContent=j.reply||j.error||'No reply';
+    if(j.images&&j.images.length){
+      const wrap=document.createElement('div');
+      wrap.className='msg bot';
+      wrap.style.textAlign='center';
+      j.images.forEach(function(src){
+        const im=document.createElement('img');
+        im.src=src; im.alt='QR'; im.style.maxWidth='46%'; im.style.margin='4px'; im.style.borderRadius='8px';
         wrap.appendChild(im);
       });
-      box.appendChild(wrap); box.scrollTop = box.scrollHeight;
+      box.appendChild(wrap); box.scrollTop=box.scrollHeight;
     }
-  } catch (e) {
-    box.lastChild.textContent = 'Chat error';
-  }
+  }catch(e){box.lastChild.textContent='Chat error';}
 }
 
-function openDockerTerms() {
-  document.getElementById('dkRead').checked = false;
-  document.getElementById('dkAgree').checked = false;
-  document.getElementById('dkRead').disabled = true;
-  document.getElementById('dkAgree').disabled = false;
-  document.getElementById('dkConfirm').disabled = true;
+document.getElementById('dkTip').onclick=function(){
+  document.getElementById('dkRead').checked=false;
+  document.getElementById('dkAgree').checked=false;
+  document.getElementById('dkRead').disabled=true;
+  document.getElementById('dkAgree').disabled=false;
+  document.getElementById('dkConfirm').disabled=true;
   document.getElementById('dkModal').classList.add('on');
-  termsBox.scrollTop = 0;
+  termsBox.scrollTop=0;
   setupTermsScroll();
-}
-
-document.querySelectorAll('.dkTip').forEach(function(el) { el.onclick = openDockerTerms; });
-document.getElementById('dkCancel').onclick = function() {
+};
+document.getElementById('dkCancel').onclick=function(){
   document.getElementById('dkModal').classList.remove('on');
 };
-
-document.getElementById('dkConfirm').onclick = async function() {
-  if (document.getElementById('dkConfirm').disabled) return;
+document.getElementById('dkConfirm').onclick=async function(){
+  if(document.getElementById('dkConfirm').disabled)return;
   document.getElementById('dkModal').classList.remove('on');
-  add('bot', '…');
-  try {
-    const r = await fetch('/api/docker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, consent: true, terms_version: 'docker-optional-v1', read_full: true }) });
-    const j = await r.json();
-    box.lastChild.textContent = j.wrote_host ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: Stop, then Start the app again.' : (j.hint || 'Saved.');
-  } catch (e) {
-    box.lastChild.textContent = 'Network error';
-  }
+  add('bot','…');
+  try{
+    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
+    const j=await r.json();
+    if(!j.ok){box.lastChild.textContent=j.error||'Failed';return;}
+    box.lastChild.textContent=j.wrote_host
+      ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: press Stop, then Start the app again.'
+      : (j.hint||'Saved. SoloHost: Stop → Start if compose updated.');
+  }catch(e){box.lastChild.textContent='Network error';}
+};
+document.getElementById('dkAgree').onchange=function(){
+  document.getElementById('dkConfirm').disabled=!(document.getElementById('dkRead').checked&&document.getElementById('dkAgree').checked);
 };
 
-const ACT = {
-  '/actions/CleanRAM.bat': 'Optimize RAM\nFrees unused memory.',
-  '/actions/DnsFlush.bat': 'Flush DNS\nRefreshes Windows DNS cache.',
-  '/actions/Firewall.bat': 'Firewall\nOpens TCP 31401-31410 ports.',
-  '/actions/NetRepair.bat': 'Net Repair\nRepairs connection while preserving LAN IP.',
-  '/actions/LanSetup.bat': 'LAN Setup\nSets static LAN IP & configures ports.',
-  '/actions/NodeReset.bat': 'Reset Node\nRestarts Pi Container.',
-  '/actions/DockerRecover.bat': 'Repair Docker\nRestarts Docker Engine.',
-  '/actions/Maintain.bat': 'Maintain\nWeekly cleanup tasks.'
+const ACT={
+ '/actions/CleanRAM.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/CleanRam.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/DnsFlush.bat':'🌐 DnsFlush\nWhat: Refresh Windows DNS cache.\nWhen: Peers drop while ports stay open.',
+ '/actions/Firewall.bat':'🧱 Firewall\nWhat: Open TCP 31401-31410 on Windows Firewall.\nWhen: Local Pi ports stay closed.',
+ '/actions/NetRepair.bat':'🔧 NetRepair\nWhat: Repair internet while keeping the current LAN IP.\nWhen: Horizon or internet is down for a long time.',
+ '/actions/LanSetup.bat':'📌 LanSetup\nWhat: Lock the current LAN IP as static + open Pi ports.\nWhen: First setup on this PC.',
+ '/actions/NodeReset.bat':'♻️ NodeReset\nWhat: Restart the Pi container only.\nWhen: The container is stuck and Docker Engine is healthy.',
+ '/actions/DockerRecover.bat':'🐳 DockerRecover\nWhat: Restart Docker Desktop safely.\nWhen: Docker Engine itself is down.',
+ '/actions/Maintain.bat':'🗓️ Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
 };
-
-document.getElementById('abar').addEventListener('click', function(e) {
-  const b = e.target.closest('button[data-dl]');
-  if (!b) return;
-  const href = b.getAttribute('data-dl');
-  add('bot', (ACT[href] || 'Downloading Action Script') + '\n\nFile: ' + href);
-  const a = document.createElement('a');
-  a.href = href;
-  a.download = '';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+document.getElementById('abar').addEventListener('click',function(e){
+  const b=e.target.closest('button[data-dl]'); if(!b)return;
+  const href=b.getAttribute('data-dl');
+  add('bot', (ACT[href]||'Download repair BAT')+'\n\nSaving: '+href);
+  const a=document.createElement('a'); a.href=href; a.download=''; document.body.appendChild(a); a.click(); a.remove();
 });
-
-document.getElementById('qbar').addEventListener('click', function(e) {
-  const b = e.target.closest('button[data-cmd]');
-  if (!b) return;
-  document.getElementById('inp').value = b.getAttribute('data-cmd');
+document.getElementById('qbar').addEventListener('click',function(e){
+  const b=e.target.closest('button[data-cmd]');
+  if(!b)return;
+  document.getElementById('inp').value=b.getAttribute('data-cmd');
   send();
 });
+document.getElementById('send').onclick=send;
+document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 
-document.getElementById('send').onclick = send;
-document.getElementById('inp').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
-
-const BG = { cave: 'url("/bg-cave.jpg")', classic: 'url("/bg-classic.jpg")', pi: 'url("/bg-pi.jpg")' };
-function applyBg(kind, custom) {
-  const root = document.documentElement;
-  if (kind === 'custom' && custom) {
-    root.style.setProperty('--bg-image', 'url("' + custom + '")');
-  } else {
-    root.style.setProperty('--bg-image', BG[kind] || BG.cave);
-    kind = BG[kind] ? kind : 'cave';
-  }
-  document.querySelectorAll('.bgbar button').forEach(b => b.classList.toggle('on', b.getAttribute('data-bg') === kind));
-  try { localStorage.setItem('pinode_bg', JSON.stringify({ kind, custom: kind === 'custom' ? custom : '' })); } catch (e) {}
+const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")',pi:'url("/bg-pi.jpg")'};
+function applyBg(kind, custom){
+  const root=document.documentElement;
+  if(kind==='custom' && custom){ root.style.setProperty('--bg-image','url("'+custom+'")'); }
+  else { root.style.setProperty('--bg-image', BG[kind]||BG.cave); kind = BG[kind]?kind:'cave'; }
+  document.querySelectorAll('.bgbar button').forEach(b=>b.classList.toggle('on', b.getAttribute('data-bg')===kind));
+  try{ localStorage.setItem('pinode_bg', JSON.stringify({kind, custom: kind==='custom'?custom:''})); }catch(e){}
 }
-
-try {
-  const saved = JSON.parse(localStorage.getItem('pinode_bg') || '{}');
-  applyBg(saved.kind || 'cave', saved.custom || '');
-} catch (e) { applyBg('cave'); }
-
-document.getElementById('bgCave').onclick = () => applyBg('cave');
-document.getElementById('bgClassic').onclick = () => applyBg('classic');
-document.getElementById('bgPi').onclick = () => applyBg('pi');
-document.getElementById('bgFile').onchange = function() {
-  const f = this.files && this.files[0];
-  if (!f) return;
-  if (f.size > 2500000) { alert('Wallpaper image must be smaller than 2.5 MB.'); return; }
-  const r = new FileReader();
-  r.onload = () => applyBg('custom', r.result);
+try{
+  const saved=JSON.parse(localStorage.getItem('pinode_bg')||'{}');
+  applyBg(saved.kind||'cave', saved.custom||'');
+}catch(e){ applyBg('cave'); }
+document.getElementById('bgCave').onclick=()=>applyBg('cave');
+document.getElementById('bgClassic').onclick=()=>applyBg('classic');
+document.getElementById('bgPi').onclick=()=>applyBg('pi');
+document.getElementById('bgFile').onchange=function(){
+  const f=this.files&&this.files[0]; if(!f)return;
+  if(f.size>2500000){ add('bot','🌄 Wallpaper too large (max 2.5 MB).'); return; }
+  const r=new FileReader();
+  r.onload=()=>applyBg('custom', r.result);
   r.readAsDataURL(f);
 };
 
-async function loadAlerts() {
-  try {
-    const j = await fetch('/api/alerts').then(r => r.json());
-    const n = j.unread || 0;
-    const badge = document.getElementById('badge');
-    badge.textContent = n;
-    badge.style.display = n ? 'inline-block' : 'none';
-    const pan = document.getElementById('alertPanel');
-    if (!j.items || !j.items.length) { pan.innerHTML = '🔔 No active system alerts.'; return; }
-    pan.innerHTML = j.items.map(function(it) {
-      return '<div class="item">' + (it.ts || '').replace('T', ' ').slice(0, 16) + '\n' + (it.text || '') + '</div>';
-    }).join('');
-  } catch (e) {}
-}
 
-document.getElementById('bell').onclick = async function() {
-  const pan = document.getElementById('alertPanel');
+async function loadAlerts(){
+  try{
+    const j=await fetch('/api/alerts').then(r=>r.json());
+    const n=j.unread||0;
+    const badge=document.getElementById('badge');
+    badge.textContent=n; badge.style.display=n?'inline-block':'none';
+    const pan=document.getElementById('alertPanel');
+    if(!j.items||!j.items.length){pan.innerHTML='🔔 No action alerts.';return;}
+    pan.innerHTML=j.items.map(function(it){
+      return '<div class="item">'+(it.ts||'').replace('T',' ').slice(0,16)+'\n'+(it.text||'')+(it.tip?'\n💡 '+it.tip:'')+(it.scripts?'\n🛠️ '+it.scripts:'')+'</div>';
+    }).join('');
+  }catch(e){}
+}
+document.getElementById('bell').onclick=async function(){
+  const pan=document.getElementById('alertPanel');
   pan.classList.toggle('on');
-  if (pan.classList.contains('on')) {
-    try { await fetch('/api/alerts', { method: 'POST' }); } catch (e) {}
-    document.getElementById('badge').style.display = 'none';
+  if(pan.classList.contains('on')){
+    try{ await fetch('/api/alerts',{method:'POST'}); }catch(e){}
+    document.getElementById('badge').style.display='none';
     loadAlerts();
   }
 };
+loadAlerts();setInterval(loadAlerts,20000);
 
-loadAlerts();
-setInterval(loadAlerts, 20000);
-loadStatus();
-setInterval(loadStatus, 15000);
+loadStatus();setInterval(loadStatus,15000);
 </script>
-
 </body>
 </html>
