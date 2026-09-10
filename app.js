@@ -1,10 +1,9 @@
 'use strict';
 /**
- * SoloHost Controller v2.6.0
- * - Smart Incident Engine: observe -> evaluate -> decide -> act
- * - Adaptive polling: 60s normal, 30-45s during incident
- * - Anti-spam: fingerprint dedup + per-stage cooldown + upgrade-catchup suppress
- * - Smart script recommendation per incident type
+ * SoloHost Controller v2.6.57
+ * - Smart Incident Engine (observe -> evaluate -> decide -> act)
+ * - Smart Health Scoring with Damper (EMA + dead-band + confidence-aware)
+ * - Adaptive polling during incidents
  * - Telegram long-poll independent of telemetry
  * - Horizon-deep PRIMARY -> Core HTTP -> Ports -> cgroup (no DataLive)
  * - NO docker.sock required
@@ -24,24 +23,24 @@ const APP_KNOWLEDGE = `
 APP: Pi Node Telegram Controller PRO (SoloHost Edition)
 Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI. Sandboxed Docker app on Pi Desktop.
 
-INCIDENT ENGINE (v2.6.57):
-- Detects 10 incident classes: docker_down, network_down, ports_closed, sync_stalled, sync_lag, peers_zero, peers_low, ram_high, cpu_high, disk_high
-- Stage machine 0-5: observe (0-1) -> first alert (2) -> reminder (3-4) -> chronic (5)
+HEALTH SCORING (v2.6.57):
+- Raw score from lite.liveFrame is passed through a damper:
+  EMA + dead-band + confidence-aware, so transient blips do not move the score.
+- Confidence depends on data sources: docker.sock + Core = HIGH,
+  Core only = MEDIUM, Horizon only = LOW, no source = NONE (score frozen).
+
+INCIDENT ENGINE:
+- Detects 10 incident classes: docker_down, network_down, ports_closed,
+  sync_stalled, sync_lag, peers_zero, peers_low, ram_high, cpu_high, disk_high
+- Stage machine 0-5: observe (0-1) -> first alert (2) -> reminders (3-4) -> chronic (5)
 - Adaptive polling: shortens telemetry interval while incident is active
-- Suppresses false positives during Pi Node software updates (catch-up pattern)
-- Per-incident cooldown to prevent spam
-- Recommends specific BAT scripts matched to the detected failure
+- Suppresses false positives during Pi Node software updates
 
-HELP USER WITH:
-- What each alert means and which script to run (see /incidents)
-- Why Horizon sync can differ from Pi Desktop (Horizon ingest vs Core state)
-- Optional Docker only via SoloHost UI on the node PC
-
-STYLE: Static system messages stay English for consistency. Free-text AI replies MUST match the user's language.
+STYLE: Static system messages stay English. Free-text AI replies MUST match the user's language.
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.57.0-solohost';
+const VERSION = '2.6.57-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -191,7 +190,10 @@ function log(msg, level) {
 let state = loadJSON(STATE_F, {
   fsm: 'HEALTHY', failCount: 0, lastAlertAt: 0, lastReportKey: '',
   lastLevel: null, lastLedger: null, lastLedgerAt: 0,
-  incidents: {}
+  incidents: {},
+  healthSmooth: null, healthRaw: null, healthConfidence: null,
+  healthConfidenceScore: null, healthSourceCount: null,
+  healthAt: 0, healthTrend: null
 });
 if (!state.incidents || typeof state.incidents !== 'object') state.incidents = {};
 
@@ -468,6 +470,130 @@ function mergeTelemetry(primary, horizon, portSnap) {
   return t;
 }
 
+/* ======================================================================
+ * SMART HEALTH SCORING (v2.6.57)
+ * Damper: EMA + dead-band + confidence-aware smoothing
+ * Goal: transient blips must not move the displayed score.
+ * ==================================================================== */
+const HEALTH_CFG = {
+  // α = how much weight to give the new raw sample (higher = faster tracking)
+  emaAlpha: { high: 0.30, medium: 0.20, low: 0.10 },
+  // Dead-band: ignore raw changes smaller than this many points
+  deadBand: { high: 3, medium: 5, low: 8 },
+  trendWindow: 12,
+  trendThreshold: 4,
+  staleResetMs: 60 * 60 * 1000 // if smoothing older than 1h -> reset to raw
+};
+
+/** Classify confidence from available data sources. */
+function healthConfidence(t) {
+  t = t || {};
+  const hasSock = !!(t.docker_sock || t.docker_probe);
+  const hasCore = !!t.core_verified;
+  const hasHorizon = !!(t.source && /horizon/i.test(t.source));
+  const hasPorts = t.ports_open != null;
+  let sources = 0;
+  if (hasSock) sources++;
+  if (hasCore) sources++;
+  if (hasHorizon) sources++;
+  if (hasPorts) sources++;
+
+  if (hasSock && hasCore) return { level: 'high', sources: sources, score: 100 };
+  if (hasSock)            return { level: 'high', sources: sources, score: 85 };
+  if (hasCore)            return { level: 'medium', sources: sources, score: 70 };
+  if (hasHorizon && hasPorts) return { level: 'medium', sources: sources, score: 60 };
+  if (hasHorizon)         return { level: 'low', sources: sources, score: 40 };
+  if (hasPorts)           return { level: 'low', sources: sources, score: 30 };
+  return { level: 'none', sources: 0, score: 10 };
+}
+
+/** Trend from recent smoothed health values in the last hour. */
+function computeHealthTrend(recentRows, currentSmoothed) {
+  if (!recentRows || recentRows.length < 4) return 'stable';
+  const vals = recentRows.map(function (r) { return r && r.health; })
+    .filter(function (x) { return x != null && isFinite(Number(x)); })
+    .map(Number);
+  if (vals.length < 4) return 'stable';
+  const half = Math.floor(vals.length / 2);
+  let olderSum = 0, newerSum = 0;
+  for (let i = 0; i < half; i++) olderSum += vals[i];
+  for (let i = vals.length - half; i < vals.length; i++) newerSum += vals[i];
+  const olderAvg = olderSum / half;
+  const newerAvg = newerSum / half;
+  const delta = newerAvg - olderAvg;
+  if (delta > HEALTH_CFG.trendThreshold) return 'improving';
+  if (delta < -HEALTH_CFG.trendThreshold) return 'degrading';
+  return 'stable';
+}
+
+/**
+ * Apply damper to a raw health score.
+ * Returns { health, raw, confidence, confidenceScore, sourceCount, trend, frozen }
+ */
+function dampHealthScore(t, rawHealth) {
+  t = t || {};
+  const conf = healthConfidence(t);
+
+  // No data at all -> keep last smoothed value (do NOT drift toward 0)
+  if (conf.level === 'none' || rawHealth == null || !isFinite(Number(rawHealth))) {
+    const frozen = state.healthSmooth != null ? Number(state.healthSmooth) : null;
+    return {
+      health: frozen,
+      raw: null,
+      confidence: conf.level,
+      confidenceScore: conf.score,
+      sourceCount: conf.sources,
+      trend: state.healthTrend || 'unknown',
+      frozen: true
+    };
+  }
+
+  const alpha = HEALTH_CFG.emaAlpha[conf.level];
+  const dead = HEALTH_CFG.deadBand[conf.level];
+  const raw = Number(rawHealth);
+
+  // Stale guard: if smoothing is old, reset to raw (avoid frozen stale score)
+  const stale = !state.healthAt || (Date.now() - state.healthAt) > HEALTH_CFG.staleResetMs;
+  let prev = (!stale && state.healthSmooth != null) ? Number(state.healthSmooth) : raw;
+
+  // Dead-band the input: raw close to prev -> treat as no change
+  let input = raw;
+  if (Math.abs(raw - prev) < dead) input = prev;
+
+  // EMA
+  let smoothed = prev * (1 - alpha) + input * alpha;
+
+  // Hard floor / ceiling: never let damper mask a real dive or a full recovery
+  if (raw <= 30 && smoothed > raw + 20) smoothed = raw + 20;
+  if (raw >= 95 && smoothed < raw - 15) smoothed = raw - 15;
+
+  // Trend from last hour of smoothed values + current sample
+  const recentRows = (typeof readHistory === 'function') ? readHistory(1).slice(-HEALTH_CFG.trendWindow) : [];
+  const trend = computeHealthTrend(recentRows, smoothed);
+
+  // Persist
+  state.healthSmooth = Math.round(smoothed);
+  state.healthRaw = Math.round(raw);
+  state.healthConfidence = conf.level;
+  state.healthConfidenceScore = conf.score;
+  state.healthSourceCount = conf.sources;
+  state.healthAt = Date.now();
+  state.healthTrend = trend;
+
+  return {
+    health: Math.round(smoothed),
+    raw: Math.round(raw),
+    confidence: conf.level,
+    confidenceScore: conf.score,
+    sourceCount: conf.sources,
+    trend: trend,
+    frozen: false
+  };
+}
+/* ======================================================================
+ * END SMART HEALTH SCORING
+ * ==================================================================== */
+
 async function collectTelemetry() {
   let t = null;
   try {
@@ -493,10 +619,27 @@ async function collectTelemetry() {
     t.ports_ok = lf.ports_ok;
     t.docker_status = lf.docker_status;
     t.docker_health = lf.docker_health;
-    t.health = lf.health;
+    // --- Health scoring with damper ---
+    t.health_raw = lf.health;
+    const damped = dampHealthScore(t, lf.health);
+    if (damped && damped.health != null) {
+      t.health = damped.health;
+      t.health_confidence = damped.confidence;
+      t.health_confidence_score = damped.confidenceScore;
+      t.health_sources = damped.sourceCount;
+      t.health_trend = damped.trend;
+      t.health_frozen = damped.frozen === true;
+      // Override trend only when we have a meaningful value from the damper
+      if (!damped.frozen && damped.trend) t.trend = damped.trend;
+      else t.trend = lf.trend || 'stable';
+    } else {
+      // Fallback: damper refused to compute -> keep raw
+      t.health = lf.health != null ? lf.health : null;
+      t.health_confidence = 'low';
+      t.trend = lf.trend || 'stable';
+    }
     t.core_health = lf.core_health;
     t.health_source = lf.health_source;
-    t.trend = lf.trend;
     try {
       const hist = readHistory(1);
       const prev2 = hist.length ? hist[hist.length - 1] : null;
@@ -547,6 +690,9 @@ function appendHistory(t) {
     const f = path.join(DIR_HIST, dayVN() + '.ndjson');
     const row = lite.historyRow(t);
     row.ts = nowISO();
+    if (t.health != null) row.health = t.health;
+    if (t.health_raw != null) row.health_raw = t.health_raw;
+    if (t.health_confidence) row.health_confidence = t.health_confidence;
     if (t.peer_in != null) row.peer_in = t.peer_in;
     if (t.peer_out != null) row.peer_out = t.peer_out;
     if (t.peer_total != null) row.peer_total = t.peer_total;
@@ -653,7 +799,6 @@ function effectiveReportHours() {
   if (Array.isArray(state.reportHours) && state.reportHours.length) return state.reportHours;
   return REPORT_HOURS;
 }
-/* Alert keyboard now includes interactive ack/skip for the incident engine */
 function alertKeyboard() {
   return {
     inline_keyboard: [
@@ -719,14 +864,8 @@ function classifyIssueKind(t) {
 
 /* ======================================================================
  * SMART INCIDENT ENGINE
- * observe -> evaluate -> decide -> act
  * ==================================================================== */
 
-/**
- * Detect the current incident signature.
- * Priority ordered: severity first, then specificity.
- * Returns null when the node is healthy.
- */
 function detectIncidentSignature(t) {
   t = t || {};
   const sync = String(t.sync || '');
@@ -742,35 +881,20 @@ function detectIncidentSignature(t) {
   const source = String(t.source || '');
   const synced = /synced|live|horizon ok|good/i.test(sync);
 
-  // 1. Docker container stopped
   if (/stop|exit/i.test(docker)) return { type: 'docker_down', severity: 'critical' };
-  // 2. Total network / host down
   if (portsOpen === 0 && source === 'none') return { type: 'network_down', severity: 'critical' };
-  // 3. Ports closed (PC online but Pi ports unreachable)
   if (portsOpen === 0) return { type: 'ports_closed', severity: 'warning' };
-  // 4. Sync stalled (ledger frozen > 5 min)
   if (age != null && age > 300) return { type: 'sync_stalled', severity: 'warning' };
-  // 5. Sync lag (age > 2 min or "Catching up/behind/slow")
   if (age != null && age > 120) return { type: 'sync_lag', severity: 'soft' };
   if (/catching|behind|slow|ingest lag/i.test(sync)) return { type: 'sync_lag', severity: 'soft' };
-  // 6. Peers zero while synced
   if (peerTotal === 0 && synced) return { type: 'peers_zero', severity: 'warning' };
-  // 7. Resource pressure
   if (ram != null && ram >= 88) return { type: 'ram_high', severity: 'warning' };
   if (cpu != null && cpu >= 90) return { type: 'cpu_high', severity: 'warning' };
   if (disk != null && disk >= 90) return { type: 'disk_high', severity: 'warning' };
-  // 8. Peers low (secondary observation)
   if (peerTotal != null && peerTotal > 0 && peerTotal <= 2 && synced) return { type: 'peers_low', severity: 'soft' };
   return null;
 }
 
-/**
- * Update the incident lifecycle:
- * - Create new incident if signature != none
- * - Bump samples / lastSeen on the active incident
- * - Mark every OTHER incident as resolved (single active at a time)
- * - Mark ALL as resolved when healthy
- */
 function updateIncidentState(t) {
   const sig = detectIncidentSignature(t);
   const now = Date.now();
@@ -802,7 +926,6 @@ function updateIncidentState(t) {
       inc.samples = (inc.samples || 0) + 1;
       inc.severity = sig.severity;
     }
-    // Only one active incident at a time
     Object.keys(state.incidents).forEach(function (k) {
       if (k === key) return;
       const other = state.incidents[k];
@@ -813,7 +936,6 @@ function updateIncidentState(t) {
     });
     return inc;
   } else {
-    // All clear
     Object.keys(state.incidents).forEach(function (k) {
       const inc = state.incidents[k];
       if (inc && !inc.resolved) {
@@ -821,7 +943,6 @@ function updateIncidentState(t) {
         inc.resolvedAt = now;
       }
     });
-    // Keep the most recent 30 incidents
     const keys = Object.keys(state.incidents);
     if (keys.length > 30) {
       keys.sort(function (a, b) { return (state.incidents[b].firstSeen || 0) - (state.incidents[a].firstSeen || 0); });
@@ -833,10 +954,6 @@ function updateIncidentState(t) {
   }
 }
 
-/**
- * Decide what to do with the current incident based on stage/duration/cooldown.
- * Returns: { action: 'watch'|'alert'|'remind'|'wait'|'cooldown'|'suppress', targetStage, durationMin, reason }
- */
 function decideIncidentAction(incident, t) {
   if (!incident) return { action: 'none' };
   const now = Date.now();
@@ -844,7 +961,6 @@ function decideIncidentAction(incident, t) {
   const samples = incident.samples || 1;
   const currentStage = incident.stage || 0;
 
-  // Determine the target stage for this incident
   let targetStage = 0;
   if (samples >= 3 || durMin >= 2) targetStage = 1;
   if (samples >= 5 || durMin >= 5) targetStage = 2;
@@ -852,7 +968,6 @@ function decideIncidentAction(incident, t) {
   if (durMin >= 45 || samples >= 45) targetStage = 4;
   if (durMin >= 180) targetStage = 5;
 
-  // Upgrade-catchup suppress: Core version changed + sync is Catching up
   const isUpgradeCatchup = incident.type === 'sync_lag' &&
     incident.firstCoreVersion && t && t.core_version &&
     String(t.core_version) !== String(incident.firstCoreVersion);
@@ -860,23 +975,14 @@ function decideIncidentAction(incident, t) {
   if (isUpgradeCatchup && targetStage <= 2) {
     return { action: 'suppress', targetStage: 1, reason: 'upgrade_catchup', durationMin: durMin };
   }
-
-  // User pressed "Skip 4h"
   if (incident.skippedUntil && now < incident.skippedUntil) {
     return { action: 'wait', targetStage: targetStage, reason: 'skipped', durationMin: durMin };
   }
-
-  // Before stage 2 => silent observation
   if (targetStage < 2) return { action: 'watch', targetStage: targetStage, durationMin: durMin };
-
-  // Already at this stage => nothing new to say
   if (currentStage >= targetStage) return { action: 'wait', targetStage: targetStage, durationMin: durMin };
 
-  // Cooldown depends on target stage (minutes)
   const cooldownMin = [0, 0, 0, 30, 60, 180][targetStage] || 60;
   const sinceLastMin = (now - (incident.lastAlertAt || 0)) / 60000;
-
-  // If user acked recently, extend cooldown
   const userAckBonus = (incident.ackedAt && now - incident.ackedAt < 2 * 3600 * 1000) ? 30 : 0;
 
   if ((incident.alertsSent || 0) > 0 && sinceLastMin < (cooldownMin + userAckBonus)) {
@@ -891,82 +997,39 @@ function decideIncidentAction(incident, t) {
   };
 }
 
-/**
- * Pick the best BAT script (or WAIT) for a given incident.
- * All recommendations come from community-validated Pi Node operations.
- */
 function smartScriptForIncident(incident, t) {
   if (!incident) return null;
   const type = incident.type;
   switch (type) {
     case 'docker_down':
-      return {
-        script: 'DockerRecover',
-        note: 'Docker Engine appears down. Try SOFT restart first. Do NOT touch WSL while Docker is still running.'
-      };
+      return { script: 'DockerRecover', note: 'Docker Engine appears down. Try SOFT restart first. Do NOT touch WSL while Docker is still running.' };
     case 'network_down':
-      return {
-        script: 'NetRepair',
-        note: 'Ports closed AND no telemetry source. Long outage — repair networking while KEEPING the current LAN IP.'
-      };
+      return { script: 'NetRepair', note: 'Ports closed AND no telemetry source. Long outage - repair networking while KEEPING the current LAN IP.' };
     case 'ports_closed':
-      return {
-        script: 'Firewall',
-        then: 'NetRepair',
-        note: 'PC is online but Pi ports 31401-31403 are unreachable. Rebuild firewall rules first; if it persists >15 min, escalate to NetRepair.'
-      };
+      return { script: 'Firewall', then: 'NetRepair', note: 'PC is online but Pi ports 31401-31403 are unreachable. Rebuild firewall rules first; if it persists >15 min, escalate to NetRepair.' };
     case 'sync_stalled':
-      return {
-        script: 'NodeReset',
-        note: 'Ledger age > 5 min while container is running. Container may be stuck — NodeReset only AFTER confirming Docker Engine is healthy.'
-      };
+      return { script: 'NodeReset', note: 'Ledger age > 5 min while container is running. Container may be stuck - NodeReset only AFTER confirming Docker Engine is healthy.' };
     case 'sync_lag': {
-      // Upgrade catchup path
       if (incident.firstCoreVersion && t && t.core_version && String(t.core_version) !== String(incident.firstCoreVersion)) {
-        return {
-          script: 'WAIT',
-          note: 'Catching up after a Core version change — this is normal. Watch 10-15 min; DO NOT restart.'
-        };
+        return { script: 'WAIT', note: 'Catching up after a Core version change - this is normal. Watch 10-15 min; DO NOT restart.' };
       }
-      return {
-        script: 'WAIT',
-        note: 'Sync lag while ports are OK and ledger is still advancing. Wait — do not restart. If it lasts >15 min AND ledger stops moving, escalate to /diagnostic.'
-      };
+      return { script: 'WAIT', note: 'Sync lag while ports are OK and ledger is still advancing. Wait - do not restart. If it lasts >15 min AND ledger stops moving, escalate to /diagnostic.' };
     }
     case 'peers_zero':
-      return {
-        script: 'DnsFlush',
-        note: 'Ports open, ledger moving, but no peers. DNS flush only — keeps LAN IP unchanged.'
-      };
+      return { script: 'DnsFlush', note: 'Ports open, ledger moving, but no peers. DNS flush only - keeps LAN IP unchanged.' };
     case 'peers_low':
-      return {
-        script: 'DnsFlush',
-        note: 'Peer count is low while synced. Try DNS flush; also check regional ISP outage.'
-      };
+      return { script: 'DnsFlush', note: 'Peer count is low while synced. Try DNS flush; also check regional ISP outage.' };
     case 'ram_high':
-      return {
-        script: 'CleanRam',
-        note: 'RAM pressure on host. CleanRam closes extra apps, clears TEMP/TRIM. It does NOT stop Pi Node or Docker.'
-      };
+      return { script: 'CleanRam', note: 'RAM pressure on host. CleanRam closes extra apps, clears TEMP/TRIM. It does NOT stop Pi Node or Docker.' };
     case 'cpu_high':
-      return {
-        script: 'CleanRam',
-        note: 'CPU pressure. Observe first; run CleanRam only if the host has extra heavy apps.'
-      };
+      return { script: 'CleanRam', note: 'CPU pressure. Observe first; run CleanRam only if the host has extra heavy apps.' };
     case 'disk_high':
-      return {
-        script: 'Maintain',
-        note: 'Disk nearly full. Weekly cleanup (Maintain.bat) is safe while the node is otherwise healthy.'
-      };
+      return { script: 'Maintain', note: 'Disk nearly full. Weekly cleanup (Maintain.bat) is safe while the node is otherwise healthy.' };
     default:
       return null;
   }
 }
 
-/**
- * Adaptive telemetry interval: shorter while incidents are active.
- * Called by telemetryLoop each iteration.
- */
 function currentTelemetryInterval() {
   const incidents = state.incidents || {};
   const active = Object.keys(incidents).map(function (k) { return incidents[k]; }).filter(function (i) { return i && !i.resolved; });
@@ -978,7 +1041,6 @@ function currentTelemetryInterval() {
   return TELEMETRY_SEC;
 }
 
-/** Format /incidents output: active + recent history */
 function formatIncidents() {
   const now = Date.now();
   const all = state.incidents || {};
@@ -1129,18 +1191,12 @@ function pushDashAlert(text, t) {
   fs.writeFileSync(dashAlertPath(), JSON.stringify(rows.slice(0, 30)));
 }
 
-/**
- * SMART runAlertMachine (v2.7)
- * observe -> evaluate -> decide -> act
- */
 async function runAlertMachine(t) {
   const prev = state.fsm || 'HEALTHY';
   const now = Date.now();
 
-  // 1) Update incident state
   const incident = updateIncidentState(t);
 
-  // 2) Recovery path
   if (!incident) {
     if (prev === 'CRITICAL' || prev === 'WARNING' || prev === 'DEGRADED') {
       const justResolved = Object.keys(state.incidents).map(function (k) { return state.incidents[k]; })
@@ -1161,7 +1217,6 @@ async function runAlertMachine(t) {
     return;
   }
 
-  // 3) Decide
   const decision = decideIncidentAction(incident, t);
 
   if (decision.action === 'watch') {
@@ -1180,7 +1235,6 @@ async function runAlertMachine(t) {
     return;
   }
 
-  // 4) Alert or remind
   const script = smartScriptForIncident(incident, t);
   const ai = (incident.type === 'sync_lag' || incident.type === 'network_down' || incident.type === 'ports_closed')
     ? await aiClassifyIncident(t, incident.type, decision.durationMin)
@@ -1262,6 +1316,20 @@ function formatActionLog() {
   return lines.join('\n');
 }
 
+function healthIcon(score) {
+  if (score == null) return '⚪';
+  if (score >= 85) return '🟢';
+  if (score >= 65) return '🟡';
+  if (score >= 40) return '🟠';
+  return '🔴';
+}
+function healthConfIcon(conf) {
+  if (conf === 'high') return '🟢';
+  if (conf === 'medium') return '🟡';
+  if (conf === 'low') return '🟠';
+  return '⚪';
+}
+
 function formatStatus(t, mode) {
   t = t || {};
   const age = t._age != null ? t._age : (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0);
@@ -1308,6 +1376,15 @@ function formatStatus(t, mode) {
   if (t.core_version) runtime.push('CORE    ·    ' + t.core_version);
 
   const sys = [];
+  if (t.health != null) {
+    const hIcon = healthIcon(t.health);
+    const cIcon = healthConfIcon(t.health_confidence);
+    const trendTag = t.health_trend === 'improving' ? ' ↗'
+      : (t.health_trend === 'degrading' ? ' ↘' : '');
+    const frozenTag = t.health_frozen ? ' · frozen' : '';
+    sys.push('HEALTH  · ' + hIcon + ' ' + t.health + '/100' + trendTag +
+      ' · ' + cIcon + ' ' + (t.health_confidence || 'low') + frozenTag);
+  }
   if (t.ram != null) sys.push('RAM     ·    ' + Math.round(t.ram) + '%');
   if (t.cpu != null) {
     const cic = t.cpu >= 90 ? '🔴' : (t.cpu >= 70 ? '🟡' : '🟢');
@@ -1442,7 +1519,24 @@ function formatDiagnostic(t) {
   if (t.level === 'critical') levelIc = '🔴';
   else if (t.level === 'warning' || t.level === 'soft') levelIc = '🟡';
 
+  // HEALTH block (with raw + confidence + trend)
+  const health = [];
+  if (t.health != null) {
+    const hIcon = healthIcon(t.health);
+    const cIcon = healthConfIcon(t.health_confidence);
+    const trendTag = t.health_trend === 'improving' ? '↗ improving'
+      : (t.health_trend === 'degrading' ? '↘ degrading' : '→ stable');
+    health.push('Score      · ' + hIcon + ' ' + t.health + '/100');
+    if (t.health_raw != null && t.health_raw !== t.health) {
+      health.push('Raw        · ' + t.health_raw + '/100 (pre-damper)');
+    }
+    health.push('Confidence · ' + cIcon + ' ' + (t.health_confidence || 'low') + ' (' + (t.health_sources || 0) + ' sources)');
+    health.push('Trend      · ' + trendTag);
+    if (t.health_frozen) health.push('State      · ⚪ frozen (no source)');
+  }
+
   const parts = ['🩺 PI NODE · DIAGNOSTIC', ''];
+  if (health.length) { parts.push(treeBlock('💚 HEALTH', health)); parts.push(''); }
   if (net.length) { parts.push(treeBlock('🌐 NETWORK & LEDGER', net)); parts.push(''); }
   if (eng.length) { parts.push(treeBlock('🐳 ENGINE & SYSTEM', eng)); parts.push(''); }
   parts.push('───────────────');
@@ -1469,8 +1563,8 @@ const APP_GUIDE = `
 HOW TO USE THIS APP
 Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /incidents /donate /help /mute.
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
-Ask in any language. AI answers as a Pi Node technician using real telemetry + 24h history, replying in the user's language.
-Smart incident engine: observe -> alert (5 min) -> reminders (15 / 45 min) -> chronic. Notifies only when action matters.
+Ask in any language. AI answers as a Pi Node technician using real telemetry + 24h history.
+Health score is passed through a damper (EMA + dead-band + confidence) so transient blips do not move it.
 Reports: 07:00 / 18:00 / both / off.
 Donate: /donate - Pay with Pi or MB Bank QR.
 `;
@@ -1732,6 +1826,7 @@ function preEvalBrief(t) {
   if (t.peer_in != null || t.peer_out != null) lines.push('Peers IN/OUT=' + (t.peer_in != null ? t.peer_in : '?') + '/' + (t.peer_out != null ? t.peer_out : '?'));
   lines.push('Docker=' + (t.docker || 'n/a') + ' sock=' + (t.docker_sock ? 'yes' : 'no') + ' container=' + (t.container || 'n/a'));
   if (t.ports_open != null) lines.push('Ports open=' + t.ports_open);
+  if (t.health != null) lines.push('Health=' + t.health + ' (raw=' + (t.health_raw != null ? t.health_raw : '?') + ', conf=' + (t.health_confidence || '?') + ', trend=' + (t.health_trend || '?') + ')');
   if (h && h.samples) {
     lines.push('24h samples=' + h.samples + ' ok/warn/crit=' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
     if (h.first_ts) lines.push('24h window=' + String(h.first_ts).slice(0, 16) + ' -> ' + String(h.last_ts).slice(0, 16));
@@ -1994,6 +2089,7 @@ function evidenceSummary(t) {
   if (t.ram != null) parts.push('RAM: ' + t.ram + '%');
   if (t.cpu != null) parts.push('CPU: ' + t.cpu + '%');
   if (t.temp != null) parts.push('Temp: ' + t.temp + '°C');
+  if (t.health != null) parts.push('Health: ' + t.health + '/100 (' + (t.health_confidence || '?') + ')');
   return parts;
 }
 
@@ -2066,6 +2162,9 @@ function buildFacts(t) {
     source: t.source || null,
     sync: t.sync || null,
     health: t.health != null ? t.health : null,
+    health_raw: t.health_raw != null ? t.health_raw : null,
+    health_confidence: t.health_confidence || null,
+    health_trend: t.health_trend || null,
     core_health: t.core_health != null ? t.core_health : null,
     health_source: t.health_source || null,
     core_state: t.core_state || null,
@@ -2122,7 +2221,7 @@ function writeDockerPref(obj) {
 
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
-  let tag = 'v2.6.24';
+  let tag = 'v2.6.57';
   try {
     const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/);
     if (m) tag = 'v' + m[1];
@@ -2308,7 +2407,7 @@ function historySnippet(n) {
   try {
     return readHistory(2).slice(-(n || 24)).map(function (r) {
       const o = { ts: r.ts, level: r.level };
-      ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'ram', 'cpu', 'temp', 'ports_open'].forEach(function (k) {
+      ['sync', 'ledger', 'ledger_age', 'peer_in', 'peer_out', 'ram', 'cpu', 'temp', 'ports_open', 'health'].forEach(function (k) {
         if (r[k] != null) o[k] = r[k];
       });
       return o;
@@ -2334,6 +2433,7 @@ function buildHistory24h() {
   const temps = nums('temp');
   const peersIn = nums('peer_in');
   const peersOut = nums('peer_out');
+  const healths = nums('health');
   let critical = 0, warning = 0, ok = 0;
   let syncFlips = 0;
   let lastSync = null;
@@ -2370,6 +2470,9 @@ function buildHistory24h() {
     ram_max: rams.length ? Math.max.apply(null, rams) : null,
     cpu_max: cpus.length ? Math.max.apply(null, cpus) : null,
     temp_max: temps.length ? Math.max.apply(null, temps) : null,
+    health_min: healths.length ? Math.min.apply(null, healths) : null,
+    health_max: healths.length ? Math.max.apply(null, healths) : null,
+    health_avg: healths.length ? Math.round(healths.reduce(function (a, b) { return a + b; }, 0) / healths.length) : null,
     recent_levels: day.slice(-8).map(function (r) { return { ts: r.ts, level: r.level, sync: r.sync, ledger: r.ledger, age: r.ledger_age }; })
   };
 }
@@ -2383,6 +2486,7 @@ function formatHistory24hText(h) {
   lines.push('Sync flips: ' + h.sync_flips + (h.last_sync ? ('; last=' + h.last_sync) : ''));
   if (h.ledger_min != null) lines.push('Ledger: ' + h.ledger_min + ' -> ' + h.ledger_max + (h.ledger_delta != null ? (' (delta ' + h.ledger_delta + ')') : ''));
   if (h.age_max_s != null) lines.push('Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
+  if (h.health_avg != null) lines.push('Health avg/min/max: ' + h.health_avg + ' / ' + h.health_min + ' / ' + h.health_max);
   if (h.peer_in_min != null) lines.push('Peer IN: ' + h.peer_in_min + '-' + h.peer_in_max);
   if (h.peer_out_min != null) lines.push('Peer OUT: ' + h.peer_out_min + '-' + h.peer_out_max);
   if (h.ram_max != null) lines.push('RAM range: ' + h.ram_min + '-' + h.ram_max + '%');
@@ -2427,8 +2531,8 @@ function formatMetricAnalysis(metricKey, days) {
   const d = Math.max(1, days || 7);
   const rows = historyRowsDays(d);
   const vals = rows.map(function (r) { return toNum(r[metricKey]); }).filter(function (x) { return x != null; });
-  const titleMap = { ram: '🧠 RAM ANALYSIS', cpu: '⚙️ CPU ANALYSIS', temp: '🌡️ TEMP ANALYSIS', ledger_age: '⏱️ LEDGER AGE ANALYSIS' };
-  const unit = (metricKey === 'temp') ? '°C' : (metricKey === 'ledger_age' ? 's' : '%');
+  const titleMap = { ram: '🧠 RAM ANALYSIS', cpu: '⚙️ CPU ANALYSIS', temp: '🌡️ TEMP ANALYSIS', ledger_age: '⏱️ LEDGER AGE ANALYSIS', health: '💚 HEALTH ANALYSIS' };
+  const unit = (metricKey === 'temp') ? '°C' : (metricKey === 'ledger_age' ? 's' : (metricKey === 'health' ? '' : '%'));
   const title = (titleMap[metricKey] || metricKey) + ' · ' + periodLabel(d);
   if (!vals.length) return [title, '───────────────', 'Not enough history samples yet. Collecting every ~60s - ask again later.'].join('\n');
   const mm = minMax(vals);
@@ -2675,11 +2779,13 @@ function technicianEvaluate(t, userQ, intent) {
   lines.push('What the numbers mean:');
   if (sync) lines.push('• Sync: ' + sync + (age != null ? (' (age ' + age + 's)') : ''));
   if (ledger) lines.push('• Current ledger: ' + ledger);
+  if (t && t.health != null) lines.push('• Health score: ' + t.health + '/100 (' + (t.health_confidence || '?') + ', trend ' + (t.health_trend || 'stable') + ')');
   if (h.samples) {
     lines.push('• Last ~' + (h.approx_minutes || '?') + ' min: ' + h.samples + ' samples, OK/Warn/Crit = ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
     if (h.ledger_delta != null) lines.push('• Ledger moved: ' + h.ledger_min + ' -> ' + h.ledger_max + ' (delta ' + h.ledger_delta + ')');
     if (h.sync_flips != null) lines.push('• Sync flips: ' + h.sync_flips + (h.sync_flips === 0 ? ' (stable)' : ' (watch if frequent)'));
     if (h.age_max_s != null) lines.push('• Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
+    if (h.health_avg != null) lines.push('• Health avg/min/max: ' + h.health_avg + ' / ' + h.health_min + ' / ' + h.health_max);
     if (h.cpu_max != null) lines.push('• CPU peak (container): ' + h.cpu_max + '%');
     if (h.ram_max != null) lines.push('• RAM peak (container): ' + h.ram_max + '%');
   } else {
@@ -2752,6 +2858,7 @@ async function aiAnalyze(t, userQ) {
         'LANGUAGE (MANDATORY): Reply in ' + userLang + '. This is the user\'s detected language from their message and/or recent chat history. Do NOT switch to English unless the user is using English.',
         'PRIORITY: Every free-text question needs a real technician evaluation - simple words, practical value.',
         'DATA RULES: Use ONLY the JSON blocks below. If container_cpu / container_ram / ledger_per_min / peers / health exist, you MUST use them. Missing field = unknown, NEVER say 0%.',
+        'HEALTH SCORE: t.health is a smoothed score (0-100). t.health_raw is the pre-damper value. t.health_confidence reflects how many sources contributed (high/medium/low/none). t.health_trend is improving/stable/degrading. Explain the score with this context. Do not over-react to small movements.',
         'INCIDENT ENGINE: If ACTIVE_INCIDENT is present, explain the type, why it matters, and reference the RECOMMENDED_SCRIPT (or WAIT) exactly as given. Never invent other scripts.',
         'MISSING DATA: You MAY ask up to 3 short follow-up questions when needed. Do not invent answers.',
         'FORMAT: No markdown special characters (no **, __, `, #). Short lines. Icons ok (🟢 🟡 🔴 ✅ ⚠️ 📊 🔄 💡 🧠 🔧).',
@@ -2887,6 +2994,7 @@ async function runCmd(cmd, userText) {
     if (t.sync) lines.push('Status: ' + t.sync);
     if (t.ledger != null) lines.push('Ledger: ' + fmtN(t.ledger));
     if (t.ledger_age != null) lines.push('Age: ' + t.ledger_age + 's');
+    if (t.health != null) lines.push('Health: ' + t.health + '/100 (' + (t.health_confidence || 'low') + ')');
     if (lines.length === 2) lines.push('⚠️ Sync data unavailable');
     return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
   }
@@ -3090,7 +3198,7 @@ async function telegramLoop() {
         if (isConflict) {
           const now = Date.now();
           if (now - lastConflictLog > 90000) {
-            log('getUpdates conflict - only one bot instance may poll this token. Stop Windows PRO bot or other SoloHost containers using the same BOT_TOKEN.', 'error');
+            log('getUpdates conflict - only one bot instance may poll this token.', 'error');
             try { actionLog('error', 'getUpdates conflict · ensure single instance'); } catch (e) {}
             lastConflictLog = now;
           }
@@ -3129,7 +3237,6 @@ async function telemetryLoop() {
         await tgSend(formatReport() + '\n\n' + formatStatus(t), { reply_markup: reportKeyboard() });
       }
     } catch (e) { log('telemetry ' + e.message, 'error'); }
-    // Adaptive interval: shorter while incidents are active
     const intervalSec = currentTelemetryInterval();
     await wait(intervalSec * 1000);
   }
@@ -3192,6 +3299,23 @@ const srv = http.createServer(async (req, res) => {
       }
       return;
     }
+    if (u === '/api/health') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      const h = {
+        ok: true,
+        version: VERSION,
+        health: state.healthSmooth,
+        raw: state.healthRaw,
+        confidence: state.healthConfidence,
+        confidenceScore: state.healthConfidenceScore,
+        sourceCount: state.healthSourceCount,
+        trend: state.healthTrend,
+        at: state.healthAt ? new Date(state.healthAt).toISOString() : null,
+        activeIncidents: Object.keys(state.incidents || {}).filter(function (k) { return state.incidents[k] && !state.incidents[k].resolved; }).length
+      };
+      res.end(JSON.stringify(h));
+      return;
+    }
     if (u === '/api/incidents') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       const items = Object.keys(state.incidents || {}).map(function (k) { return state.incidents[k]; });
@@ -3218,6 +3342,20 @@ const srv = http.createServer(async (req, res) => {
       ok('csp_relaxed_for_index', true, 'index.html has no script-blocking CSP');
       ok('incident_engine', typeof detectIncidentSignature === 'function' && typeof smartScriptForIncident === 'function', 'engine loaded');
       ok('adaptive_polling', typeof currentTelemetryInterval === 'function', 'currentTelemetryInterval');
+      // Health damper tests
+      ok('health_damper_fn', typeof dampHealthScore === 'function' && typeof healthConfidence === 'function', 'damper loaded');
+      const hc1 = healthConfidence({ docker_sock: true, core_verified: true });
+      ok('health_conf_high_sock_core', hc1.level === 'high', hc1.level);
+      const hc2 = healthConfidence({ source: 'Horizon' });
+      ok('health_conf_low_horizon_only', hc2.level === 'low', hc2.level);
+      const hc3 = healthConfidence({});
+      ok('health_conf_none_no_source', hc3.level === 'none', hc3.level);
+      // Simulate: no data -> frozen
+      const prevSmooth = state.healthSmooth;
+      state.healthSmooth = 80; state.healthAt = Date.now();
+      const d0 = dampHealthScore({}, 10);
+      ok('damper_freezes_without_source', d0.frozen === true && d0.health === 80, 'frozen=' + d0.frozen);
+      state.healthSmooth = prevSmooth;
       // Synthetic engine tests
       const i1 = detectIncidentSignature({ ports_open: 0 });
       ok('incident_ports_closed', i1 && i1.type === 'ports_closed', i1 && i1.type);
@@ -3470,7 +3608,9 @@ const srv = http.createServer(async (req, res) => {
       res.end(JSON.stringify({
         version: VERSION, dataLive: false,
         hasBot: !!BOT_TOKEN, hasAI: !!GEMINI_API_KEY, telemetrySec: TELEMETRY_SEC,
-        incidentCount: Object.keys(state.incidents || {}).length
+        incidentCount: Object.keys(state.incidents || {}).length,
+        health: state.healthSmooth,
+        healthConfidence: state.healthConfidence
       }));
       return;
     }
@@ -3537,10 +3677,10 @@ srv.listen(PORT, '0.0.0.0', () => {
 
   log('telemetry=' + TELEMETRY_SEC + 's base · adaptive polling enabled (30-60s)');
   log('Incident engine active · observe -> alert -> remind -> chronic');
+  log('Health damper active · EMA + dead-band + confidence-aware');
   log('Telegram long-poll independent of telemetry');
 });
 
-// Start loops independently
 telegramLoop();
 telemetryLoop();
 
@@ -3551,4 +3691,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       await tgSend('✅ Controller online\n\n' + formatStatus(t), { reply_markup: mainKeyboard() });
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-}
+      }
