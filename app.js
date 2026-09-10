@@ -4,9 +4,9 @@
  * - Smart Incident Engine (observe -> evaluate -> decide -> act)
  * - Health Scoring with Damper + Stability-aware adjustment
  * - AI Data Query DSL (flexible metric/window/agg/filter) + named blocks
- * - Unified data pipeline: read -> normalize -> aggregate -> use
+ * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute applies to ALL notifications (alerts + recovery + scheduled)
- * - Reports use dynamic rolling window (spans midnight)
+ * - Reports use rolling window from now (spans midnight correctly)
  * - NO docker.sock required
  */
 const http = require('http');
@@ -231,7 +231,7 @@ function probeTcp(host, port, timeout) {
 }
 
 /* ======================================================================
- * DATA PIPELINE (read -> normalize -> aggregate -> use)
+ * DATA PIPELINE (read -> normalize -> SORT -> aggregate -> use)
  * ==================================================================== */
 function normalizeHistoryRow(r) {
   if (!r || typeof r !== 'object') return null;
@@ -249,6 +249,13 @@ function normalizeHistoryRow(r) {
   if (r.docker_sock === true || r.docker_sock === false) out.docker_sock = r.docker_sock;
   return out;
 }
+/**
+ * Unified window reader: returns NORMALIZED rows in last N hours, SORTED
+ * chronologically (oldest first, newest last).
+ * FIX: readHistory reads today's file before yesterday's; without sorting,
+ * windows spanning midnight would have rows[0]=today 00:00 and rows[last]=
+ * yesterday 23:59 -> RANGE displayed inverted and durations negative.
+ */
 function getTimeWindow(hours) {
   const h = Math.max(0.1, Number(hours) || 24);
   const cutoff = Date.now() - h * 3600 * 1000;
@@ -259,8 +266,10 @@ function getTimeWindow(hours) {
     const ts = Date.parse(r && r.ts) || 0;
     if (!ts || ts < cutoff) return;
     const n = normalizeHistoryRow(r);
-    if (n) out.push(n);
+    if (n) { n._tsMs = ts; out.push(n); }
   });
+  out.sort(function (a, b) { return a._tsMs - b._tsMs; });
+  out.forEach(function (r) { delete r._tsMs; });
   return out;
 }
 function aggregate(rows, key) {
@@ -1387,6 +1396,8 @@ function formatActionAdvice(t) {
   lines.push('Download on SoloHost UI: http://127.0.0.1:18780/');
   return lines.join('\n');
 }
+
+/* formatReport — FIXED header + rolling window from now spanning midnight */
 function formatReport(hours) {
   const H = Math.max(1, Math.min(168, Number(hours) || 24));
   const rows = getTimeWindow(H);
@@ -1399,9 +1410,17 @@ function formatReport(hours) {
     ].join('\n');
   }
   const first = rows[0], last = rows[rows.length - 1];
-  const fmtFull = function (iso) { const s = String(iso || '').replace('T', ' '); return s.slice(0, 16) || '?'; };
-  const durMs = (Date.parse(last.ts) || Date.now()) - (Date.parse(first.ts) || 0);
-  const hoursShown = Math.max(0.1, Math.round(durMs / 3600000 * 10) / 10);
+  const fmtHM = function (iso) {
+    const s = String(iso || '').replace('T', ' ');
+    const hm = s.slice(11, 16) || '--:--';
+    const dd = s.slice(8, 10) || '--';
+    const mm = s.slice(5, 7) || '--';
+    return hm + ' ' + dd + '/' + mm;
+  };
+  const durMs = Math.max(0, (Date.parse(last.ts) || Date.now()) - (Date.parse(first.ts) || 0));
+  const hoursShown = Math.round(durMs / 3600000 * 10) / 10;
+  const minutesShown = Math.round(durMs / 60000);
+  const coverageText = hoursShown >= 1 ? ('~' + hoursShown + 'h') : ('~' + minutesShown + ' min');
   const crit = rows.filter(function (r) { return r.level === 'critical'; }).length;
   const healthy = rows.filter(function (r) { return r.level === 'ok' || r.level === 'soft'; }).length;
   const healthyPct = Math.round((healthy / rows.length) * 100);
@@ -1437,8 +1456,9 @@ function formatReport(hours) {
   diag.push((healthyPct >= 90 ? '🟢' : '🟡') + ' NODE   · ' + (healthyPct >= 90 ? 'Healthy' : 'Watch') + ' (' + healthyPct + '%)');
   diag.push('🛠️ ACTION · ' + (crit > rows.length * 0.1 ? 'Review node' : 'None (No BAT needed)'));
   const parts = [head, ''];
-  parts.push('⏱ RANGE · ' + fmtFull(first.ts) + ' ➔ ' + fmtFull(last.ts));
-  parts.push('📊 WINDOW · last ' + H + 'h · ~' + hoursShown + 'h shown · ' + rows.length + ' samples');
+  parts.push('🕐 WINDOW · Last ' + H + 'h (rolling from now)');
+  parts.push('⏱ RANGE  · ' + fmtHM(first.ts) + ' ➔ ' + fmtHM(last.ts));
+  parts.push('📊 DATA   · ' + rows.length + ' samples · ' + coverageText + ' covered');
   parts.push('');
   parts.push(treeBlock('📊 METRICS', metrics));
   if (windows.length) { parts.push(''); parts.push('⚠️ ISSUE WINDOWS'); parts.push(formatIssueWindows(windows)); }
@@ -1456,7 +1476,7 @@ function formatHelp() {
     '📊 /status      - Current node health snapshot',
     '🔄 /sync        - Sync status and latest ledger',
     '👥 /peers       - Inbound and outbound peers',
-    '📈 /report      - Last 24h history (spans midnight)',
+    '📈 /report      - Last 24h rolling window (spans midnight)',
     '🧭 /incidents   - Active + recent incident history',
     '🩺 /diagnostic  - Technical source details',
     '💬 /analyze     - AI technician review (in your language)',
@@ -2051,21 +2071,16 @@ const AI_DATA_PROVIDERS = {
  * AI DATA QUERY DSL (v3.1) - flexible metric/window/agg/filter
  * ==================================================================== */
 const AI_METRIC_WHITELIST = {
-  // numeric
   ledger: 'number', ledger_age: 'number', peer_in: 'number', peer_out: 'number',
   peer_total: 'number', cpu: 'number', ram: 'number', temp: 'number', disk: 'number',
   health: 'number', health_raw: 'number', health_adjusted: 'number',
   ports_open: 'number', ingest_lag: 'number',
-  // categorical
   sync: 'string', level: 'string', container: 'string', docker: 'string',
   health_confidence: 'string', network_kind: 'string', source: 'string',
   ports_all_open: 'boolean', docker_sock: 'boolean'
 };
 const AI_QUERY_LIMITS = {
-  maxQueries: 5,
-  maxWindowHours: 168,
-  maxRawRows: 200,
-  defaultWindowHours: 24
+  maxQueries: 5, maxWindowHours: 168, maxRawRows: 200, defaultWindowHours: 24
 };
 function parseKVToken(str) {
   const out = {};
@@ -2784,7 +2799,7 @@ async function installTelegramMenu() {
         { command: 'status', description: 'Current node health snapshot' },
         { command: 'sync', description: 'Sync status and latest ledger' },
         { command: 'peers', description: 'Inbound and outbound peers' },
-        { command: 'report', description: 'Last 24h history (spans midnight)' },
+        { command: 'report', description: 'Last 24h rolling window (spans midnight)' },
         { command: 'incidents', description: 'Active + recent incident history' },
         { command: 'diagnostic', description: 'Technical source details' },
         { command: 'analyze', description: 'AI technician review (in your language)' },
@@ -2944,7 +2959,6 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
     if (u === '/api/ai/query') {
-      // Debug endpoint: run a DSL query via GET (no auth, local-only)
       if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       try {
@@ -3002,21 +3016,17 @@ const srv = http.createServer(async (req, res) => {
       ok('pipeline_ledgerVelocity', typeof ledgerVelocity === 'function', 'ok');
       ok('ai_data_providers', Object.keys(AI_DATA_PROVIDERS).length >= 10, 'count=' + Object.keys(AI_DATA_PROVIDERS).length);
       ok('ai_parse_request', typeof parseDataRequests === 'function', 'parseDataRequests');
-      // DSL parser tests
       ok('dsl_parse_fn', typeof parseDataQueries === 'function' && typeof executeDataQuery === 'function', 'loaded');
       const q1 = parseDataQueries('[DATA_QUERY: metric=ram window=7d agg=summary]');
       ok('dsl_parse_single', q1.length === 1 && q1[0].metric === 'ram' && q1[0].window === '7d' && q1[0].agg === 'summary', JSON.stringify(q1));
       const q2 = parseDataQueries('[DATA_QUERY: metric=sync window=6h agg=states] [DATA_QUERY: metric=cpu window=24h agg=summary filter=level=critical]');
       ok('dsl_parse_multi', q2.length === 2, JSON.stringify(q2.length));
-      const q3 = parseDataQueries('[DATA_QUERY: metric=x_unknown window=1h]');
       const r3 = executeDataQuery({ metric: 'x_unknown', window: '1h' });
       ok('dsl_unknown_metric_returns_hint', r3.ok === false && Array.isArray(r3.allowed_numeric), r3.error);
-      // window parsing
       ok('dsl_window_parse_m', parseWindowHours('30m') > 0 && parseWindowHours('30m') < 1, parseWindowHours('30m'));
       ok('dsl_window_parse_h', parseWindowHours('6h') === 6, parseWindowHours('6h'));
       ok('dsl_window_parse_d', parseWindowHours('2d') === 48, parseWindowHours('2d'));
       ok('dsl_window_cap_168h', parseWindowHours('30d') === 168, parseWindowHours('30d'));
-      // real execution tests
       const e1 = executeDataQuery({ metric: 'sync', window: '24h', agg: 'states' });
       ok('dsl_exec_states', e1.ok === true && (e1.states || e1.note), 'samples=' + e1.samples);
       const e2 = executeDataQuery({ metric: 'ram', window: '24h', agg: 'summary' });
@@ -3029,18 +3039,15 @@ const srv = http.createServer(async (req, res) => {
       ok('dsl_exec_trend', e5.ok === true, 'samples=' + e5.samples);
       const e6 = executeDataQuery({ metric: 'ledger_age', window: '24h', agg: 'raw', limit: '10' });
       ok('dsl_exec_raw_limit', e6.ok === true && (!e6.returned || e6.returned <= 10), 'returned=' + e6.returned);
-      // legacy + DSL strip
       const st1 = stripDataRequests('Hello [DATA_REQUEST:ram_7d] world');
-      ok('strip_named', st1 === 'Hello  world'.replace(/\s+/g, ' ').trim() || st1.indexOf('DATA_REQUEST') < 0, st1.slice(0, 40));
+      ok('strip_named', st1.indexOf('DATA_REQUEST') < 0, st1.slice(0, 40));
       const st2 = stripDataRequests('Hello [DATA_QUERY: metric=ram window=1h] world');
       ok('strip_dsl', st2.indexOf('DATA_QUERY') < 0, st2.slice(0, 40));
-      // Mute covers recovery
       const prevMode = state.alertMode;
       state.alertMode = 'off';
       const gate = alertsMuted();
       ok('mute_off_recognized', gate.muted === true, gate.why);
       state.alertMode = prevMode || 'on';
-      // Health damper
       const hc1 = healthConfidence({ docker_sock: true, core_verified: true });
       ok('health_conf_high_sock_core', hc1.level === 'high', hc1.level);
       const hc3 = healthConfidence({});
@@ -3049,7 +3056,6 @@ const srv = http.createServer(async (req, res) => {
       ok('stability_pulls_up_noisy', stab1 > 70, 'raw 70 -> adj ' + Math.round(stab1));
       const stab2 = applyStabilityAdjustment(40, { samples: 10, flipRate: 0.05, badRatio: 0.80, longerBadRatio: 0.40, unstableShort: false, sustainedBad: true });
       ok('stability_keeps_low_sustained_bad', stab2 <= 40, 'raw 40 -> adj ' + Math.round(stab2));
-      // Engine
       const i1 = detectIncidentSignature({ ports_open: 0 });
       ok('incident_ports_closed', i1 && i1.type === 'ports_closed', i1 && i1.type);
       const i2 = detectIncidentSignature({ docker: 'Exited (0)' });
@@ -3063,6 +3069,19 @@ const srv = http.createServer(async (req, res) => {
       const rep = formatReport(24);
       ok('report_24h_header', typeof rep === 'string' && rep.indexOf('PI NODE · REPORT') >= 0, 'ok');
       ok('report_24h_no_5min_leak', rep.indexOf('~5 min') < 0 && rep.indexOf('00:00 ➔') < 0, 'ok');
+      // Verify time window is sorted chronologically (fixes RANGE inversion)
+      try {
+        const w1 = getTimeWindow(48);
+        if (w1.length >= 2) {
+          const t0 = Date.parse(w1[0].ts);
+          const t1 = Date.parse(w1[w1.length - 1].ts);
+          ok('time_window_sorted', t0 <= t1, 'first=' + w1[0].ts + ' last=' + w1[w1.length - 1].ts);
+        } else {
+          ok('time_window_sorted', true, 'insufficient samples');
+        }
+      } catch (e) {
+        ok('time_window_sorted', false, String(e && e.message));
+      }
       const l1 = detectUserLang('Xin chào, node của tôi thế nào?');
       ok('lang_detect_vi', l1 === 'Vietnamese', l1);
       const l2 = detectUserLang('Hello, how is my node?');
@@ -3284,7 +3303,8 @@ srv.listen(PORT, '0.0.0.0', () => {
   log('telemetry=' + TELEMETRY_SEC + 's base · adaptive polling enabled (30-60s)');
   log('Incident engine active · observe -> alert -> remind -> chronic');
   log('Health damper active · EMA + dead-band + stability-aware adjustment');
-  log('Data pipeline: getTimeWindow + normalize + aggregate');
+  log('Data pipeline: getTimeWindow (SORTED) + normalize + aggregate');
+  log('Reports use rolling window from now (spans midnight correctly)');
   log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' named blocks');
   log('AI DSL metrics: ' + Object.keys(AI_METRIC_WHITELIST).length + ' (numeric + category)');
   log('Night/off mute applies to alerts, reminders, recovery, scheduled reports');
@@ -3301,4 +3321,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       else { try { actionLog('info', 'startup notification muted - ' + gate.why); } catch (e) {} }
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-                       }
+      }
