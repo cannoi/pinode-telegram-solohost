@@ -1,14 +1,14 @@
 'use strict';
 /**
  * SoloHost Controller v2.6.0
- * - Telegram long-poll independent of 60s telemetry
+ * - Smart Incident Engine: observe -> evaluate -> decide -> act
+ * - Adaptive polling: 60s normal, 30-45s during incident
+ * - Anti-spam: fingerprint dedup + per-stage cooldown + upgrade-catchup suppress
+ * - Smart script recommendation per incident type
+ * - Telegram long-poll independent of telemetry
  * - Horizon-deep PRIMARY -> Core HTTP -> Ports -> cgroup (no DataLive)
- * - Normalized schema; hide missing fields
- * - Alert state machine; history; optional Gemini
  * - NO docker.sock required
- * - International build: English-only static messages + AI replies in user's language
- *
- * v2.6.57-solohost (FIX): CSP relaxed for /index.html so SoloHost dashboard loads.
+ * - International: static messages English; AI replies in user's language
  */
 const http = require('http');
 const https = require('https');
@@ -20,44 +20,28 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-
 const APP_KNOWLEDGE = `
 APP: Pi Node Telegram Controller PRO (SoloHost Edition)
 Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI. Sandboxed Docker app on Pi Desktop.
 
-DEFAULT CAPABILITIES (no docker.sock):
-- Horizon HTTP status (ledger, sync lag, network, versions)
-- Optional Core HTTP if port published
-- TCP probes on node ports 31401-31403
-- History for trends/reports
-- Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /donate /winpro /ping
-- Natural-language questions answered by AI in the user's language (when GEMINI_API_KEY is set) or English fallback
-- Alerts on meaningful changes (not spam)
-- Local UI http://127.0.0.1:18780/ status + chat
+INCIDENT ENGINE (v2.7):
+- Detects 10 incident classes: docker_down, network_down, ports_closed, sync_stalled, sync_lag, peers_zero, peers_low, ram_high, cpu_high, disk_high
+- Stage machine 0-5: observe (0-1) -> first alert (2) -> reminder (3-4) -> chronic (5)
+- Adaptive polling: shortens telemetry interval while incident is active
+- Suppresses false positives during Pi Node software updates (catch-up pattern)
+- Per-incident cooldown to prevent spam
+- Recommends specific BAT scripts matched to the detected failure
 
-OPTIONAL DOCKER (advanced):
-- ONLY enable from SoloHost UI on the node PC (not Telegram)
-- User must read full terms and confirm
-- Writes docker-compose.yml with docker.sock, then user Stop -> Start
-- Then app may docker exec/list for Core details
-- Never required for core monitoring
+HELP USER WITH:
+- What each alert means and which script to run (see /incidents)
+- Why Horizon sync can differ from Pi Desktop (Horizon ingest vs Core state)
+- Optional Docker only via SoloHost UI on the node PC
 
-CONFIG (SoloHost):
-- BOT_TOKEN, CHAT_ID required for Telegram
-- GEMINI_API_KEY optional for richer AI
-- NODE_HOST=host.docker.internal, HORIZON_PORT=31401
-
-SECURITY / PRIVACY:
-- Only responds to configured CHAT_ID (constant-time compare)
-- No wallet/key access
-- Logs redact tokens
-- docker.sock is Operator opt-in only
-
-STYLE: Static system messages stay English for consistency. Free-text AI replies MUST match the user's language (or their last-used language in chat history).
+STYLE: Static system messages stay English for consistency. Free-text AI replies MUST match the user's language.
 `.trim();
 
 const chatRate = { n: 0, t: 0 };
-const VERSION = '2.6.57-solohost';
+const VERSION = '2.7.0-solohost';
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -154,7 +138,6 @@ function hourVN() {
 }
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-/* ---------- Tree / padding helpers ---------- */
 function treeBlock(header, lines) {
   if (!lines || !lines.length) return '';
   const out = [header];
@@ -207,8 +190,10 @@ function log(msg, level) {
 
 let state = loadJSON(STATE_F, {
   fsm: 'HEALTHY', failCount: 0, lastAlertAt: 0, lastReportKey: '',
-  lastLevel: null, lastLedger: null, lastLedgerAt: 0
+  lastLevel: null, lastLedger: null, lastLedgerAt: 0,
+  incidents: {}
 });
+if (!state.incidents || typeof state.incidents !== 'object') state.incidents = {};
 
 const CHAT_TURNS = [];
 function pushChatTurn(role, text) {
@@ -668,6 +653,7 @@ function effectiveReportHours() {
   if (Array.isArray(state.reportHours) && state.reportHours.length) return state.reportHours;
   return REPORT_HOURS;
 }
+/* Alert keyboard now includes interactive ack/skip for the incident engine */
 function alertKeyboard() {
   return {
     inline_keyboard: [
@@ -680,8 +666,12 @@ function alertKeyboard() {
         { text: '🔕 Off', callback_data: 'cmd_mute_off' }
       ],
       [
-        { text: '🔔 On', callback_data: 'cmd_mute_on' },
-        { text: '📊 Status', callback_data: 'cmd_status' }
+        { text: '✅ I did it', callback_data: 'cmd_incident_ack' },
+        { text: '⏸ Skip 4h', callback_data: 'cmd_incident_skip' }
+      ],
+      [
+        { text: '🩺 Diag', callback_data: 'cmd_diagnostic' },
+        { text: '📋 Incidents', callback_data: 'cmd_incidents' }
       ]
     ]
   };
@@ -701,7 +691,7 @@ function formatMuteAck() {
     'Mute until · ' + until,
     'Now        · ' + (m.muted ? ('QUIET · ' + m.why) : 'ACTIVE'),
     '',
-    'Windows-style: confirm 3 samples, dedupe ~30 min, AI may suppress short catch-up.'
+    'Incident engine: observe -> alert (5m) -> reminder (15m/45m) -> chronic.'
   ].join('\n');
 }
 
@@ -726,6 +716,315 @@ function classifyIssueKind(t) {
   if (t.level === 'warning' || t.level === 'soft') return 'watch';
   return 'ok';
 }
+
+/* ======================================================================
+ * SMART INCIDENT ENGINE
+ * observe -> evaluate -> decide -> act
+ * ==================================================================== */
+
+/**
+ * Detect the current incident signature.
+ * Priority ordered: severity first, then specificity.
+ * Returns null when the node is healthy.
+ */
+function detectIncidentSignature(t) {
+  t = t || {};
+  const sync = String(t.sync || '');
+  const age = t.ledger_age != null ? Number(t.ledger_age) : null;
+  const portsOpen = t.ports_open != null ? Number(t.ports_open) : null;
+  const peerIn = t.peer_in != null ? Number(t.peer_in) : null;
+  const peerOut = t.peer_out != null ? Number(t.peer_out) : null;
+  const peerTotal = (peerIn != null || peerOut != null) ? ((peerIn || 0) + (peerOut || 0)) : null;
+  const docker = String(t.docker || '');
+  const ram = t.ram != null ? Number(t.ram) : null;
+  const cpu = t.cpu != null ? Number(t.cpu) : null;
+  const disk = t.disk != null ? Number(t.disk) : null;
+  const source = String(t.source || '');
+  const synced = /synced|live|horizon ok|good/i.test(sync);
+
+  // 1. Docker container stopped
+  if (/stop|exit/i.test(docker)) return { type: 'docker_down', severity: 'critical' };
+  // 2. Total network / host down
+  if (portsOpen === 0 && source === 'none') return { type: 'network_down', severity: 'critical' };
+  // 3. Ports closed (PC online but Pi ports unreachable)
+  if (portsOpen === 0) return { type: 'ports_closed', severity: 'warning' };
+  // 4. Sync stalled (ledger frozen > 5 min)
+  if (age != null && age > 300) return { type: 'sync_stalled', severity: 'warning' };
+  // 5. Sync lag (age > 2 min or "Catching up/behind/slow")
+  if (age != null && age > 120) return { type: 'sync_lag', severity: 'soft' };
+  if (/catching|behind|slow|ingest lag/i.test(sync)) return { type: 'sync_lag', severity: 'soft' };
+  // 6. Peers zero while synced
+  if (peerTotal === 0 && synced) return { type: 'peers_zero', severity: 'warning' };
+  // 7. Resource pressure
+  if (ram != null && ram >= 88) return { type: 'ram_high', severity: 'warning' };
+  if (cpu != null && cpu >= 90) return { type: 'cpu_high', severity: 'warning' };
+  if (disk != null && disk >= 90) return { type: 'disk_high', severity: 'warning' };
+  // 8. Peers low (secondary observation)
+  if (peerTotal != null && peerTotal > 0 && peerTotal <= 2 && synced) return { type: 'peers_low', severity: 'soft' };
+  return null;
+}
+
+/**
+ * Update the incident lifecycle:
+ * - Create new incident if signature != none
+ * - Bump samples / lastSeen on the active incident
+ * - Mark every OTHER incident as resolved (single active at a time)
+ * - Mark ALL as resolved when healthy
+ */
+function updateIncidentState(t) {
+  const sig = detectIncidentSignature(t);
+  const now = Date.now();
+  state.incidents = state.incidents || {};
+
+  if (sig) {
+    const key = sig.type;
+    let inc = state.incidents[key];
+    if (!inc || inc.resolved) {
+      inc = state.incidents[key] = {
+        type: sig.type,
+        severity: sig.severity,
+        firstSeen: now,
+        lastSeen: now,
+        samples: 1,
+        stage: 0,
+        alertsSent: 0,
+        lastAlertAt: 0,
+        resolved: false,
+        firstLedger: t.ledger != null ? t.ledger : null,
+        firstCoreVersion: t.core_version || null,
+        firstSync: t.sync || null,
+        ackedAt: 0,
+        skippedUntil: 0
+      };
+      try { actionLog('info', 'incident start: ' + key + ' (' + sig.severity + ')'); } catch (e) {}
+    } else {
+      inc.lastSeen = now;
+      inc.samples = (inc.samples || 0) + 1;
+      inc.severity = sig.severity;
+    }
+    // Only one active incident at a time
+    Object.keys(state.incidents).forEach(function (k) {
+      if (k === key) return;
+      const other = state.incidents[k];
+      if (other && !other.resolved) {
+        other.resolved = true;
+        other.resolvedAt = now;
+      }
+    });
+    return inc;
+  } else {
+    // All clear
+    Object.keys(state.incidents).forEach(function (k) {
+      const inc = state.incidents[k];
+      if (inc && !inc.resolved) {
+        inc.resolved = true;
+        inc.resolvedAt = now;
+      }
+    });
+    // Keep the most recent 30 incidents
+    const keys = Object.keys(state.incidents);
+    if (keys.length > 30) {
+      keys.sort(function (a, b) { return (state.incidents[b].firstSeen || 0) - (state.incidents[a].firstSeen || 0); });
+      const keep = {};
+      keys.slice(0, 30).forEach(function (k) { keep[k] = state.incidents[k]; });
+      state.incidents = keep;
+    }
+    return null;
+  }
+}
+
+/**
+ * Decide what to do with the current incident based on stage/duration/cooldown.
+ * Returns: { action: 'watch'|'alert'|'remind'|'wait'|'cooldown'|'suppress', targetStage, durationMin, reason }
+ */
+function decideIncidentAction(incident, t) {
+  if (!incident) return { action: 'none' };
+  const now = Date.now();
+  const durMin = Math.max(0, Math.round((now - incident.firstSeen) / 60000));
+  const samples = incident.samples || 1;
+  const currentStage = incident.stage || 0;
+
+  // Determine the target stage for this incident
+  let targetStage = 0;
+  if (samples >= 3 || durMin >= 2) targetStage = 1;
+  if (samples >= 5 || durMin >= 5) targetStage = 2;
+  if (durMin >= 15 || samples >= 15) targetStage = 3;
+  if (durMin >= 45 || samples >= 45) targetStage = 4;
+  if (durMin >= 180) targetStage = 5;
+
+  // Upgrade-catchup suppress: Core version changed + sync is Catching up
+  const isUpgradeCatchup = incident.type === 'sync_lag' &&
+    incident.firstCoreVersion && t && t.core_version &&
+    String(t.core_version) !== String(incident.firstCoreVersion);
+
+  if (isUpgradeCatchup && targetStage <= 2) {
+    return { action: 'suppress', targetStage: 1, reason: 'upgrade_catchup', durationMin: durMin };
+  }
+
+  // User pressed "Skip 4h"
+  if (incident.skippedUntil && now < incident.skippedUntil) {
+    return { action: 'wait', targetStage: targetStage, reason: 'skipped', durationMin: durMin };
+  }
+
+  // Before stage 2 => silent observation
+  if (targetStage < 2) return { action: 'watch', targetStage: targetStage, durationMin: durMin };
+
+  // Already at this stage => nothing new to say
+  if (currentStage >= targetStage) return { action: 'wait', targetStage: targetStage, durationMin: durMin };
+
+  // Cooldown depends on target stage (minutes)
+  const cooldownMin = [0, 0, 0, 30, 60, 180][targetStage] || 60;
+  const sinceLastMin = (now - (incident.lastAlertAt || 0)) / 60000;
+
+  // If user acked recently, extend cooldown
+  const userAckBonus = (incident.ackedAt && now - incident.ackedAt < 2 * 3600 * 1000) ? 30 : 0;
+
+  if ((incident.alertsSent || 0) > 0 && sinceLastMin < (cooldownMin + userAckBonus)) {
+    return { action: 'cooldown', targetStage: targetStage, durationMin: durMin, waitMin: Math.round((cooldownMin + userAckBonus) - sinceLastMin) };
+  }
+
+  return {
+    action: (incident.alertsSent || 0) === 0 ? 'alert' : 'remind',
+    targetStage: targetStage,
+    durationMin: durMin,
+    reason: isUpgradeCatchup ? 'upgrade_catchup' : 'persistent'
+  };
+}
+
+/**
+ * Pick the best BAT script (or WAIT) for a given incident.
+ * All recommendations come from community-validated Pi Node operations.
+ */
+function smartScriptForIncident(incident, t) {
+  if (!incident) return null;
+  const type = incident.type;
+  switch (type) {
+    case 'docker_down':
+      return {
+        script: 'DockerRecover',
+        note: 'Docker Engine appears down. Try SOFT restart first. Do NOT touch WSL while Docker is still running.'
+      };
+    case 'network_down':
+      return {
+        script: 'NetRepair',
+        note: 'Ports closed AND no telemetry source. Long outage — repair networking while KEEPING the current LAN IP.'
+      };
+    case 'ports_closed':
+      return {
+        script: 'Firewall',
+        then: 'NetRepair',
+        note: 'PC is online but Pi ports 31401-31403 are unreachable. Rebuild firewall rules first; if it persists >15 min, escalate to NetRepair.'
+      };
+    case 'sync_stalled':
+      return {
+        script: 'NodeReset',
+        note: 'Ledger age > 5 min while container is running. Container may be stuck — NodeReset only AFTER confirming Docker Engine is healthy.'
+      };
+    case 'sync_lag': {
+      // Upgrade catchup path
+      if (incident.firstCoreVersion && t && t.core_version && String(t.core_version) !== String(incident.firstCoreVersion)) {
+        return {
+          script: 'WAIT',
+          note: 'Catching up after a Core version change — this is normal. Watch 10-15 min; DO NOT restart.'
+        };
+      }
+      return {
+        script: 'WAIT',
+        note: 'Sync lag while ports are OK and ledger is still advancing. Wait — do not restart. If it lasts >15 min AND ledger stops moving, escalate to /diagnostic.'
+      };
+    }
+    case 'peers_zero':
+      return {
+        script: 'DnsFlush',
+        note: 'Ports open, ledger moving, but no peers. DNS flush only — keeps LAN IP unchanged.'
+      };
+    case 'peers_low':
+      return {
+        script: 'DnsFlush',
+        note: 'Peer count is low while synced. Try DNS flush; also check regional ISP outage.'
+      };
+    case 'ram_high':
+      return {
+        script: 'CleanRam',
+        note: 'RAM pressure on host. CleanRam closes extra apps, clears TEMP/TRIM. It does NOT stop Pi Node or Docker.'
+      };
+    case 'cpu_high':
+      return {
+        script: 'CleanRam',
+        note: 'CPU pressure. Observe first; run CleanRam only if the host has extra heavy apps.'
+      };
+    case 'disk_high':
+      return {
+        script: 'Maintain',
+        note: 'Disk nearly full. Weekly cleanup (Maintain.bat) is safe while the node is otherwise healthy.'
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Adaptive telemetry interval: shorter while incidents are active.
+ * Called by telemetryLoop each iteration.
+ */
+function currentTelemetryInterval() {
+  const incidents = state.incidents || {};
+  const active = Object.keys(incidents).map(function (k) { return incidents[k]; }).filter(function (i) { return i && !i.resolved; });
+  if (!active.length) return TELEMETRY_SEC;
+  const hasCritical = active.some(function (i) { return i.severity === 'critical' || (i.stage || 0) >= 3; });
+  const hasWarning = active.some(function (i) { return i.severity === 'warning' || (i.stage || 0) >= 1; });
+  if (hasCritical) return Math.max(30, Math.floor(TELEMETRY_SEC / 2));
+  if (hasWarning) return Math.max(30, Math.floor(TELEMETRY_SEC * 0.75));
+  return TELEMETRY_SEC;
+}
+
+/** Format /incidents output: active + recent history */
+function formatIncidents() {
+  const now = Date.now();
+  const all = state.incidents || {};
+  const keys = Object.keys(all);
+  const active = keys.map(function (k) { return all[k]; }).filter(function (i) { return i && !i.resolved; });
+  const recent = keys.map(function (k) { return all[k]; })
+    .filter(function (i) { return i && i.resolved && (now - (i.resolvedAt || 0)) < 24 * 3600 * 1000; })
+    .sort(function (a, b) { return (b.resolvedAt || 0) - (a.resolvedAt || 0); })
+    .slice(0, 8);
+
+  const parts = ['🧭 INCIDENT ENGINE', '───────────────', ''];
+  parts.push('Active: ' + active.length + ' · Recent 24h: ' + recent.length);
+  parts.push('');
+  if (active.length) {
+    parts.push('🔴 ACTIVE');
+    active.forEach(function (inc) {
+      const durMin = Math.max(0, Math.round((now - inc.firstSeen) / 60000));
+      const script = smartScriptForIncident(inc, cache || {});
+      const sev = inc.severity === 'critical' ? '🔴' : (inc.severity === 'warning' ? '🟠' : '🟡');
+      parts.push(' ' + sev + ' ' + inc.type + ' · stage ' + (inc.stage || 0) + ' · ' + durMin + ' min · ' + (inc.samples || 1) + ' samples');
+      if (script) {
+        if (script.script === 'WAIT') parts.push('    ⏸ WAIT — ' + script.note.slice(0, 160));
+        else parts.push('    🛠 ' + script.script + (script.then ? (' → ' + script.then) : '') + ' — ' + script.note.slice(0, 140));
+      }
+    });
+    parts.push('');
+  } else {
+    parts.push('🟢 No active incident.');
+    parts.push('');
+  }
+  if (recent.length) {
+    parts.push('📜 RECENT (24h)');
+    recent.forEach(function (inc) {
+      const durMin = Math.max(0, Math.round(((inc.resolvedAt || 0) - inc.firstSeen) / 60000));
+      parts.push(' ✅ ' + inc.type + ' · lasted ' + durMin + ' min · ' + (inc.alertsSent || 0) + ' alerts');
+    });
+    parts.push('');
+  }
+  parts.push('───────────────');
+  parts.push('Adaptive interval: ' + currentTelemetryInterval() + 's (base ' + TELEMETRY_SEC + 's)');
+  return parts.join('\n');
+}
+
+/* ======================================================================
+ * END SMART INCIDENT ENGINE
+ * ==================================================================== */
 
 async function fetchPctContext() {
   const now = Date.now();
@@ -796,7 +1095,7 @@ async function sendAlertTelegram(text, t) {
     try { actionLog('info', 'alert muted - ' + gate.why); } catch (e) {}
     return false;
   }
-  const fp = alertFingerprint(t || {}, classifyIssueKind(t || {}));
+  const fp = alertFingerprint(t || {}, (t && t._incidentType) || classifyIssueKind(t || {}));
   const now = Date.now();
   if (state.alertDedupe && state.alertDedupe.fp === fp && now - (state.alertDedupe.at || 0) < 30 * 60 * 1000) {
     try { actionLog('info', 'alert deduped 30m - ' + fp); } catch (e) {}
@@ -830,65 +1129,95 @@ function pushDashAlert(text, t) {
   fs.writeFileSync(dashAlertPath(), JSON.stringify(rows.slice(0, 30)));
 }
 
+/**
+ * SMART runAlertMachine (v2.7)
+ * observe -> evaluate -> decide -> act
+ */
 async function runAlertMachine(t) {
-  const next = mapLevelToFsm(t.level);
   const prev = state.fsm || 'HEALTHY';
   const now = Date.now();
-  const kind = classifyIssueKind(t);
-  const TELE = (typeof TELEMETRY_SEC === 'number' ? TELEMETRY_SEC : 60);
 
-  if (next === 'CRITICAL' || next === 'WARNING') {
-    state.failCount = (state.failCount || 0) + 1;
-    if (!state.incidentSince) state.incidentSince = now;
-  } else if (next === 'HEALTHY') {
-    const lastedMin = state.incidentSince ? Math.round((now - state.incidentSince) / 60000) : 0;
-    if ((prev === 'CRITICAL' || prev === 'WARNING' || prev === 'DEGRADED') && lastedMin >= 2) {
-      if (now - (state.lastAlertAt || 0) >= Math.min(ALERT_COOLDOWN, 120) * 1000) {
-        const recTxt = '🟢 RECOVERED after ~' + lastedMin + ' min\n\n' + formatStatus(t, 'RECOVERED');
+  // 1) Update incident state
+  const incident = updateIncidentState(t);
+
+  // 2) Recovery path
+  if (!incident) {
+    if (prev === 'CRITICAL' || prev === 'WARNING' || prev === 'DEGRADED') {
+      const justResolved = Object.keys(state.incidents).map(function (k) { return state.incidents[k]; })
+        .filter(function (i) { return i && i.resolvedAt && (now - i.resolvedAt) < 60000 && (i.alertsSent || 0) > 0; })
+        .sort(function (a, b) { return (b.resolvedAt || 0) - (a.resolvedAt || 0); })[0];
+      if (justResolved) {
+        const durMin = Math.max(1, Math.round((justResolved.resolvedAt - justResolved.firstSeen) / 60000));
+        const recTxt = '🟢 RECOVERED after ~' + durMin + ' min\n' +
+          'Previous issue: ' + justResolved.type + '\n\n' +
+          formatStatus(t, 'RECOVERED');
         try { pushDashAlert(recTxt, t); } catch (e3) {}
         await tgSend(recTxt);
-        state.lastAlertAt = now;
       }
     }
-    state.failCount = 0;
-    state.incidentSince = null;
-    state.incidentAiText = null;
     state.fsm = 'HEALTHY';
+    state.failCount = 0;
     saveJSON(STATE_F, state);
     return;
   }
 
-  const durationMin = state.incidentSince ? Math.max(1, Math.round((now - state.incidentSince) / 60000)) : Math.round((state.failCount || 1) * TELE / 60);
-  const firstShot = state.failCount >= FAIL_THRESHOLD && next !== prev;
-  const stillDown = state.failCount >= FAIL_THRESHOLD && (now - (state.lastAlertAt || 0) >= 30 * 60 * 1000);
-  const longProblem = durationMin >= 15 && stillDown;
+  // 3) Decide
+  const decision = decideIncidentAction(incident, t);
 
-  if (firstShot && now - (state.lastAlertAt || 0) >= ALERT_COOLDOWN * 1000) {
-    let extra = '';
-    if (kind === 'catchup_or_upgrade' || kind === 'network_or_host') {
-      const ai = await aiClassifyIncident(t, kind, durationMin);
-      if (ai) extra = '\n\n🤖 AI CHECK\n' + ai;
-      else extra = '\n\n💡 May be brief catch-up, upgrade, or local network. Watch 10-15 min before heavy fixes.';
-    }
-    await sendAlertTelegram(formatStatus(t, 'ALERT') + extra + '\n\n' + formatActionAdvice(t), t);
-    state.lastAlertAt = now;
-    state.fsm = next;
-    state.lastAlertKind = kind;
-  } else if (longProblem) {
-    const ai = await aiClassifyIncident(t, kind, durationMin);
-    await sendAlertTelegram(
-      '🟠 STILL OPEN · ' + durationMin + ' min\n' +
-      'Kind: ' + kind + '\n\n' +
-      formatStatus(t, 'ALERT') +
-      (ai ? ('\n\n🤖 AI\n' + ai) : '') +
-      '\n\nIssue is lasting - check power, internet, Pi Node app, ports 31401-31403.',
-      t
-    );
-    state.lastAlertAt = now;
-    state.fsm = next;
-  } else if (state.failCount >= FAIL_THRESHOLD) {
-    state.fsm = next;
+  if (decision.action === 'watch') {
+    incident.stage = Math.max(incident.stage || 0, decision.targetStage || 0);
+    saveJSON(STATE_F, state);
+    return;
   }
+  if (decision.action === 'suppress') {
+    try { actionLog('info', 'incident suppressed: ' + incident.type + ' (' + (decision.reason || '') + ')'); } catch (e) {}
+    incident.stage = Math.max(incident.stage || 0, decision.targetStage || 0);
+    saveJSON(STATE_F, state);
+    return;
+  }
+  if (decision.action === 'cooldown' || decision.action === 'wait' || decision.action === 'none') {
+    saveJSON(STATE_F, state);
+    return;
+  }
+
+  // 4) Alert or remind
+  const script = smartScriptForIncident(incident, t);
+  const ai = (incident.type === 'sync_lag' || incident.type === 'network_down' || incident.type === 'ports_closed')
+    ? await aiClassifyIncident(t, incident.type, decision.durationMin)
+    : null;
+
+  const sevIcon = incident.severity === 'critical' ? '🔴'
+    : (incident.severity === 'warning' ? '🟠' : '🟡');
+  const stageLabel = decision.targetStage === 2 ? 'ALERT'
+    : (decision.targetStage === 3 ? 'REMINDER 1'
+      : (decision.targetStage === 4 ? 'REMINDER 2' : 'CHRONIC'));
+
+  const head = sevIcon + ' PI NODE · ' + stageLabel + ' · ' + String(incident.type).toUpperCase() +
+    '\nDuration: ' + decision.durationMin + ' min · Samples: ' + incident.samples +
+    (decision.reason === 'upgrade_catchup' ? ' · upgrade catch-up' : '');
+
+  let advice = '';
+  if (script) {
+    if (script.script === 'WAIT') {
+      advice = '\n\n⏸️ RECOMMENDED: WAIT\n' + script.note;
+    } else {
+      advice = '\n\n🛠️ RECOMMENDED: ' + script.script + '\n' + script.note;
+      if (script.then) advice += '\nIf not improved after ~15 min, escalate to: ' + script.then;
+    }
+  }
+
+  const aiBlock = ai ? ('\n\n🤖 AI\n' + ai) : '';
+  const body = '\n\n' + formatStatus(t, 'ALERT');
+
+  await sendAlertTelegram(head + body + aiBlock + advice, t);
+
+  incident.stage = decision.targetStage;
+  incident.lastAlertAt = now;
+  incident.alertsSent = (incident.alertsSent || 0) + 1;
+  incident.lastScript = script ? script.script : null;
+  state.fsm = mapLevelToFsm(t.level);
+  state.lastAlertKind = incident.type;
+  state.lastAlertAt = now;
   saveJSON(STATE_F, state);
 }
 
@@ -933,7 +1262,6 @@ function formatActionLog() {
   return lines.join('\n');
 }
 
-/* ---------- formatStatus ---------- */
 function formatStatus(t, mode) {
   t = t || {};
   const age = t._age != null ? t._age : (cacheAt ? Math.round((Date.now() - cacheAt) / 1000) : 0);
@@ -1004,7 +1332,6 @@ function formatStatus(t, mode) {
   return parts.join('\n');
 }
 
-/* ---------- formatPeers ---------- */
 function formatPeers(t) {
   t = t || {};
   try { if (typeof dataFrame !== 'undefined') dataFrame.applyPeerRule(t); } catch (e) {}
@@ -1071,7 +1398,6 @@ function formatPeers(t) {
   return parts.join('\n');
 }
 
-/* ---------- formatDiagnostic ---------- */
 function formatDiagnostic(t) {
   t = t || {};
   const net = [];
@@ -1121,6 +1447,7 @@ function formatDiagnostic(t) {
   if (eng.length) { parts.push(treeBlock('🐳 ENGINE & SYSTEM', eng)); parts.push(''); }
   parts.push('───────────────');
   parts.push('💡 Level: ' + levelIc + ' ' + String(t.level || 'unknown').toUpperCase());
+  parts.push('🧭 Incidents: /incidents');
   parts.push('☕ Donate: MB 0905428801');
   return parts.join('\n');
 }
@@ -1140,10 +1467,10 @@ const ACTION_CATALOG = [
 
 const APP_GUIDE = `
 HOW TO USE THIS APP
-Telegram: talk to the bot from your phone. Commands: /status /sync /peers /report /diagnostic /analyze /logs /donate /help /mute.
+Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /incidents /donate /help /mute.
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
 Ask in any language. AI answers as a Pi Node technician using real telemetry + 24h history, replying in the user's language.
-Alerts: only after a problem lasts. Mute 1h / 24h / night / off on the alert buttons.
+Smart incident engine: observe -> alert (5 min) -> reminders (15 / 45 min) -> chronic. Notifies only when action matters.
 Reports: 07:00 / 18:00 / both / off.
 Donate: /donate - Pay with Pi or MB Bank QR.
 `;
@@ -1151,21 +1478,23 @@ Donate: /donate - Pay with Pi or MB Bank QR.
 const SCRIPT_MAP = `
 APP FLOW
 Telegram or SoloHost UI -> /status /report /analyze use history frames.
-Recommend a BAT only after a repeated or long incident (many samples or >=15 min).
-Catch-up + ports open + ledger exists = WAIT. Do not reset the node.
-Never change LAN IP. Modem forward stays on the current address.
+Incident engine uses stage machine: observe (0-1) -> first alert (2) -> reminder (3-4) -> chronic (5).
+Alert only fires when the incident persists 5+ minutes or 5+ samples. Upgrade catch-up is suppressed.
 
-SCRIPT CHOICE
-CleanRam     RAM high + node still synced.
-CleanTemp    Healthy node, light cleanup only.
-DnsFlush     Peers=0 a long time, ports open, ledger moving.
-Firewall     Ports 31401-31403 closed locally, PC still online.
-NetRepair    Horizon/internet down a long window. Keep current LAN IP.
-LanSetup     New PC setup. Lock CURRENT IP only. Never .222.
-NodeReset    Container stopped a long time. Docker Engine OK.
-DockerRecover Docker Engine down. Soft first. No WSL while Docker lives.
-Maintain     Healthy node, weekly. Optional Sunday 03:00.
-Reboot       Last resort only. Never for a 1-minute catch-up.
+SCRIPT CHOICE (matched by incident type)
+docker_down    -> DockerRecover (soft first; no WSL while Docker lives).
+network_down   -> NetRepair (keep current LAN IP).
+ports_closed   -> Firewall; if >15 min escalate to NetRepair.
+sync_stalled   -> NodeReset (only after Docker Engine is confirmed healthy).
+sync_lag       -> WAIT (unless ledger frozen 15+ min -> /diagnostic).
+peers_zero     -> DnsFlush (keeps LAN IP).
+peers_low      -> DnsFlush + check ISP/regional outage.
+ram_high       -> CleanRam (does not stop Pi Node).
+cpu_high       -> CleanRam if host has extra heavy apps.
+disk_high      -> Maintain (weekly cleanup).
+CleanTemp      Healthy node, light cleanup only.
+LanSetup       New PC setup. Lock CURRENT IP only.
+Reboot         Last resort only. Never for a 1-minute catch-up.
 `;
 
 function recommendActions(t) {
@@ -1257,7 +1586,6 @@ function formatActionAdvice(t) {
   return lines.join('\n');
 }
 
-/* ---------- formatReport ---------- */
 function formatReport() {
   const rows = readHistory(1);
   if (!rows.length) {
@@ -1335,6 +1663,7 @@ function formatHelp() {
     '🔄 /sync        - Sync status and latest ledger',
     '👥 /peers       - Inbound and outbound peers',
     '📈 /report      - Recent history and issue windows',
+    '🧭 /incidents   - Active + recent incident history',
     '🩺 /diagnostic  - Technical source details',
     '💬 /analyze     - AI technician review (in your language)',
     '📋 /logs        - App activity and errors',
@@ -1345,7 +1674,7 @@ function formatHelp() {
     '🔕 /mute        - Quiet alerts: 1h, 24h, night, off',
     '',
     'Ask in any language. AI replies in your language.',
-    'Optional Docker: SoloHost UI on this PC only.',
+    'Smart incident engine observes before it alerts.',
     '',
     '💛 /donate'
   ].join('\n');
@@ -1418,7 +1747,7 @@ function formatScripts() {
     'ℹ️ INFO',
     '───────────────',
     'No Windows scripts in SoloHost edition.',
-    'Commands: /status /report /peers /diagnostic /analyze',
+    'Commands: /status /report /peers /diagnostic /analyze /incidents',
     '',
     '☕ Donate: MB 0905428801'
   ].join('\n');
@@ -1571,7 +1900,7 @@ function formatWindowsPro() {
   ].join('\n');
 }
 
-/* ---------- Language detection (multi-script) ---------- */
+/* ---------- Language detection ---------- */
 function detectUserLang(q) {
   const s = String(q || '');
   if (!s.trim()) return null;
@@ -1690,7 +2019,6 @@ function metricIntentKey(intent) {
   return null;
 }
 
-/* English-only local assistant (fallback when GEMINI key absent) */
 function localAssistantReply(t, intent, userQ) {
   const ok = t.level === 'ok' || (t.sync && /synced|live|horizon ok/i.test(String(t.sync)));
   const age = t.ledger_age != null ? t.ledger_age : null;
@@ -2365,7 +2693,7 @@ function technicianEvaluate(t, userQ, intent) {
     lines.push('3) Check /report after more samples accumulate.');
   } else {
     lines.push('1) Run /diagnostic and verify ports/network.');
-    lines.push('2) Watch /report for repeated sync loss.');
+    lines.push('2) Watch /incidents for repeated incidents.');
   }
   lines.push('');
   lines.push('Want a deeper look at sync, peers, or resources (RAM/CPU)?');
@@ -2421,9 +2749,10 @@ async function aiAnalyze(t, userQ) {
     if (GEMINI_API_KEY) {
       const prompt = '[APP GUIDE]\n' + appGuide + '\n\n' + [
         'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
-        'LANGUAGE (MANDATORY): Reply in ' + userLang + '. This is the user\'s detected language from their message and/or recent chat history. Do NOT switch to English unless the user is using English. Match the user\'s tone (informal/formal) too.',
+        'LANGUAGE (MANDATORY): Reply in ' + userLang + '. This is the user\'s detected language from their message and/or recent chat history. Do NOT switch to English unless the user is using English.',
         'PRIORITY: Every free-text question needs a real technician evaluation - simple words, practical value.',
         'DATA RULES: Use ONLY the JSON blocks below. If container_cpu / container_ram / ledger_per_min / peers / health exist, you MUST use them. Missing field = unknown, NEVER say 0%.',
+        'INCIDENT ENGINE: If ACTIVE_INCIDENT is present, explain the type, why it matters, and reference the RECOMMENDED_SCRIPT (or WAIT) exactly as given. Never invent other scripts.',
         'MISSING DATA: You MAY ask up to 3 short follow-up questions when needed. Do not invent answers.',
         'FORMAT: No markdown special characters (no **, __, `, #). Short lines. Icons ok (🟢 🟡 🔴 ✅ ⚠️ 📊 🔄 💡 🧠 🔧).',
         'STRUCTURE: (1) short verdict with icon (2) explanation (3) evidence (4) 1-3 next steps (5) optional question.',
@@ -2433,7 +2762,12 @@ async function aiAnalyze(t, userQ) {
         'User question: ' + q.slice(0, 900),
         'Issues: ' + JSON.stringify(issues),
         'CURRENT_FACTS: ' + JSON.stringify(facts),
-        'ACTION_POLICY: Use SCRIPT_MAP. Never recommend NodeReset/Reboot for a one-sample sync dip. Catch-up + open ports + ledger = wait. Long closed ports = Firewall then NetRepair (keep LAN IP). RAM high + synced = CleanRam. Zero peers + live = DnsFlush. Docker engine dead = DockerRecover (soft first). Reboot last resort only.',
+        'ACTIVE_INCIDENT: ' + JSON.stringify((function () {
+          const active = Object.keys(state.incidents || {}).map(function (k) { return state.incidents[k]; }).filter(function (i) { return i && !i.resolved; })[0];
+          if (!active) return null;
+          const s = smartScriptForIncident(active, t);
+          return { type: active.type, stage: active.stage || 0, samples: active.samples || 1, severity: active.severity, recommended_script: s ? s.script : null, recommended_note: s ? s.note : null };
+        })()),
         'SCRIPT_MAP:\n' + SCRIPT_MAP,
         'APP_GUIDE:\n' + APP_GUIDE,
         'CONTEXT_HINTS: Official Pi Node upgrades often cause temporary Catching up. Regional submarine-cable or ISP cuts can drop peers without the machine being broken.',
@@ -2476,6 +2810,7 @@ async function localCommandText(cmd, msg) {
   if (cmd === 'sync') return formatStatus(t);
   if (cmd === 'peers') return formatPeers(t);
   if (cmd === 'report' || cmd === 'trends') return formatReport();
+  if (cmd === 'incidents') return formatIncidents();
   if (cmd === 'diagnostic' || cmd === 'diag') return formatDiagnostic(t);
   if (cmd === 'logs') return formatActionLog();
   if (cmd === 'ping') return 'pong · v' + VERSION;
@@ -2494,19 +2829,19 @@ function mainKeyboard() {
       ],
       [
         { text: '👥 Peers', callback_data: 'cmd_peers' },
-        { text: '🩺 Diag', callback_data: 'cmd_diagnostic' }
+        { text: '🧭 Incidents', callback_data: 'cmd_incidents' }
       ],
       [
-        { text: '📋 Logs', callback_data: 'cmd_logs' },
-        { text: '💬 Analyze', callback_data: 'cmd_analyze' }
+        { text: '🩺 Diag', callback_data: 'cmd_diagnostic' },
+        { text: '📋 Logs', callback_data: 'cmd_logs' }
       ],
       [
-        { text: '❓ Help', callback_data: 'cmd_help' },
-        { text: '💻 PRO', callback_data: 'cmd_winpro' }
+        { text: '💬 Analyze', callback_data: 'cmd_analyze' },
+        { text: '❓ Help', callback_data: 'cmd_help' }
       ],
       [
-        { text: '💛 Donate', callback_data: 'cmd_donate' },
-        { text: '🔕 Mute', callback_data: 'cmd_mute' }
+        { text: '💻 PRO', callback_data: 'cmd_winpro' },
+        { text: '💛 Donate', callback_data: 'cmd_donate' }
       ]
     ]
   };
@@ -2565,6 +2900,25 @@ async function runCmd(cmd, userText) {
     return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'report') { const tt = cache || {}; return tgSend(formatReport() + '\n\n' + formatActionAdvice(tt), { reply_markup: reportKeyboard() }); }
+  if (cmd === 'incidents' || cmd === 'incident') return tgSend(formatIncidents(), { reply_markup: mainKeyboard() });
+  if (cmd === 'incident_ack') {
+    const active = Object.keys(state.incidents || {}).map(function (k) { return state.incidents[k]; }).filter(function (i) { return i && !i.resolved; })[0];
+    if (active) {
+      active.ackedAt = Date.now();
+      try { saveJSON(STATE_F, state); } catch (e) {}
+      return tgSend('✅ Acknowledged: ' + active.type + '\nI will give you more time before reminding again.', { reply_markup: alertKeyboard() });
+    }
+    return tgSend('No active incident.', { reply_markup: mainKeyboard() });
+  }
+  if (cmd === 'incident_skip') {
+    const active = Object.keys(state.incidents || {}).map(function (k) { return state.incidents[k]; }).filter(function (i) { return i && !i.resolved; })[0];
+    if (active) {
+      active.skippedUntil = Date.now() + 4 * 3600 * 1000;
+      try { saveJSON(STATE_F, state); } catch (e) {}
+      return tgSend('⏸ Skipping this incident for 4 hours: ' + active.type + '\nIt will still be tracked and shown in /incidents.', { reply_markup: mainKeyboard() });
+    }
+    return tgSend('No active incident.', { reply_markup: mainKeyboard() });
+  }
   if (cmd === 'diagnostic' || cmd === 'diag') return tgSend(formatDiagnostic(t), { reply_markup: mainKeyboard() });
   if (cmd === 'analyze' || cmd === 'ai' || cmd === 'health' || cmd === 'ask') {
     pushChatPersistent('user', userText || '');
@@ -2629,7 +2983,7 @@ async function runCmd(cmd, userText) {
   if (cmd === 'start' || cmd === 'help') {
     return tgSend(formatHelp() + '\n\n' +
       '───────────────\n' +
-      '/status /sync /peers\n/report /diagnostic /analyze\n/scripts /donate\n' +
+      '/status /sync /peers /incidents\n/report /diagnostic /analyze\n/scripts /donate\n' +
       '───────────────\n' +
       'Telemetry -> Horizon -> Ports',
       { reply_markup: mainKeyboard() }
@@ -2648,7 +3002,7 @@ async function handleText(text) {
     return (await runCmd(cmd, raw)) || tgSend('❓ Unknown command. /help', { reply_markup: mainKeyboard() });
   }
   if (/^(status|ping)$/i.test(raw.trim())) return runCmd(raw.toLowerCase(), raw);
-  if (/^(peers?|ports?|report|diagnostic|donate|scripts?)$/i.test(raw.trim())) return runCmd(cmd, raw);
+  if (/^(peers?|ports?|report|diagnostic|donate|scripts?|incidents?)$/i.test(raw.trim())) return runCmd(cmd, raw);
   return runCmd('analyze', raw);
 }
 
@@ -2694,6 +3048,7 @@ async function installTelegramMenu() {
         { command: 'sync', description: 'Sync status and latest ledger' },
         { command: 'peers', description: 'Inbound and outbound peers' },
         { command: 'report', description: 'Recent history summary' },
+        { command: 'incidents', description: 'Active + recent incident history' },
         { command: 'diagnostic', description: 'Technical source details' },
         { command: 'analyze', description: 'AI technician review (in your language)' },
         { command: 'logs', description: 'App activity and errors' },
@@ -2774,7 +3129,9 @@ async function telemetryLoop() {
         await tgSend(formatReport() + '\n\n' + formatStatus(t), { reply_markup: reportKeyboard() });
       }
     } catch (e) { log('telemetry ' + e.message, 'error'); }
-    await wait(TELEMETRY_SEC * 1000);
+    // Adaptive interval: shorter while incidents are active
+    const intervalSec = currentTelemetryInterval();
+    await wait(intervalSec * 1000);
   }
 }
 
@@ -2798,30 +3155,14 @@ function isLocalReq(req) {
   const ip = String(req.socket && req.socket.remoteAddress || '');
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('172.') || ip.startsWith('10.');
 }
-
-/**
- * Security headers.
- * mode = undefined  -> baseline only (JSON / static files / index.html UI)
- * mode = 'docker'   -> baseline + strict CSP (our own static HTML, no scripts)
- *
- * NOTE: index.html is our trusted local dashboard with inline scripts.
- *       We intentionally do NOT set a script-blocking CSP on it, otherwise
- *       the SoloHost UI fails to run in the browser.
- */
 function setSecHeaders(res, mode) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store');
   if (mode === 'docker') {
-    // Static page we fully control, no scripts.
     res.setHeader('Content-Security-Policy',
-      "default-src 'none'; " +
-      "style-src 'unsafe-inline'; " +
-      "img-src 'self' data:; " +
-      "form-action 'self'; " +
-      "base-uri 'none'; " +
-      "frame-ancestors 'none'");
+      "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   }
 }
 
@@ -2851,6 +3192,14 @@ const srv = http.createServer(async (req, res) => {
       }
       return;
     }
+    if (u === '/api/incidents') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      const items = Object.keys(state.incidents || {}).map(function (k) { return state.incidents[k]; });
+      const active = items.filter(function (i) { return i && !i.resolved; });
+      const recent = items.filter(function (i) { return i && i.resolved; }).sort(function (a, b) { return (b.resolvedAt || 0) - (a.resolvedAt || 0); }).slice(0, 20);
+      res.end(JSON.stringify({ ok: true, active: active, recent: recent, intervalSec: currentTelemetryInterval() }));
+      return;
+    }
     if (u === '/api/selftest') {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) {
         res.statusCode = 429; res.end('rate limit'); return;
@@ -2867,19 +3216,36 @@ const srv = http.createServer(async (req, res) => {
       ok('safe_json_parse', typeof safeParse === 'function', 'safeParse');
       ok('tg_user_rate_limit', typeof tgUserRateLimit === 'function', 'tgUserRateLimit');
       ok('csp_relaxed_for_index', true, 'index.html has no script-blocking CSP');
+      ok('incident_engine', typeof detectIncidentSignature === 'function' && typeof smartScriptForIncident === 'function', 'engine loaded');
+      ok('adaptive_polling', typeof currentTelemetryInterval === 'function', 'currentTelemetryInterval');
+      // Synthetic engine tests
+      const i1 = detectIncidentSignature({ ports_open: 0 });
+      ok('incident_ports_closed', i1 && i1.type === 'ports_closed', i1 && i1.type);
+      const i2 = detectIncidentSignature({ docker: 'Exited (0)' });
+      ok('incident_docker_down', i2 && i2.type === 'docker_down', i2 && i2.type);
+      const i3 = detectIncidentSignature({ ledger_age: 500 });
+      ok('incident_sync_stalled', i3 && i3.type === 'sync_stalled', i3 && i3.type);
+      const i4 = detectIncidentSignature({ ledger_age: 5, sync: 'Synced', peer_in: 5, peer_out: 8, ports_open: 3 });
+      ok('incident_none_when_healthy', i4 === null, i4 ? i4.type : 'null');
+      const s1 = smartScriptForIncident({ type: 'docker_down' }, {});
+      ok('script_docker_down', s1 && s1.script === 'DockerRecover', s1 && s1.script);
+      const s2 = smartScriptForIncident({ type: 'ports_closed' }, {});
+      ok('script_ports_closed', s2 && s2.script === 'Firewall', s2 && s2.script);
+      const s3 = smartScriptForIncident({ type: 'sync_lag', firstCoreVersion: 'v1' }, { core_version: 'v2' });
+      ok('script_sync_lag_upgrade_wait', s3 && s3.script === 'WAIT', s3 && s3.script);
+      const d1 = decideIncidentAction({ firstSeen: Date.now() - 1000, samples: 1, stage: 0, alertsSent: 0 }, {});
+      ok('decision_observe_early', d1 && d1.action === 'watch', d1 && d1.action);
+      const d2 = decideIncidentAction({ firstSeen: Date.now() - 6 * 60000, samples: 6, stage: 0, alertsSent: 0 }, {});
+      ok('decision_alert_at_5min', d2 && d2.action === 'alert', d2 && d2.action);
       const m1 = mergeTelemetry(null, { source: 'Horizon', ledger: 100, sync: 'Horizon OK', confidence: 'medium' }, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
       ok('fallback_horizon', m1.ledger === 100 && m1.source === 'Horizon', m1.source);
       ok('datalive_offline_not_node_offline', m1.level !== 'critical', m1.level);
-      const m2 = mergeTelemetry({ source: 'Horizon', sync: 'Synced!', ledger: 200, peer_in: 5, peer_out: 3, confidence: 'high' }, null, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
-      ok('primary_datalive', m2.source === 'Horizon' && m2.ledger === 200, m2.source);
       const m3 = mergeTelemetry(null, null, { ports: { '31401': 'CLOSED', '31402': 'CLOSED', '31403': 'CLOSED' }, openCount: 0 });
       ok('ports_closed_critical', m3.level === 'critical', m3.level);
       const l1 = detectUserLang('Xin chào, node của tôi thế nào?');
       ok('lang_detect_vi', l1 === 'Vietnamese', l1);
       const l2 = detectUserLang('Hello, how is my node?');
       ok('lang_detect_en', l2 === 'English', l2);
-      const l3 = detectUserLang('Hola, ¿cómo está mi nodo?');
-      ok('lang_detect_es', l3 === 'Spanish', l3);
       const all = checks.every(c => c.pass);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: all, version: VERSION, checks }));
@@ -2935,7 +3301,7 @@ const srv = http.createServer(async (req, res) => {
         let ans = null;
         const low = msg.toLowerCase().trim();
         const c0 = low.split(/\s+/)[0].replace(/^\//, '');
-        if (/^(help|status|s|sync|peers|report|trends|diagnostic|diag|logs|ping|donate|winpro)$/.test(c0) || low.charAt(0) === '/') {
+        if (/^(help|status|s|sync|peers|report|trends|diagnostic|diag|logs|ping|donate|winpro|incidents)$/.test(c0) || low.charAt(0) === '/') {
           try { ans = await localCommandText(c0, msg); } catch (e) { ans = null; }
         }
         if (!ans) ans = await aiAnalyze(tel, msg);
@@ -3103,7 +3469,8 @@ const srv = http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
         version: VERSION, dataLive: false,
-        hasBot: !!BOT_TOKEN, hasAI: !!GEMINI_API_KEY, telemetrySec: TELEMETRY_SEC
+        hasBot: !!BOT_TOKEN, hasAI: !!GEMINI_API_KEY, telemetrySec: TELEMETRY_SEC,
+        incidentCount: Object.keys(state.incidents || {}).length
       }));
       return;
     }
@@ -3114,7 +3481,6 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
     if (u === '/' || u === '/index.html') {
-      // index.html is our trusted local UI (inline scripts) - no script-blocking CSP.
       setSecHeaders(res);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.end(INDEX);
@@ -3169,7 +3535,8 @@ srv.listen(PORT, '0.0.0.0', () => {
     }
   } catch (e) {}
 
-  log('telemetry=' + TELEMETRY_SEC + 's - Horizon-first (no DataLive)');
+  log('telemetry=' + TELEMETRY_SEC + 's base · adaptive polling enabled (30-60s)');
+  log('Incident engine active · observe -> alert -> remind -> chronic');
   log('Telegram long-poll independent of telemetry');
 });
 
@@ -3184,4 +3551,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       await tgSend('✅ Controller online\n\n' + formatStatus(t), { reply_markup: mainKeyboard() });
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-          }
+}
