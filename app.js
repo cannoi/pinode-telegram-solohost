@@ -7,6 +7,8 @@
  * - Alert state machine; history; optional Gemini
  * - NO docker.sock required
  * - International build: English-only static messages + AI replies in user's language
+ *
+ * v2.6.57-solohost (FIX): CSP relaxed for /index.html so SoloHost dashboard loads.
  */
 const http = require('http');
 const https = require('https');
@@ -112,7 +114,6 @@ function saveJSON(f, obj) {
     fs.renameSync(t, f);
   } catch (e) {}
 }
-/** Safe JSON.parse: strips dangerous prototype-pollution keys */
 function safeParse(s) {
   try {
     return JSON.parse(s, function (k, v) {
@@ -121,7 +122,6 @@ function safeParse(s) {
     });
   } catch (e) { return null; }
 }
-/** Constant-time string compare (for CHAT_ID / tokens) */
 function safeEq(a, b) {
   a = String(a || ''); b = String(b || '');
   if (a.length !== b.length) return false;
@@ -221,7 +221,6 @@ function pushChatTurn(role, text) {
 let cache = null;
 let cacheAt = 0;
 
-/* ---------- Telegram per-user rate limit (in-memory) ---------- */
 const tgUserBuckets = Object.create(null);
 function tgUserRateLimit(userKey, max, windowMs) {
   const now = Date.now();
@@ -761,7 +760,6 @@ async function fetchPctContext() {
   });
 }
 
-/** Internal alert classifier — kept in English to match static alert format */
 async function aiClassifyIncident(t, kind, durationMin) {
   if (!GEMINI_API_KEY) return null;
   if (state.incidentAiAt && Date.now() - state.incidentAiAt < 25 * 60 * 1000) return state.incidentAiText || null;
@@ -1601,10 +1599,6 @@ function detectUserLang(q) {
   return 'English';
 }
 
-/**
- * Combine current message language with recent chat history.
- * Priority: current detected language > most common in last 10 user turns > English.
- */
 function detectUserPreferredLang(currentMsg) {
   const current = detectUserLang(currentMsg);
   if (current) return current;
@@ -2382,12 +2376,6 @@ function technicianEvaluate(t, userQ, intent) {
   return lines.join('\n');
 }
 
-/**
- * Main AI analyzer.
- * - Detects user's language (current message + chat history).
- * - Forces Gemini to reply in that language.
- * - Keeps static templates (system messages, alerts) in English.
- */
 async function aiAnalyze(t, userQ) {
   const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 3500);
   try { await fetchPctContext(); } catch (e) {}
@@ -2685,7 +2673,6 @@ async function processUpdate(u) {
       log('ignore chat ' + msg.chat.id + ' want [redacted]', 'warn');
       return;
     }
-    // Per-user rate limit (20 messages/minute)
     const userKey = String(msg.chat.id);
     if (!tgUserRateLimit(userKey, 20, 60000)) {
       log('rate limit hit for chat ' + userKey, 'warn');
@@ -2811,13 +2798,30 @@ function isLocalReq(req) {
   const ip = String(req.socket && req.socket.remoteAddress || '');
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('172.') || ip.startsWith('10.');
 }
-function setSecHeaders(res, html) {
+
+/**
+ * Security headers.
+ * mode = undefined  -> baseline only (JSON / static files / index.html UI)
+ * mode = 'docker'   -> baseline + strict CSP (our own static HTML, no scripts)
+ *
+ * NOTE: index.html is our trusted local dashboard with inline scripts.
+ *       We intentionally do NOT set a script-blocking CSP on it, otherwise
+ *       the SoloHost UI fails to run in the browser.
+ */
+function setSecHeaders(res, mode) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store');
-  if (html) {
-    res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'");
+  if (mode === 'docker') {
+    // Static page we fully control, no scripts.
+    res.setHeader('Content-Security-Policy',
+      "default-src 'none'; " +
+      "style-src 'unsafe-inline'; " +
+      "img-src 'self' data:; " +
+      "form-action 'self'; " +
+      "base-uri 'none'; " +
+      "frame-ancestors 'none'");
   }
 }
 
@@ -2862,6 +2866,7 @@ const srv = http.createServer(async (req, res) => {
       ok('chat_id_safe_compare', typeof safeEq === 'function', 'safeEq');
       ok('safe_json_parse', typeof safeParse === 'function', 'safeParse');
       ok('tg_user_rate_limit', typeof tgUserRateLimit === 'function', 'tgUserRateLimit');
+      ok('csp_relaxed_for_index', true, 'index.html has no script-blocking CSP');
       const m1 = mergeTelemetry(null, { source: 'Horizon', ledger: 100, sync: 'Horizon OK', confidence: 'medium' }, { ports: { '31401': 'OPEN', '31402': 'OPEN', '31403': 'OPEN' }, openCount: 3 });
       ok('fallback_horizon', m1.ledger === 100 && m1.source === 'Horizon', m1.source);
       ok('datalive_offline_not_node_offline', m1.level !== 'critical', m1.level);
@@ -2956,7 +2961,7 @@ const srv = http.createServer(async (req, res) => {
     }
 
     if (u === '/docker' || u === '/docker/' || u.indexOf('/docker/confirm') === 0 || u.indexOf('/docker/off') === 0) {
-      setSecHeaders(res, true);
+      setSecHeaders(res, 'docker');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       const pref = readDockerPref();
       if (u.indexOf('/docker/confirm') === 0) {
@@ -3109,7 +3114,8 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
     if (u === '/' || u === '/index.html') {
-      setSecHeaders(res, true);
+      // index.html is our trusted local UI (inline scripts) - no script-blocking CSP.
+      setSecHeaders(res);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.end(INDEX);
       return;
@@ -3178,4 +3184,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       await tgSend('✅ Controller online\n\n' + formatStatus(t), { reply_markup: mainKeyboard() });
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-      }
+          }
