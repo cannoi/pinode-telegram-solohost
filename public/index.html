@@ -173,16 +173,24 @@ SoloHost UI: press Stop, then Start the app again so the new compose applies.
 
 Confirm only if you accept these terms in full.`;
 
-const box=document.getElementById('chatbox');
-const termsBox=document.getElementById('termsBox');
-termsBox.textContent=TERMS;
+// [2.6.57-fix] Safe element access helper - prevents TypeError when the
+// server-side index transform strips optional DOM nodes (e.g. pn-horizon-note
+// is removed when docker.sock is ON) which previously killed the whole script
+// and broke UI data updates (loadStatus never ran).
+function $(id){ return document.getElementById(id); }
+function on(el, ev, fn){ if (el) el.addEventListener(ev, fn); }
+
+const box=$('chatbox');
+const termsBox=$('termsBox');
+if(termsBox) termsBox.textContent=TERMS;
 
 function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
 
 function setupTermsScroll(){
-  const read=document.getElementById('dkRead');
-  const agree=document.getElementById('dkAgree');
-  const conf=document.getElementById('dkConfirm');
+  const read=$('dkRead');
+  const agree=$('dkAgree');
+  const conf=$('dkConfirm');
+  if(!read||!agree||!conf) return;
   function refresh(){conf.disabled=!(read.checked&&agree.checked);}
   read.onchange=refresh;agree.onchange=refresh;
   termsBox.onscroll=function(){
@@ -203,11 +211,11 @@ async function loadStatus(){
     const ledgerVal = t.ledger!=null ? Number(t.ledger).toLocaleString('en-US') : '—';
     const ageVal = t.ledger_age!=null ? t.ledger_age+'s' : '—';
     const peersVal = t.peers!=null ? String(t.peers) : ((t.peer_in!=null||t.peer_out!=null)?String((t.peer_in??0)+(t.peer_out??0)):'—');
-    
+
     // Đọc điểm sức khỏe theo thời gian thực từ API
     const rawH = (t.core_health!=null && t.docker_sock) ? t.core_health : t.health;
     const health = rawH!=null ? Math.min(100, Math.max(0, Number(rawH))) : 0;
-    
+
     // Tự động gán màu sắc và trạng thái tương ứng theo thang điểm 100
     let color = '#16c60c';
     let statusText = 'Excellent';
@@ -219,7 +227,9 @@ async function loadStatus(){
     const maxArc = 257.61;
     const offset = maxArc * (1 - (health / 100));
 
-    document.getElementById('s').innerHTML = `
+    const sEl = $('s');
+    if(!sEl) return;
+    sEl.innerHTML = `
       <div class="status-layout">
         <div class="status-col left">
           <span class="k">Sync</span>
@@ -248,16 +258,16 @@ async function loadStatus(){
         </div>
       </div>
     `;
-    const note=document.getElementById('pn-horizon-note');
+    const note=$('pn-horizon-note');
     if(note){
       const sock=t.docker_sock===true||t.docker_probe===true||t.hasDockerSock===true;
       note.hidden=!!sock;
     }
-  }catch(e){document.getElementById('s').textContent='Status error';}
+  }catch(e){ const sEl=$('s'); if(sEl) sEl.textContent='Status error'; }
 }
 
 async function send(){
-  const inp=document.getElementById('inp');let msg=(inp.value||'').trim();if(!msg)return;
+  const inp=$('inp');let msg=(inp.value||'').trim();if(!msg)return;
   if(msg.length>2000)msg=msg.slice(0,2000);
   inp.value='';
   add('user',msg);add('bot','…');
@@ -276,25 +286,30 @@ async function send(){
       });
       box.appendChild(wrap); box.scrollTop=box.scrollHeight;
     }
-  }catch(e){box.lastChild.textContent='Chat error';}
+  }catch(e){ box.lastChild.textContent='Chat error'; }
 }
 
-document.getElementById('dkTip').onclick=function(){
-  document.getElementById('dkRead').checked=false;
-  document.getElementById('dkAgree').checked=false;
-  document.getElementById('dkRead').disabled=true;
-  document.getElementById('dkAgree').disabled=false;
-  document.getElementById('dkConfirm').disabled=true;
-  document.getElementById('dkModal').classList.add('on');
+// [2.6.57-fix] All optional DOM handlers are null-safe. If server strips
+// #pn-horizon-note (sock ON), we simply skip - no script crash.
+on($('dkTip'),'click',function(){
+  const read=$('dkRead'), agree=$('dkAgree'), conf=$('dkConfirm'), modal=$('dkModal');
+  if(!read||!agree||!conf||!modal) return;
+  read.checked=false;
+  agree.checked=false;
+  read.disabled=true;
+  agree.disabled=false;
+  conf.disabled=true;
+  modal.classList.add('on');
   termsBox.scrollTop=0;
   setupTermsScroll();
-};
-document.getElementById('dkCancel').onclick=function(){
-  document.getElementById('dkModal').classList.remove('on');
-};
-document.getElementById('dkConfirm').onclick=async function(){
-  if(document.getElementById('dkConfirm').disabled)return;
-  document.getElementById('dkModal').classList.remove('on');
+});
+on($('dkCancel'),'click',function(){
+  const modal=$('dkModal'); if(modal) modal.classList.remove('on');
+});
+on($('dkConfirm'),'click',async function(){
+  const conf=$('dkConfirm'), modal=$('dkModal');
+  if(!conf||conf.disabled)return;
+  if(modal) modal.classList.remove('on');
   add('bot','…');
   try{
     const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
@@ -304,10 +319,12 @@ document.getElementById('dkConfirm').onclick=async function(){
       ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: press Stop, then Start the app again.'
       : (j.hint||'Saved. SoloHost: Stop → Start if compose updated.');
   }catch(e){box.lastChild.textContent='Network error';}
-};
-document.getElementById('dkAgree').onchange=function(){
-  document.getElementById('dkConfirm').disabled=!(document.getElementById('dkRead').checked&&document.getElementById('dkAgree').checked);
-};
+});
+on($('dkAgree'),'change',function(){
+  const read=$('dkRead'), agree=$('dkAgree'), conf=$('dkConfirm');
+  if(!read||!agree||!conf) return;
+  conf.disabled=!(read.checked&&agree.checked);
+});
 
 const ACT={
  '/actions/CleanRAM.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
@@ -320,20 +337,21 @@ const ACT={
  '/actions/DockerRecover.bat':'🐳 DockerRecover\nWhat: Restart Docker Desktop safely.\nWhen: Docker Engine itself is down.',
  '/actions/Maintain.bat':'🗓️ Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
 };
-document.getElementById('abar').addEventListener('click',function(e){
+on($('abar'),'click',function(e){
   const b=e.target.closest('button[data-dl]'); if(!b)return;
   const href=b.getAttribute('data-dl');
   add('bot', (ACT[href]||'Download repair BAT')+'\n\nSaving: '+href);
   const a=document.createElement('a'); a.href=href; a.download=''; document.body.appendChild(a); a.click(); a.remove();
 });
-document.getElementById('qbar').addEventListener('click',function(e){
+on($('qbar'),'click',function(e){
   const b=e.target.closest('button[data-cmd]');
   if(!b)return;
-  document.getElementById('inp').value=b.getAttribute('data-cmd');
+  const inp=$('inp');
+  if(inp) inp.value=b.getAttribute('data-cmd');
   send();
 });
-document.getElementById('send').onclick=send;
-document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+on($('send'),'click',send);
+on($('inp'),'keydown',e=>{if(e.key==='Enter')send();});
 
 const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")',pi:'url("/bg-pi.jpg")'};
 function applyBg(kind, custom){
@@ -347,39 +365,41 @@ try{
   const saved=JSON.parse(localStorage.getItem('pinode_bg')||'{}');
   applyBg(saved.kind||'cave', saved.custom||'');
 }catch(e){ applyBg('cave'); }
-document.getElementById('bgCave').onclick=()=>applyBg('cave');
-document.getElementById('bgClassic').onclick=()=>applyBg('classic');
-document.getElementById('bgPi').onclick=()=>applyBg('pi');
-document.getElementById('bgFile').onchange=function(){
+on($('bgCave'),'click',()=>applyBg('cave'));
+on($('bgClassic'),'click',()=>applyBg('classic'));
+on($('bgPi'),'click',()=>applyBg('pi'));
+on($('bgFile'),'change',function(){
   const f=this.files&&this.files[0]; if(!f)return;
   if(f.size>2500000){ add('bot','🌄 Wallpaper too large (max 2.5 MB).'); return; }
   const r=new FileReader();
   r.onload=()=>applyBg('custom', r.result);
   r.readAsDataURL(f);
-};
+});
 
 async function loadAlerts(){
   try{
     const j=await fetch('/api/alerts').then(r=>r.json());
     const n=j.unread||0;
-    const badge=document.getElementById('badge');
-    badge.textContent=n; badge.style.display=n?'inline-block':'none';
-    const pan=document.getElementById('alertPanel');
+    const badge=$('badge');
+    if(badge){ badge.textContent=n; badge.style.display=n?'inline-block':'none'; }
+    const pan=$('alertPanel');
+    if(!pan) return;
     if(!j.items||!j.items.length){pan.innerHTML='🔔 No action alerts.';return;}
     pan.innerHTML=j.items.map(function(it){
       return '<div class="item">'+(it.ts||'').replace('T',' ').slice(0,16)+'\n'+(it.text||'')+(it.tip?'\n💡 '+it.tip:'')+(it.scripts?'\n🛠️ '+it.scripts:'')+'</div>';
     }).join('');
   }catch(e){}
 }
-document.getElementById('bell').onclick=async function(){
-  const pan=document.getElementById('alertPanel');
+on($('bell'),'click',async function(){
+  const pan=$('alertPanel');
+  if(!pan) return;
   pan.classList.toggle('on');
   if(pan.classList.contains('on')){
     try{ await fetch('/api/alerts',{method:'POST'}); }catch(e){}
-    document.getElementById('badge').style.display='none';
+    const badge=$('badge'); if(badge) badge.style.display='none';
     loadAlerts();
   }
-};
+});
 loadAlerts();setInterval(loadAlerts,20000);
 
 loadStatus();setInterval(loadStatus,15000);
