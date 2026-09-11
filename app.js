@@ -12,7 +12,10 @@
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
  * - Resource-tuned: readHistory cache + rollup RAM cache + index cache
- * - [2.6.57-fix] safe getTelemetry dedupe + sock cache + no detail cache pollution
+ * - [2.6.57] Windows Host metrics (CPU/RAM/Disk/Uptime) via host-metrics.js
+ *   independent of docker.sock; Docker container metrics shown separately.
+ * - [2.6.57] Safe getTelemetry dedupe + sock cache + no detail cache pollution
+ * - [2.6.57] pull_policy: missing in generated compose to prevent image pull loops
  */
 const http = require('http');
 const https = require('https');
@@ -33,6 +36,8 @@ DIAGNOSTIC: 7-step flow + 8 SoloHost scripts, 4 safety levels.
 NATURAL LANGUAGE: report schedule, alerts on/off/night, mute N hours, stop reports.
 UPDATE CHECK: every 48h from github.com/cannoi/pinode-telegram-solohost.
 NIGHT MUTE: applies to alerts, reminders, recovery, scheduled reports, update notices.
+HOST METRICS: Windows Host CPU/RAM/Disk/Uptime via DataLive (independent of Docker).
+DOCKER METRICS: container CPU/RAM/health only when docker.sock ON (separate from Host).
 STYLE: static system messages English; AI replies match user's language.
 `.trim();
 
@@ -51,6 +56,11 @@ GOLDEN GUARDRAILS (NEVER violate):
    Port Closed is normal (listener not running). Not a firewall problem.
 5. NEVER recommend heavy intervention during natural "Catching up" or
    "Downloading ledger" under 6 hours.
+
+HOST vs CONTAINER (strict):
+- system.cpu/ram/disk are Windows Host metrics (source: windows_host).
+- container_cpu/container_ram are Docker container metrics (source: docker).
+- Never present container metrics as host metrics, or vice versa.
 
 8 SCRIPTS (safety L1 safest -> L4 strongest):
 - CleanRam.bat      L1  Free RAM/TEMP/TRIM/DNS. Does NOT touch Docker/Pi.
@@ -167,7 +177,13 @@ SCH: Maintain.bat (Sun 03:00, weekly cleanup)
   so ledger/sync numbers may differ from Pi Node Desktop. Enable Optional
   Docker for exact Core state + real container metrics.
 
-12) INTERNATIONAL SUPPORT
+12) HOST METRICS (Windows Host)
+- CPU/RAM/Disk/Uptime come from DataLive/System Agent over HTTP.
+- Independent of docker.sock. Works when Docker is OFF.
+- Source label: windows_host. Never confuse with container metrics.
+- If DataLive endpoint is unreachable: available=false, NO fake numbers.
+
+13) INTERNATIONAL SUPPORT
 - AI replies in user's language.
 - Quick action buttons (Analyze) use last-seen chat language.
 - Static system messages stay English for consistency.
@@ -468,7 +484,7 @@ function normalizeHistoryRow(r) {
     const v = r[k];
     if (v != null && v !== '' && isFinite(Number(v))) out[k] = Number(v);
   });
-  ['sync','level','container','docker','health_confidence','network_kind','source'].forEach(function (k) {
+  ['sync','level','container','docker','health_confidence','network_kind','source','cpu_source','ram_source','disk_source'].forEach(function (k) {
     if (r[k] != null && r[k] !== '') out[k] = String(r[k]);
   });
   if (r.ports_all_open === true || r.ports_all_open === false) out.ports_all_open = r.ports_all_open;
@@ -540,6 +556,7 @@ function horizonFooter(t) {
     '───────────────',
     'ℹ️ SOURCE · Horizon only (no docker.sock)',
     '⚠️ Horizon can lag behind Pi Node Desktop — data may not be 100% exact.',
+    '🖥️ SYSTEM · Windows Host (independent of Docker)',
     '🔓 For best accuracy, enable Optional Docker in SoloHost UI on this PC.'
   ].join('\n');
 }
@@ -963,6 +980,9 @@ function appendHistory(t) {
     if (t.peer_in != null) row.peer_in = t.peer_in;
     if (t.peer_out != null) row.peer_out = t.peer_out;
     if (t.peer_total != null) row.peer_total = t.peer_total;
+    if (t.cpu_source) row.cpu_source = t.cpu_source;
+    if (t.ram_source) row.ram_source = t.ram_source;
+    if (t.disk_source) row.disk_source = t.disk_source;
     fs.appendFileSync(f, JSON.stringify(row) + '\n');
     invalidateReadHistory();
     try { rollupHistory(row); } catch (e2) {}
@@ -1507,10 +1527,15 @@ function formatStatus(t, mode) {
     const frozenTag = t.health_frozen ? ' · frozen' : '';
     sys.push('HEALTH  · ' + hIcon + ' ' + t.health + '/100' + trendTag + ' · ' + cIcon + ' ' + (t.health_confidence || 'low') + frozenTag);
   }
+  // [2.6.57] DISK line added; source is windows_host when Host metrics work.
   if (t.ram != null) sys.push('RAM     ·    ' + Math.round(t.ram) + '%');
   if (t.cpu != null) {
     const cic = t.cpu >= 90 ? '🔴' : (t.cpu >= 70 ? '🟡' : '🟢');
     sys.push('CPU     · ' + cic + ' ' + t.cpu + '%');
+  }
+  if (t.disk != null) {
+    const dic = t.disk >= 90 ? '🔴' : (t.disk >= 80 ? '🟡' : '🟢');
+    sys.push('DISK    · ' + dic + ' ' + Math.round(t.disk) + '%');
   }
   if (t.temp != null) sys.push('TEMP    ·    ' + t.temp + '°C');
   const result = [];
@@ -1520,6 +1545,26 @@ function formatStatus(t, mode) {
   const parts = [head, ''];
   if (runtime.length) parts.push(treeBlock('⚙️ RUNTIME', runtime));
   if (sys.length) { parts.push(''); parts.push(treeBlock('📊 SYSTEM', sys)); }
+
+  // [2.6.57] Optional Docker block — container metrics shown separately from Host.
+  const dockerLines = [];
+  if (t.docker_sock || t.docker_probe) {
+    if (t.container) dockerLines.push('NODE    · ' + t.container);
+    if (t.container_health) dockerLines.push('HEALTH  · ' + t.container_health);
+    if (t.container_cpu != null) dockerLines.push('CPU     · ' + t.container_cpu + '%');
+    if (t.container_ram_mb != null) {
+      dockerLines.push('RAM     · ' + t.container_ram_mb + ' MB' +
+        (t.container_ram_limit_mb != null ? (' / ' + t.container_ram_limit_mb + ' MB') : ''));
+    } else if (t.container_ram != null) {
+      dockerLines.push('RAM     · ' + t.container_ram + '%');
+    }
+    if (t.restart_count != null) dockerLines.push('RESTARTS· ' + t.restart_count);
+    if (dockerLines.length) {
+      parts.push('');
+      parts.push(treeBlock('🐳 DOCKER (container)', dockerLines));
+    }
+  }
+
   parts.push('');
   parts.push(treeBlock('✅ RESULT', result));
   parts.push('');
@@ -1629,8 +1674,28 @@ function formatDiagnostic(t) {
     }
     if (t.health_frozen) health.push('State      · ⚪ frozen (no source)');
   }
+
+  // [2.6.57] HOST SYSTEM block (Windows Host) — separate from Docker container metrics.
+  const hostSys = [];
+  if (t.system && t.system.available) {
+    if (t.system.cpu_percent != null) hostSys.push('CPU     · ' + t.system.cpu_percent + '%');
+    if (t.system.memory_percent != null) hostSys.push('RAM     · ' + t.system.memory_percent + '%');
+    if (t.system.disk_percent != null) hostSys.push('Disk    · ' + t.system.disk_percent + '%' + (t.system.disk_drive ? ' (' + t.system.disk_drive + ')' : ''));
+    if (t.system.uptime_seconds != null) hostSys.push('Uptime  · ' + Math.round(t.system.uptime_seconds / 3600) + 'h');
+    hostSys.push('Source  · windows_host' + (t.system.age_seconds != null ? ' · age ' + t.system.age_seconds + 's' : ''));
+  } else if (t.cpu != null || t.ram != null || t.disk != null) {
+    if (t.cpu != null) hostSys.push('CPU     · ' + t.cpu + '%' + (t.cpu_source ? ' (' + t.cpu_source + ')' : ''));
+    if (t.ram != null) hostSys.push('RAM     · ' + t.ram + '%' + (t.ram_source ? ' (' + t.ram_source + ')' : ''));
+    if (t.disk != null) hostSys.push('Disk    · ' + t.disk + '%' + (t.disk_source ? ' (' + t.disk_source + ')' : ''));
+  } else if (t.system && !t.system.available) {
+    hostSys.push('Status  · ⚪ unavailable');
+    if (t.system.error) hostSys.push('Reason  · ' + t.system.error);
+    if (t.system.endpoint) hostSys.push('Endpoint· ' + t.system.endpoint);
+  }
+
   const parts = ['🩺 PI NODE · DIAGNOSTIC', ''];
   if (health.length) { parts.push(treeBlock('💚 HEALTH', health)); parts.push(''); }
+  if (hostSys.length) { parts.push(treeBlock('🖥️ HOST SYSTEM', hostSys)); parts.push(''); }
   if (net.length) { parts.push(treeBlock('🌐 NETWORK & LEDGER', net)); parts.push(''); }
   if (eng.length) { parts.push(treeBlock('🐳 ENGINE & SYSTEM', eng)); parts.push(''); }
   parts.push('───────────────');
@@ -1662,6 +1727,8 @@ Diagnostic framework: 7 steps, 8 SoloHost scripts, 4 safety levels (L1 safest ->
 Health score: stability-aware damper - noise tolerated but sustained bad sync is punished.
 Update check: every 48h from github.com/cannoi/pinode-telegram-solohost.
 Source note: when docker.sock is OFF, data is Horizon-only and may differ slightly from Pi Node Desktop.
+Host metrics: Windows Host CPU/RAM/Disk/Uptime via DataLive (independent of Docker).
+Docker metrics: container CPU/RAM/health only when docker.sock ON (separate from Host).
 Night/off mute applies to all notifications including recovery, scheduled reports, update notices.
 Reports always show the last 24h rolling window (spans midnight).
 Donate: /donate - Pay with Pi or MB Bank QR.
@@ -1864,6 +1931,11 @@ function formatReport(hours) {
   else if (portsOpen >= 2) netLabel = '🟢 Stable (' + portsOpen + '/3)';
   else netLabel = '🟡 Check (' + portsOpen + '/3)';
   metrics.push('🌐 NETWORK · ' + netLabel);
+  // [2.6.57] DISK line in report
+  if (live.disk != null) {
+    const dic = live.disk >= 90 ? '🔴' : (live.disk >= 80 ? '🟡' : '🟢');
+    metrics.push('💾 DISK    · ' + dic + ' ' + Math.round(live.disk) + '%');
+  }
   const windows = extractIssueWindows(rows);
   const diag = [];
   diag.push((healthyPct >= 90 ? '🟢' : '🟡') + ' NODE   · ' + (healthyPct >= 90 ? 'Healthy' : 'Watch') + ' (' + healthyPct + '%)');
@@ -1957,6 +2029,7 @@ function preEvalBrief(t) {
   lines.push('Docker=' + (t.docker || 'n/a') + ' sock=' + (t.docker_sock ? 'yes' : 'no') + ' container=' + (t.container || 'n/a'));
   if (t.ports_open != null) lines.push('Ports open=' + t.ports_open);
   if (t.health != null) lines.push('Health=' + t.health + ' (raw=' + (t.health_raw != null ? t.health_raw : '?') + ', adj=' + (t.health_adjusted != null ? t.health_adjusted : '?') + ', conf=' + (t.health_confidence || '?') + ', trend=' + (t.health_trend || '?') + ')');
+  if (t.system) lines.push('Host system: available=' + !!t.system.available + ' cpu=' + (t.system.cpu_percent != null ? t.system.cpu_percent + '%' : '?') + ' ram=' + (t.system.memory_percent != null ? t.system.memory_percent + '%' : '?') + ' disk=' + (t.system.disk_percent != null ? t.system.disk_percent + '%' : '?'));
   if (h && h.samples) {
     lines.push('24h samples=' + h.samples + ' ok/warn/crit=' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
     if (h.first_ts) lines.push('24h window=' + String(h.first_ts).slice(0, 16) + ' -> ' + String(h.last_ts).slice(0, 16));
@@ -2232,7 +2305,10 @@ function buildFacts(t) {
     level: t.level || null, fsm: t.fsm || null, sources_ok: t.sources || null,
     docker: t.docker || null, docker_sock: t.docker_sock === true, docker_probe: t.docker_probe === true,
     container: t.container || null, cpu: t.cpu != null ? t.cpu : null, ram: t.ram != null ? t.ram : null,
-    temp: t.temp != null ? t.temp : null, ports_all_open: t.ports_all_open === true
+    temp: t.temp != null ? t.temp : null, ports_all_open: t.ports_all_open === true,
+    cpu_source: t.cpu_source || null, ram_source: t.ram_source || null, disk_source: t.disk_source || null,
+    uptime_seconds: t.uptime_seconds != null ? t.uptime_seconds : null,
+    system_available: t.system ? t.system.available === true : false
   };
 }
 
@@ -2259,6 +2335,7 @@ function applyDockerConsentFiles() {
     '      - NODE_HOST=host.docker.internal', '      - HORIZON_PORT=31401',
     '      - CORE_HTTP_PORT=11626', '      - DOCKER_PROBE=1',
     '      - AUTO_DOCKER_SOCK=0', '      - TELEMETRY_SEC=60',
+    '      - HOST_METRICS_URL=${HOST_METRICS_URL:-http://host.docker.internal:18790/v1/status}',
     '      - TZ=Asia/Ho_Chi_Minh',
     '    volumes:', '      - ./data:/data',
     '      - ./:/solohost-config:rw',
@@ -3134,6 +3211,7 @@ async function aiAnalyze(t, userQ, opts) {
         'STABILITY: "unstable_short" -> tolerant; "sustained_bad" -> low score intentional.',
         'INCIDENT ENGINE: Reference RECOMMENDED_SCRIPT (or WAIT) exactly.',
         'SOURCE NOTE: If docker.sock is OFF, data is Horizon-only and may differ from Pi Node Desktop. Be honest about that limitation.',
+        'HOST vs CONTAINER (CRITICAL): system.cpu/ram/disk are Windows Host (windows_host). container_cpu/container_ram are Docker container. Never mix them.',
         '',
         '=== DATA REQUEST PROTOCOL ===',
         '1) NAMED BLOCKS: emit [DATA_REQUEST:block_name]',
@@ -3369,7 +3447,7 @@ async function runCmd(cmd, userText) {
     return tgSend('DOCKER OPTIONAL\n───────────────\nFor safety, docker.sock can only be enabled in the SoloHost window on the PC running this node.\n\n1) Open http://127.0.0.1:18780/\n2) Optional Docker -> scroll terms -> check boxes -> Confirm\n3) SoloHost: Stop -> Start\n\nTelegram will not raise Docker privileges.', { reply_markup: mainKeyboard() });
   }
   if (cmd === 'start' || cmd === 'help') {
-    return tgSend(formatHelp() + '\n\n───────────────\n/status /sync /peers /incidents\n/report /diagnostic /analyze\n/scripts /donate\n───────────────\nTelemetry -> Horizon -> Ports', { reply_markup: mainKeyboard() });
+    return tgSend(formatHelp() + '\n\n───────────────\n/status /sync /peers /incidents\n/report /diagnostic /analyze\n/scripts /donate\n───────────────\nTelemetry -> Host -> Horizon -> Ports', { reply_markup: mainKeyboard() });
   }
   return null;
 }
@@ -3823,9 +3901,16 @@ const srv = http.createServer(async (req, res) => {
       ok('lang_detect_vi', l1 === 'Vietnamese', l1);
       const l2 = detectUserLang('Hello, how is my node?');
       ok('lang_detect_en', l2 === 'English', l2);
-      // [2.6.57-fix] new checks
       ok('telemetry_dedupe_flag', typeof _pendingTelemetry !== 'undefined', 'ok');
       ok('sock_cache_present', typeof _sockCache === 'object' && _sockCache.v === null, 'ok');
+      // [2.6.57] host-metrics integration sanity
+      try {
+        const hm = require('./host-metrics');
+        ok('host_metrics_module', typeof hm.getHostMetrics === 'function', 'loaded');
+        ok('host_metrics_endpoint', typeof hm.getEndpoint === 'function' && /^https?:\/\//.test(hm.getEndpoint()), hm.getEndpoint());
+      } catch (e) {
+        ok('host_metrics_module', false, String(e && e.message));
+      }
       const all = checks.every(c => c.pass);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: all, version: VERSION, checks }));
@@ -3864,7 +3949,7 @@ const srv = http.createServer(async (req, res) => {
         }
         if (!ans) ans = await aiAnalyze(tel, msg);
         pushChatPersistent('assistant', ans);
-        const payload = { ok: true, reply: ans, version: VERSION, source: tel && tel.source, horizonOnly: !hasDockerSock(tel) };
+        const payload = { ok: true, reply: ans, version: VERSION, source: tel && tel.source, horizonOnly: !hasDockerSock(tel), systemAvailable: !!(tel && tel.system && tel.system.available) };
         if (c0 === 'donate') {
           payload.images = [];
           try {
@@ -4008,6 +4093,8 @@ const srv = http.createServer(async (req, res) => {
         readHistCacheTtlMs: _readHistCache.ttlMs,
         hasDockerSock: hasDockerSock(tel),
         horizonOnly: !hasDockerSock(tel),
+        systemAvailable: !!(tel && tel.system && tel.system.available),
+        systemSource: tel && tel.system ? tel.system.source : null,
         updateLastSeenId: state.updateLastSeenId || null,
         updateCheckedAt: state.updateCheckedAt ? new Date(state.updateCheckedAt).toISOString() : null,
         updateRepo: GITHUB_REPO_URL
@@ -4080,6 +4167,7 @@ srv.listen(PORT, '0.0.0.0', () => {
   log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' blocks · DSL ' + Object.keys(AI_METRIC_WHITELIST).length + ' metrics');
   log('Menu sync 14 cmds · Update checker 48h · repo ' + GITHUB_REPO_URL);
   log('Horizon-only notice shown under Peers (auto-hides when docker.sock is ON)');
+  log('Host metrics via HOST_METRICS_URL (independent of Docker)');
   log('Telegram long-poll independent of telemetry');
 });
 telegramLoop();
