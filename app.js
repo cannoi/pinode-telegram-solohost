@@ -18,6 +18,7 @@
  * - [2.6.57] pull_policy: missing in generated compose to prevent image pull loops
  * - [2.6.57-fix] host-metrics module is OPTIONAL — selftest never fails if missing
  * - [2.6.57-fix] /api/host-metrics reads directly from the module (no HTTP fetch)
+ * - [2.6.57-fix] index.html loaded from multiple fallback paths
  */
 const http = require('http');
 const https = require('https');
@@ -2340,6 +2341,7 @@ function applyDockerConsentFiles() {
     '      - TZ=Asia/Ho_Chi_Minh',
     '    volumes:', '      - ./data:/data',
     '      - ./:/solohost-config:rw',
+    '      - ./public:/app/public:rw',
     '      - /var/run/docker.sock:/var/run/docker.sock:ro',
     '    restart: unless-stopped', ''
   ].join('\n');
@@ -3608,8 +3610,29 @@ const MIME = {
   '.jpg': 'image/jpeg', '.png': 'image/png', '.ps1': 'text/plain; charset=utf-8',
   '.bat': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8'
 };
+// [2.6.57-fix] Load index.html from multiple candidate paths (volume mount may differ).
 let INDEX = '<h1>Pi Node SoloHost ' + VERSION + '</h1><p>/api/status</p>';
-try { INDEX = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'); } catch (e) {}
+(function () {
+  const candidates = [
+    path.join(PUBLIC, 'index.html'),
+    '/solohost-config/public/index.html',
+    '/data/public/index.html',
+    path.join(DATA, 'public', 'index.html'),
+    '/solohost-config/index.html',
+    '/data/index.html'
+  ];
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const html = fs.readFileSync(candidates[i], 'utf8');
+      if (html && html.length > 100) {
+        INDEX = html;
+        try { console.log('[app] index.html loaded from ' + candidates[i]); } catch (e) {}
+        return;
+      }
+    } catch (e) {}
+  }
+  try { console.warn('[app] index.html not found in any path · using fallback. Tried: ' + candidates.join(', ')); } catch (e) {}
+})();
 const rateBuckets = Object.create(null);
 function rateLimit(key, max, windowMs) {
   const now = Date.now();
@@ -3773,7 +3796,6 @@ const srv = http.createServer(async (req, res) => {
       }
       return;
     }
-    // [2.6.57-fix] Host metrics debug — reads directly from module (no HTTP fetch, no DataLive).
     if (u === '/api/host-metrics') {
       if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
