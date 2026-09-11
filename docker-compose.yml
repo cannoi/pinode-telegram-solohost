@@ -2,7 +2,7 @@
 
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.57
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.58
     pull_policy: missing
 
     labels:
@@ -33,9 +33,9 @@ services:
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
-      # [2.6.57-fix] Overlay local public/ (with SYSTEM RESOURCES bar) over image.
-      - ./public:/app/public:rw
-      # [2.6.57-fix] Optional: overlay host-metrics.js directly (uncomment if needed).
-      # - ./host-metrics.js:/app/host-metrics.js:ro
+      # Never mount ./public over /app/public (empty host dir hides index.html).
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     restart: unless-stopped

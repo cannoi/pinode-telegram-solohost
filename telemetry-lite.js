@@ -3,7 +3,7 @@
  * Lightweight live frame + local health/trend. No extra HTTP.
  * Missing metrics stay null/unknown — never invented.
  *
- * [2.6.57] t.cpu / t.ram / t.disk now come from Node OS (os.cpus/os.totalmem/fs.statfsSync).
+ * [2.6.58] t.cpu / t.ram / t.disk now come from Node OS (os.cpus/os.totalmem/fs.statfsSync).
  * scoreCoreHealth() must NOT fall back to those for container metrics.
  * hostMetric() must treat 0 as a VALID reading (not "unavailable").
  */
@@ -17,7 +17,7 @@ function num(v) {
 
 /**
  * Host resources normalizer.
- * [2.6.57-fix] 0 is valid: CPU can be 0%, disk used can be 0%.
+ * [2.6.58-fix] 0 is valid: CPU can be 0%, disk used can be 0%.
  * Only negative or non-finite values are treated as unavailable.
  */
 function hostMetric(v) {
@@ -101,7 +101,7 @@ function scoreCoreHealth(t) {
     if (lag <= 5) score += 4;
     else if (lag > 50) score -= 10;
   }
-  // [2.6.57] Only container_cpu/container_ram feed core health.
+  // [2.6.58] Only container_cpu/container_ram feed core health.
   // Never fall back to t.cpu/t.ram — those are Node OS metrics now.
   const cpu = hostMetric(t.container_cpu);
   const ram = hostMetric(t.container_ram);

@@ -1,6 +1,6 @@
 'use strict';
 /**
- * SoloHost Controller v2.6.57
+ * SoloHost Controller v2.6.58
  * - Smart Incident Engine (observe -> evaluate -> decide -> act)
  * - Health Scoring with Damper + Stability-aware adjustment
  * - AI Data Query DSL + named blocks
@@ -12,13 +12,13 @@
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
  * - Resource-tuned: readHistory cache + rollup RAM cache + index cache
- * - [2.6.57] Host metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
+ * - [2.6.58] Host metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
  *   via host-metrics.js. Independent of Docker.
- * - [2.6.57] Safe getTelemetry dedupe + sock cache + no detail cache pollution
- * - [2.6.57] pull_policy: missing in generated compose to prevent image pull loops
- * - [2.6.57-fix] host-metrics module is OPTIONAL — selftest never fails if missing
- * - [2.6.57-fix] /api/host-metrics reads directly from the module (no HTTP fetch)
- * - [2.6.57-fix] index.html loaded from multiple fallback paths
+ * - [2.6.58] Safe getTelemetry dedupe + sock cache + no detail cache pollution
+ * - [2.6.58] pull_policy: missing in generated compose to prevent image pull loops
+ * - [2.6.58-fix] host-metrics module is OPTIONAL — selftest never fails if missing
+ * - [2.6.58-fix] /api/host-metrics reads directly from the module (no HTTP fetch)
+ * - [2.6.58-fix] index.html loaded from multiple fallback paths
  */
 const http = require('http');
 const https = require('https');
@@ -245,7 +245,7 @@ const SCRIPT_DETAILS = {
   }
 };
 
-const VERSION = '2.6.57-solohost';
+const VERSION = '2.6.58-solohost';
 const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
 const GITHUB_REPO_URL = 'https://github.com/' + GITHUB_REPO;
 const UPDATE_CHECK_INTERVAL_MS = 48 * 3600 * 1000;
@@ -2323,7 +2323,7 @@ function readDockerPref() { try { return JSON.parse(fs.readFileSync(dockerPrefPa
 function writeDockerPref(obj) { try { fs.mkdirSync(path.dirname(dockerPrefPath()), { recursive: true }); fs.writeFileSync(dockerPrefPath(), JSON.stringify(obj, null, 2)); } catch (e) {} }
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
-  let tag = 'v2.6.57';
+  let tag = 'v2.6.58';
   try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
   const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
   const composeBody = [
@@ -2341,8 +2341,8 @@ function applyDockerConsentFiles() {
     '      - TZ=Asia/Ho_Chi_Minh',
     '    volumes:', '      - ./data:/data',
     '      - ./:/solohost-config:rw',
-    '      - ./public:/app/public:rw',
     '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+    '    extra_hosts:', '      - "host.docker.internal:host-gateway"',
     '    restart: unless-stopped', ''
   ].join('\n');
   const readme = 'OPTIONAL DOCKER - Operator consent\n=================================\n\n1) Copy docker-compose.yml over the one in this SoloHost app folder.\n2) SoloHost -> Stop -> Start the app.\n3) Telegram: /docker  (should show Socket: YES when mount worked).\n\nThis is NOT default SoloHost permission. You opted in.\n';
@@ -3610,29 +3610,35 @@ const MIME = {
   '.jpg': 'image/jpeg', '.png': 'image/png', '.ps1': 'text/plain; charset=utf-8',
   '.bat': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8'
 };
-// [2.6.57-fix] Load index.html from multiple candidate paths (volume mount may differ).
+// [2.6.58-fix] Load index.html from multiple candidate paths (volume mount may differ).
 let INDEX = '<h1>Pi Node SoloHost ' + VERSION + '</h1><p>/api/status</p>';
-(function () {
+function loadIndexHtml() {
   const candidates = [
+    path.join(__dirname, 'public', 'index.html'),
     path.join(PUBLIC, 'index.html'),
+    '/app/public/index.html',
     '/solohost-config/public/index.html',
-    '/data/public/index.html',
     path.join(DATA, 'public', 'index.html'),
-    '/solohost-config/index.html',
-    '/data/index.html'
+    '/data/public/index.html'
   ];
   for (let i = 0; i < candidates.length; i++) {
     try {
       const html = fs.readFileSync(candidates[i], 'utf8');
-      if (html && html.length > 100) {
+      if (html && html.length > 200 && html.indexOf('<!DOCTYPE') >= 0) {
         INDEX = html;
         try { console.log('[app] index.html loaded from ' + candidates[i]); } catch (e) {}
-        return;
+        return true;
       }
     } catch (e) {}
   }
-  try { console.warn('[app] index.html not found in any path · using fallback. Tried: ' + candidates.join(', ')); } catch (e) {}
-})();
+  try { console.warn('[app] index.html not found · fallback UI. Tried: ' + candidates.join(', ')); } catch (e) {}
+  return false;
+}
+loadIndexHtml();
+function getIndexHtml() {
+  if (!INDEX || INDEX.indexOf('/api/status') >= 0 && INDEX.length < 400) loadIndexHtml();
+  return INDEX;
+}
 const rateBuckets = Object.create(null);
 function rateLimit(key, max, windowMs) {
   const now = Date.now();
@@ -3653,6 +3659,20 @@ function setSecHeaders(res, mode) {
   if (mode === 'docker') {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   }
+}
+
+
+function brandPath() { return path.join(DATA, 'state', 'brand.json'); }
+function logoPath() { return path.join(DATA, 'state', 'brand-logo'); }
+function readBrand() {
+  const def = { name: 'Pi Node Controller PRO', versionLabel: 'SoloHost · v' + String(VERSION || '').replace(/-solohost$/, '') };
+  try { return Object.assign(def, JSON.parse(fs.readFileSync(brandPath(), 'utf8'))); } catch (e) { return def; }
+}
+function writeBrand(obj) {
+  try {
+    fs.mkdirSync(path.dirname(brandPath()), { recursive: true });
+    fs.writeFileSync(brandPath(), JSON.stringify(obj));
+  } catch (e) {}
 }
 
 const _indexCache = { html: null, sockOn: null, at: 0 };
@@ -3680,6 +3700,50 @@ const srv = http.createServer(async (req, res) => {
   setSecHeaders(res);
   try {
     if (u === '/healthz') { res.end('ok'); return; }
+    if (u === '/api/brand') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      if (req.method === 'GET') { res.end(JSON.stringify({ ok: true, brand: readBrand(), hasLogo: fs.existsSync(logoPath()) })); return; }
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', function (c) { body += c; if (body.length > 20000) { req.destroy(); return; } });
+        req.on('end', function () {
+          try {
+            const j = safeParse(body) || {};
+            const cur = readBrand();
+            if (j.name != null) cur.name = String(j.name).slice(0, 48);
+            if (j.versionLabel != null) cur.versionLabel = String(j.versionLabel).slice(0, 48);
+            if (j.logoData && typeof j.logoData === 'string' && j.logoData.indexOf('data:image/') === 0) {
+              const m = j.logoData.match(/^data:image\/(png|jpe?g|webp|gif);base64,(.+)$/i);
+              if (m && m[2] && m[2].length < 1800000) {
+                fs.mkdirSync(path.dirname(logoPath()), { recursive: true });
+                fs.writeFileSync(logoPath(), Buffer.from(m[2], 'base64'));
+                cur.hasLogo = true;
+              }
+            }
+            writeBrand(cur);
+            res.end(JSON.stringify({ ok: true, brand: cur, hasLogo: fs.existsSync(logoPath()) }));
+          } catch (e) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: 'bad_request' })); }
+        });
+        return;
+      }
+      res.statusCode = 405; res.end('{"ok":false}'); return;
+    }
+    if (u === '/brand-logo') {
+      try {
+        if (fs.existsSync(logoPath())) {
+          const buf = fs.readFileSync(logoPath());
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(buf); return;
+        }
+      } catch (e) {}
+      try {
+        const av = path.join(PUBLIC, 'avatar.jpg');
+        if (fs.existsSync(av)) { res.setHeader('Content-Type', 'image/jpeg'); res.end(fs.readFileSync(av)); return; }
+      } catch (e) {}
+      res.statusCode = 404; res.end('no logo'); return;
+    }
+
     if (u === '/api/status' || u === '/api/status/fast' || u === '/api/status/detailed') {
       if (!rateLimit('status:' + (req.socket.remoteAddress || ''), 40, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -3830,7 +3894,7 @@ const srv = http.createServer(async (req, res) => {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
       const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
-      ok('version', VERSION === '2.6.57-solohost', VERSION);
+      ok('version', VERSION === '2.6.58-solohost', VERSION);
       ok('telegram_loop_independent', true, 'separate loops');
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_datalive', true, 'Horizon removed');
@@ -4166,7 +4230,7 @@ const srv = http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       const tel = cache || {};
       const showNotice = !hasDockerSock(tel);
-      res.end(applyIndexTransform(INDEX, !showNotice));
+      res.end(applyIndexTransform(getIndexHtml(), !showNotice));
       return;
     }
     if (u.startsWith('/scripts/')) {

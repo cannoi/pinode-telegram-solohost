@@ -6,7 +6,7 @@ const dataFrame = require('./data-frame');
  * Primary (always): Horizon root + Core HTTP + TCP ports + state files + HOST METRICS
  * Optional: Docker sock/exec when DOCKER_PROBE=1 and socket mounted by user
  *
- * [2.6.57] Host Metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
+ * [2.6.58] Host Metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
  * via host-metrics.js. Fallback require paths let the operator drop the module
  * into the mounted app folder without rebuilding the image.
  * Source label: 'node_os' (NOT windows_host — because we read the Node runtime).
@@ -21,7 +21,7 @@ const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
 const dockerProbe = require('./docker-probe');
 
-// [2.6.57-fix] DEFENSIVE require with multiple candidate paths.
+// [2.6.58-fix] DEFENSIVE require with multiple candidate paths.
 // Lets the operator drop host-metrics.js into the mounted app folder
 // (/solohost-config) without rebuilding the image.
 let hostMetrics = null;
@@ -333,7 +333,7 @@ class PiNodeStatusMonitor {
     try { dataFrame.applyPeerRule(primary); } catch (e) {}
     primary.network_probe = netw.ports;
 
-    // [2.6.57] HOST SYSTEM METRICS from Node OS (os.cpus / os.totalmem / fs.statfsSync).
+    // [2.6.58] HOST SYSTEM METRICS from Node OS (os.cpus / os.totalmem / fs.statfsSync).
     // Independent of Docker. Never overwrite with container metrics.
     primary.sources.host_metrics = !!(host && host.available);
     if (host && host.available) {
@@ -343,6 +343,7 @@ class PiNodeStatusMonitor {
         timestamp: host.timestamp,
         age_seconds: host.age_seconds,
         cpu_percent: host.cpu ? host.cpu.usage_percent : null,
+        cpu_cores: host.host_info && host.host_info.cpu_count != null ? host.host_info.cpu_count : null,
         cpu_loadavg: host.cpu ? host.cpu.loadavg : null,
         memory_percent: host.memory ? host.memory.used_percent : null,
         memory_used_bytes: host.memory ? host.memory.used_bytes : null,

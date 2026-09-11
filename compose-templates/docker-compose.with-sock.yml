@@ -20,4 +20,6 @@ services:
       - ./data:/data
       - ./:/solohost-config:rw
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped

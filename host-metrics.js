@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Host Metrics Reader (v2.6.57 — Node OS)
+ * Host Metrics Reader (v2.6.58 — Node OS)
  *
  * Nguồn dữ liệu (native, không HTTP, không DataLive, không docker.sock):
  *   - CPU  : os.cpus() delta (idle vs total) → usage_percent

@@ -1,7 +1,7 @@
 # OPTIONAL extension — user opts in after install (not for SoloHost package validation)
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.57
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.58
     labels:
       pi.ui.primary: "true"
     ports:
@@ -19,5 +19,8 @@ services:
       - TZ=Asia/Ho_Chi_Minh
     volumes:
       - ./data:/data
+      - ./:/solohost-config:rw
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
