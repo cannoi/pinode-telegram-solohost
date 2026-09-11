@@ -4,8 +4,9 @@
  * - Smart Incident Engine (observe -> evaluate -> decide -> act)
  * - Health Scoring with Damper + Stability-aware adjustment
  * - AI Data Query DSL + named blocks
- * - Pi Node Diagnostic Framework v3.0 (8 scripts, 4 safety levels, 7-step flow)
- * - Language-aware: quick actions use chat history language
+ * - Pi Node Diagnostic Framework v3.0 + Deep Knowledge Base
+ * - Natural Language Command Parser (multi-language)
+ * - Auto Telegram Menu Sync on boot
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
  * - Resource-tuned: readHistory cache + rollup RAM cache
@@ -26,6 +27,7 @@ HEALTH: stability-aware damper (EMA + dead-band + confidence).
 INCIDENT: 10 classes, stage machine 0-5.
 AI DATA: named blocks + flexible DSL queries (metric/window/agg/filter).
 DIAGNOSTIC: 7-step flow + 8 SoloHost scripts, 4 safety levels.
+NATURAL LANGUAGE: report schedule, alerts on/off/night, mute N hours, stop reports.
 Night/off mute covers alerts, reminders, recovery, and scheduled reports.
 STYLE: static system messages English; AI replies match user's language.
 `.trim();
@@ -80,6 +82,89 @@ DECISION MATRIX (symptom -> script):
 
 OUTPUT STYLE: English only. Short lines. Icons. Script names in backticks.
 End every answer with a clear next-action choice for the user.
+`.trim();
+
+const PI_NODE_DEEP_KNOWLEDGE = `
+=== PI NODE DEEP KNOWLEDGE BASE (for AI context) ===
+
+1) APP COMMANDS
+/status /sync /peers /report /incidents /diagnostic /scripts
+/analyze /logs /donate /winpro /ping /help /mute
+
+2) NATURAL LANGUAGE (no slash needed) - app parses intents BEFORE AI:
+- "reports at 7am and 6pm" / "báo cáo 7h sáng và 6h chiều"
+- "daily report at midnight" / "báo cáo hàng ngày 12 giờ đêm"
+- "turn off alerts" / "tắt báo động"
+- "quiet at night" / "yên tĩnh ban đêm"
+- "mute for 2 hours" / "im lặng 2 giờ"
+- "stop reports" / "tắt báo cáo"
+
+3) HEALTH SCORE
+- Range 0-100. Smoothed by stability-aware damper.
+- 85-100 = healthy. 65-84 = watch. 40-64 = degraded. <40 = critical.
+- Confidence: high (docker.sock+Core), medium (Core or Horizon+Ports), low (Horizon only).
+- Frozen when no source (never drifts to 0 during outages).
+- Sustained bad sync keeps the score low; brief noise does not.
+
+4) SYNC STATUS VALUES
+- Synced / Horizon live -> healthy
+- Catching up / behind / slow -> transient, wait 15 min before action
+- Not synced / unsynced / error -> real problem
+- Horizon ingest lag -> Core advanced, Horizon behind (wait)
+
+5) PORTS 31401-31403
+- OPEN only if container listener is running.
+- CLOSED with container STOPPED = normal (not a firewall issue).
+- CLOSED with container RUNNING = firewall issue -> Firewall.bat.
+- Local OPEN but Internet CLOSED = Router NAT / CGNAT (no local script fixes).
+
+6) 8 SCRIPTS WITH SAFETY LEVELS
+L1: CleanRam.bat (RAM>85%, PC slow, node synced)
+L1: DnsFlush.bat (peers=0, ports OPEN, ledger moves)
+L2: Firewall.bat (ports CLOSED, container RUNNING)
+L2: NodeReset.bat (container stuck, block frozen >30 min)
+L3: NetRepair.bat (no internet, 3-phase, keeps IP)
+L3: LanSetup.bat (first setup OR IP changed)
+L4: DockerRecover.bat (Docker not ready, WSL stuck - soft first)
+SCH: Maintain.bat (Sun 03:00, weekly cleanup)
+
+7) GOLDEN RULES (never violate)
+- NEVER change LAN IP (breaks port forwarding).
+- NEVER run "wsl --shutdown" while Docker Desktop is running.
+- NEVER run "docker volume prune -a" (loses blockchain data).
+- NEVER say "Port Closed = Firewall" without checking container state.
+- NEVER intervene during natural "Catching up" < 6 hours.
+
+8) COMMON FALSE ALARMS
+- Peers 0-2 during first 24h -> normal bootstrap.
+- Sync "Catching up" 5-30 min after Pi Node update -> normal.
+- Ledger age 30-120s -> network blip, wait.
+- Horizon "ingest lag" -> Core ahead, Horizon catching up.
+- Docker "exited" with restart policy -> check if auto-restarting.
+
+9) WHEN TO ESCALATE
+- Sync stuck > 6 hours: NodeReset
+- Ports closed > 30 min with container running: Firewall
+- No internet at all > 5 min: NetRepair
+- Docker Engine down > 5 min: DockerRecover (soft)
+- Repeated incidents (>3 in 24h): /report for pattern
+
+10) PERFORMANCE EXPECTATIONS
+- Pi Node ledger: ~5-10s per block (Testnet), ~5s (Mainnet).
+- Peers: 8-20 typical, 3-7 acceptable, 0-2 concerning after bootstrap.
+- Container RAM: 1-2 GB typical, 3+ GB on testnet2 during catch-up.
+- Container CPU: 10-60% typical (single core), >90% sustained = problem.
+
+11) DOCKER OPTIONAL
+- docker.sock gives Core version + real container state.
+- Without it, app uses Horizon + TCP ports probe (still works).
+- Operator must opt-in via SoloHost UI. Telegram cannot raise privileges.
+
+12) INTERNATIONAL SUPPORT
+- AI replies in user's language.
+- Quick action buttons (Analyze) use last-seen chat language.
+- Static system messages stay English for consistency.
+- Supported languages: EN, VI, ES, FR, PT, IT, DE, TR, ID, RU, JA, KO, ZH, AR, HI, TH, PL, EL, SV, NO, HE.
 `.trim();
 
 const SCRIPT_DETAILS = {
@@ -812,7 +897,6 @@ function alertKeyboard() {
     [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📋 Incidents', callback_data: 'cmd_incidents' }]
   ]};
 }
-/** 8 SoloHost scripts + Diag/Status - shown after analyze/diagnostic when relevant */
 function scriptActionKeyboard() {
   return { inline_keyboard: [
     [{ text: '🧹 CleanRam', callback_data: 'cmd_script_cleanram' }, { text: '🌐 DnsFlush', callback_data: 'cmd_script_dnsflush' }],
@@ -1421,8 +1505,8 @@ const ACTION_CATALOG = [
 const APP_GUIDE = `
 HOW TO USE THIS APP
 Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /incidents /scripts /donate /help /mute.
+Natural language: "reports at 7am and 6pm", "turn off alerts", "mute for 2 hours", "quiet at night".
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
-Ask in any language. AI replies in the same language; quick-action buttons use your chat-history language.
 Diagnostic framework: 7 steps, 8 SoloHost scripts, 4 safety levels (L1 safest -> L4 strongest).
 Health score: stability-aware damper - noise tolerated but sustained bad sync is punished.
 Night/off mute applies to all notifications including recovery and scheduled reports.
@@ -1539,8 +1623,6 @@ function formatActionAdvice(t) {
   });
   return lines.join('\n');
 }
-
-/* SCRIPT DETAIL CARD for the 8 SoloHost scripts */
 function formatScriptDetail(id) {
   const s = SCRIPT_DETAILS[id];
   if (!s) return '❓ Unknown script.';
@@ -1561,7 +1643,6 @@ function formatScriptDetail(id) {
     '☕ Donate: MB 0905428801'
   ].join('\n');
 }
-/** Detect script names mentioned in AI reply text -> drive keyboard choice */
 function recommendScriptsFromText(text) {
   const t = String(text || '');
   const hits = [];
@@ -1665,6 +1746,11 @@ function formatHelp() {
     '❓ /help        - This list',
     '🔕 /mute        - Quiet alerts (also mutes recovery)',
     '',
+    '💡 Natural language also works:',
+    '  "reports at 7am and 6pm"',
+    '  "turn off alerts" / "mute for 2 hours"',
+    '  "quiet at night"',
+    '',
     'Ask in any language. AI replies in the same language.',
     'Night/off mute applies to ALL notifications.', '',
     '💛 /donate'
@@ -1747,7 +1833,7 @@ function formatScripts() {
     '🧰 SCH · Maintain.bat (Sun 03:00)',
     '        Weekly housekeeping', '',
     '───────────────',
-    'Ask AI /analyze for a diagnostic recommendation.',
+    'Tap a button below for details.',
     '☕ Donate: MB 0905428801'
   ].join('\n');
 }
@@ -1882,11 +1968,6 @@ function detectUserLang(q) {
   if (/\b(hej|tack|hjälp)\b/i.test(s)) return 'Swedish';
   return 'English';
 }
-/**
- * Pick the best language.
- * - If opts.skipCurrent is set (quick action), use ONLY chat history.
- * - Otherwise, current message language wins, then chat history, then English.
- */
 function detectUserPreferredLang(currentMsg, opts) {
   opts = opts || {};
   if (!opts.skipCurrent) {
@@ -1901,7 +1982,6 @@ function detectUserPreferredLang(currentMsg, opts) {
   for (const k in counts) if (counts[k] > bestN) { best = k; bestN = counts[k]; }
   return best || 'English';
 }
-/** True when the input is our own default/template text (quick action button) */
 function isQuickActionText(msg) {
   const m = String(msg || '').trim();
   return !m || /^(review my node|node status|analyze|check|status)$/i.test(m);
@@ -2485,6 +2565,89 @@ function stripDataRequests(text) {
 }
 /* END DSL ============================================================== */
 
+/* ======================================================================
+ * NATURAL LANGUAGE COMMAND PARSER (multi-language)
+ * Matches setting-style commands only. Questions go to AI.
+ * ==================================================================== */
+function extractHoursFromText(low) {
+  const hours = [];
+  const re = /(\d{1,2})(?::(\d{2}))?\s*(am|pm|h|giờ|sáng|chiều|tối|đêm|trưa|a\.m\.|p\.m\.)?/gi;
+  let m;
+  while ((m = re.exec(low))) {
+    let h = parseInt(m[1], 10);
+    const mer = (m[3] || '').toLowerCase();
+    if (!isFinite(h) || h < 0 || h > 23) continue;
+    if (/(pm|chiều|tối)/.test(mer) && h < 12) h += 12;
+    if (/(am|sáng)/.test(mer) && h === 12) h = 0;
+    if (/đêm/.test(mer) && h === 12) h = 0;
+    if (/trưa/.test(mer) && h < 12) h = 12;
+    hours.push(h);
+  }
+  if (/\bmidnight\b|nửa\s*đêm|12\s*giờ\s*đêm/i.test(low)) hours.push(0);
+  if (/\bnoon\b|12\s*giờ\s*trưa/i.test(low)) hours.push(12);
+  const uniq = Array.from(new Set(hours)).sort(function (a, b) { return a - b; });
+  return uniq.slice(0, 4);
+}
+
+function tryNaturalCommand(text) {
+  const s = String(text || '').trim();
+  if (!s || s.length > 220) return null;
+  const low = s.toLowerCase();
+
+  const looksLikeSetting = /(report|báo\s*cáo|informe|alert|notification|báo\s*động|thông\s*báo|mute|im\s*lặng|silent|quiet|yên\s*tĩnh|turn\s+(on|off)|bật|tắt|disable|enable|stop|schedule|lịch)/i.test(low);
+  if (!looksLikeSetting) return null;
+
+  if (/(stop|turn\s*off|disable|tắt|dừng|no\s*more)\s+(daily\s+)?(report|báo\s*cáo|informe)/i.test(low) ||
+      /(report|báo\s*cáo)\s+(off|stop|tắt|dừng)/i.test(low)) {
+    state.reportHours = 'off';
+    try { saveJSON(STATE_F, state); } catch (e) {}
+    return '⏰ Scheduled reports OFF.\nUse /report_both to re-enable.';
+  }
+
+  if (/(turn\s*on|enable|bật|reativar|activar)\s+(alert|notification|báo\s*động|thông\s*báo|notif)/i.test(low)) {
+    state.alertMode = 'on'; state.muteUntil = 0;
+    try { saveJSON(STATE_F, state); } catch (e) {}
+    return '🔔 Alerts ON. All notifications active.';
+  }
+  if (/(turn\s*off|disable|tắt|dừng|silence|silenciar)\s+(all\s+)?(alert|notification|báo\s*động|thông\s*báo|notif)/i.test(low)) {
+    state.alertMode = 'off'; state.muteUntil = 0;
+    try { saveJSON(STATE_F, state); } catch (e) {}
+    return '🔕 Alerts OFF until you press On.';
+  }
+  if (/(night\s*mode|quiet\s+at\s+night|yên\s*tĩnh\s*ban\s*đêm|im\s*lặng\s*ban\s*đêm|no\s*sound\s*at\s*night)/i.test(low)) {
+    state.alertMode = 'night'; state.muteUntil = 0;
+    try { saveJSON(STATE_F, state); } catch (e) {}
+    return '🌙 Night quiet 22:00–07:00 activated.';
+  }
+
+  const muteMatch = low.match(/(mute|im\s*lặng|silent|quiet|silenciar|pausar)\s*(?:for|trong|durante)?\s*(\d+)\s*(h|hour|giờ|m|min|minute|phút|seg|sec)/i);
+  if (muteMatch) {
+    const n = parseInt(muteMatch[2], 10);
+    const unit = String(muteMatch[3] || '').toLowerCase();
+    let hours = n;
+    if (/^(m|min|minute|phút)/.test(unit)) hours = n / 60;
+    if (/^(s|seg|sec)/.test(unit)) hours = n / 3600;
+    if (hours > 0 && hours <= 72) {
+      setMuteHours(hours);
+      const label = hours < 1 ? Math.round(hours * 60) + ' min' : (Math.round(hours * 10) / 10) + 'h';
+      return '🔇 Muted for ' + label + '.\n' + formatMuteAck();
+    }
+  }
+
+  if (/(report|báo\s*cáo|informe|schedule|lịch)/i.test(low)) {
+    const hours = extractHoursFromText(low);
+    if (hours && hours.length) {
+      state.reportHours = hours;
+      try { saveJSON(STATE_F, state); } catch (e) {}
+      const fmt = hours.map(function (h) { return String(h).padStart(2, '0') + ':00'; }).join(', ');
+      return '🕐 Daily reports scheduled at: ' + fmt + '.\nUse /report_off to turn off.';
+    }
+  }
+
+  return null;
+}
+/* END NATURAL LANGUAGE PARSER ======================================== */
+
 function localAssistantReply(t, intent, userQ) {
   const ok = t.level === 'ok' || (t.sync && /synced|live|horizon ok/i.test(String(t.sync)));
   const age = t.ledger_age != null ? t.ledger_age : null;
@@ -2660,7 +2823,6 @@ function formatAiReply(raw) {
   s = s.replace(/[━─═]{3,}/g, '───────────────'); s = s.replace(/\n{3,}/g, '\n\n');
   return s.trim().slice(0, 3500);
 }
-/** Fallback: 7-step diagnostic flow, no Gemini key needed */
 function technicianEvaluate(t, userQ, intent) {
   const h = buildHistory24h();
   const sync = (t && t.sync) || (h && h.last_sync) || null;
@@ -2675,7 +2837,6 @@ function technicianEvaluate(t, userQ, intent) {
   lines.push('───────────────');
   lines.push('');
 
-  // STEP 1: DETECT
   lines.push('1. 🔍 DETECT');
   if (issues.length) {
     issues.slice(0, 3).forEach(function (x) { lines.push('   · ' + x); });
@@ -2686,7 +2847,6 @@ function technicianEvaluate(t, userQ, intent) {
   }
   lines.push('');
 
-  // STEP 2: VERIFY
   lines.push('2. 🧠 VERIFY');
   if (sync && /catch|behind|syncing/i.test(String(sync)) && ledger && age != null && age <= 300) {
     lines.push('   · Likely natural catch-up. Not a fault yet.');
@@ -2701,14 +2861,12 @@ function technicianEvaluate(t, userQ, intent) {
   }
   lines.push('');
 
-  // STEP 3: EXPLAIN
   lines.push('3. 💡 EXPLAIN');
   if (sync) lines.push('   · Sync: ' + sync + (age != null ? (' (age ' + age + 's)') : ''));
   if (ledger) lines.push('   · Ledger: ' + ledger);
   if (t && t.health != null) lines.push('   · Health ' + t.health + '/100 (' + (t.health_confidence || '?') + ', ' + (t.health_trend || 'stable') + ')');
   lines.push('');
 
-  // STEP 4: RECOMMEND
   lines.push('4. 🛠️ RECOMMEND');
   if (script) {
     lines.push('   · Run: `' + script.file + '` [' + script.level + ']');
@@ -2718,7 +2876,6 @@ function technicianEvaluate(t, userQ, intent) {
   }
   lines.push('');
 
-  // STEP 5: SAFETY
   lines.push('5. 🛡️ SAFETY');
   if (script) {
     lines.push('   · Level ' + script.level + ' (' + script.levelTxt + ')');
@@ -2728,7 +2885,6 @@ function technicianEvaluate(t, userQ, intent) {
   }
   lines.push('');
 
-  // STEP 6: ACTION
   lines.push('6. 👤 ACTION');
   if (script) {
     lines.push('   · SoloHost UI -> Scripts -> ' + script.file);
@@ -2738,7 +2894,6 @@ function technicianEvaluate(t, userQ, intent) {
   }
   lines.push('');
 
-  // STEP 7: RECHECK
   lines.push('7. 🔄 RECHECK');
   if (script) lines.push('   · Wait 10-15 min. Then /status or /report.');
   else lines.push('   · Check /report after ~30 min for trends.');
@@ -2747,7 +2902,6 @@ function technicianEvaluate(t, userQ, intent) {
   lines.push('Ask for more details anytime.');
   return lines.join('\n');
 }
-/** Fallback mapping: raw telemetry -> suggested script object */
 function recommendScriptForTelemetry(t) {
   t = t || {};
   const portsOpen = t.ports_open != null ? Number(t.ports_open) : null;
@@ -2771,7 +2925,8 @@ function recommendScriptForTelemetry(t) {
 async function aiAnalyze(t, userQ, opts) {
   opts = opts || {};
   const skipCurrentForLang = opts.quickAction === true || isQuickActionText(userQ);
-  const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 2500);
+  const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 2500) +
+                   '\n\n' + PI_NODE_DEEP_KNOWLEDGE;
   try { await fetchPctContext(); } catch (e) {}
   try {
     const intent = detectIntent(userQ || '');
@@ -2808,6 +2963,13 @@ async function aiAnalyze(t, userQ, opts) {
         appGuide,
         '',
         PI_NODE_DIAGNOSTIC_PROMPT,
+        '',
+        '=== DEEP KNOWLEDGE (use when relevant, do NOT repeat verbatim) ===',
+        PI_NODE_DEEP_KNOWLEDGE,
+        '',
+        '=== NATURAL LANGUAGE COMMANDS (already handled at app level) ===',
+        'Settings commands like report schedule, alerts on/off/night, mute N hours, stop reports',
+        'are parsed by the app BEFORE reaching you. You will not see them. Focus on technician analysis.',
         '',
         '=== RUN CONTEXT ===',
         'LANGUAGE (MANDATORY): Reply in ' + userLang + '. Do NOT switch to English unless the user is using English.',
@@ -3037,7 +3199,6 @@ async function runCmd(cmd, userText) {
   if (cmd === 'report_both') { state.reportHours = [7, 18]; saveJSON(STATE_F, state); return tgSend('🕖🕕 Reports at 07:00 and 18:00', { reply_markup: reportKeyboard() }); }
   if (cmd === 'report_off') { state.reportHours = 'off'; saveJSON(STATE_F, state); return tgSend('⏰ Scheduled reports off', { reply_markup: reportKeyboard() }); }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
-  // 8-script detail cards
   if (cmd === 'script_cleanram') return tgSend(formatScriptDetail('cleanram'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'script_dnsflush') return tgSend(formatScriptDetail('dnsflush'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'script_firewall') return tgSend(formatScriptDetail('firewall'), { reply_markup: scriptActionKeyboard() });
@@ -3060,9 +3221,20 @@ async function handleText(text) {
   if (!raw) return null;
   const low = raw.toLowerCase();
   const cmd = low.split(/\s+/)[0].replace(/@\w+$/, '').replace(/^\//, '');
-  if (raw.startsWith('/')) return (await runCmd(cmd, raw)) || tgSend('❓ Unknown command. /help', { reply_markup: mainKeyboard() });
+
+  if (raw.startsWith('/')) {
+    return (await runCmd(cmd, raw)) || tgSend('❓ Unknown command. /help', { reply_markup: mainKeyboard() });
+  }
+
   if (/^(status|ping)$/i.test(raw.trim())) return runCmd(raw.toLowerCase(), raw);
   if (/^(peers?|ports?|report|diagnostic|donate|scripts?|incidents?)$/i.test(raw.trim())) return runCmd(cmd, raw);
+
+  const natural = tryNaturalCommand(raw);
+  if (natural) {
+    try { actionLog('info', 'NL command: ' + raw.slice(0, 80)); } catch (e) {}
+    return tgSend(natural, { reply_markup: alertKeyboard() });
+  }
+
   return runCmd('analyze', raw);
 }
 let offset = 0;
@@ -3088,38 +3260,69 @@ async function processUpdate(u) {
     try { await tgSend('Error handling message. Try /ping or /status.'); } catch (e2) {}
   }
 }
-async function installTelegramMenu() {
-  if (!BOT_TOKEN) return;
-  try {
-    const r = await tgApi('setMyCommands', {
-      commands: [
-        { command: 'status', description: 'Current node health snapshot' },
-        { command: 'sync', description: 'Sync status and latest ledger' },
-        { command: 'peers', description: 'Inbound and outbound peers' },
-        { command: 'report', description: 'Last 24h rolling window (spans midnight)' },
-        { command: 'incidents', description: 'Active + recent incident history' },
-        { command: 'diagnostic', description: 'Technical source details' },
-        { command: 'scripts', description: '8 SoloHost scripts + safety levels' },
-        { command: 'analyze', description: 'AI technician review (in your language)' },
-        { command: 'logs', description: 'App activity and errors' },
-        { command: 'donate', description: 'Support the project' },
-        { command: 'winpro', description: 'Windows PRO edition link' },
-        { command: 'ping', description: 'Controller heartbeat' },
-        { command: 'help', description: 'List available commands' },
-        { command: 'mute', description: 'Quiet alerts (also mutes recovery)' }
-      ]
-    });
-    if (r && r.ok) log('Telegram command menu installed');
-    else log('setMyCommands skip: ' + ((r && r.description) || 'no reply'), 'warn');
-  } catch (e) { log('setMyCommands ' + (e && e.message), 'warn'); }
+
+/* Standard command menu — single source of truth */
+function getStandardMenu() {
+  return [
+    { command: 'status',     description: 'Current node health snapshot' },
+    { command: 'sync',       description: 'Sync status and latest ledger' },
+    { command: 'peers',      description: 'Inbound and outbound peers' },
+    { command: 'report',     description: 'Last 24h rolling window (spans midnight)' },
+    { command: 'incidents',  description: 'Active + recent incident history' },
+    { command: 'diagnostic', description: 'Technical source details' },
+    { command: 'scripts',    description: '8 SoloHost scripts + safety levels' },
+    { command: 'analyze',    description: 'AI technician review (in your language)' },
+    { command: 'logs',       description: 'App activity and errors' },
+    { command: 'donate',     description: 'Support the project' },
+    { command: 'winpro',     description: 'Windows PRO edition link' },
+    { command: 'ping',       description: 'Controller heartbeat' },
+    { command: 'help',       description: 'List available commands' },
+    { command: 'mute',       description: 'Quiet alerts (also mutes recovery)' }
+  ];
 }
+
+/**
+ * Boot-time sync of Telegram command menu.
+ * 1. Read current commands
+ * 2. Compare with standard menu
+ * 3. If different -> delete ALL then install new
+ * 4. Also force default chat menu button
+ */
+async function ensureTelegramMenu() {
+  if (!BOT_TOKEN) return;
+  const desired = getStandardMenu();
+  try {
+    const cur = await tgApi('getMyCommands');
+    const curList = (cur && Array.isArray(cur.result)) ? cur.result : [];
+    const same = curList.length === desired.length &&
+      curList.every(function (c, i) {
+        return String(c.command || '') === desired[i].command &&
+               String(c.description || '') === desired[i].description;
+      });
+    if (same) {
+      log('Telegram menu already standard (' + curList.length + ' commands)');
+    } else {
+      try { await tgApi('deleteMyCommands'); } catch (e) {}
+      const r = await tgApi('setMyCommands', { commands: desired });
+      if (r && r.ok) log('Telegram menu refreshed: deleted ' + curList.length + ' old, installed ' + desired.length + ' new');
+      else log('setMyCommands fail: ' + ((r && r.description) || 'no reply'), 'warn');
+    }
+    try {
+      const mb = await tgApi('setChatMenuButton', { menu_button: JSON.stringify({ type: 'commands' }) });
+      if (mb && mb.ok) log('Chat menu button set to commands');
+    } catch (e) {}
+  } catch (e) {
+    log('menu sync error: ' + (e && e.message), 'warn');
+  }
+}
+
 async function telegramLoop() {
   let conflictBackoff = 15000, lastConflictLog = 0;
   if (BOT_TOKEN) {
     const dw = await tgApi('deleteWebhook', { drop_pending_updates: true });
     log('deleteWebhook ' + (dw && dw.ok ? 'ok' : 'skip') + ' (drop_pending=true)');
     try { actionLog('info', 'telegram loop start'); } catch (e) {}
-    await installTelegramMenu();
+    await ensureTelegramMenu();
   }
   while (true) {
     if (!BOT_TOKEN) { await wait(5000); continue; }
@@ -3321,7 +3524,6 @@ const srv = http.createServer(async (req, res) => {
       ok('pipeline_ledgerVelocity', typeof ledgerVelocity === 'function', 'ok');
       ok('readhist_cache_active', typeof invalidateReadHistory === 'function' && _readHistCache.ttlMs > 0, 'ttl=' + _readHistCache.ttlMs);
       ok('rollup_cache_fn', typeof ensureRollupLoaded === 'function', 'ensureRollupLoaded');
-      // Diagnostic framework checks
       ok('diag_prompt_loaded', typeof PI_NODE_DIAGNOSTIC_PROMPT === 'string' && PI_NODE_DIAGNOSTIC_PROMPT.length > 400, 'len=' + PI_NODE_DIAGNOSTIC_PROMPT.length);
       ok('script_details_count', Object.keys(SCRIPT_DETAILS).length === 8, 'count=' + Object.keys(SCRIPT_DETAILS).length);
       ok('script_kb_builder', typeof scriptActionKeyboard === 'function', 'scriptActionKeyboard');
@@ -3329,10 +3531,28 @@ const srv = http.createServer(async (req, res) => {
       ok('script_card_cleanram', (formatScriptDetail('cleanram') || '').indexOf('CleanRam.bat') >= 0, 'ok');
       ok('script_rec_from_text', typeof recommendScriptsFromText === 'function' && recommendScriptsFromText('Run NodeReset now').indexOf('nodereset') >= 0, 'ok');
       ok('script_fallback_map', typeof recommendScriptForTelemetry === 'function', 'ok');
-      // Quick-action language
       ok('quickaction_detector', typeof isQuickActionText === 'function' && isQuickActionText('Review my node') === true && isQuickActionText('hello world') === false, 'ok');
       ok('lang_skip_current_option', typeof detectUserPreferredLang === 'function', 'ok');
-      // AI DATA checks
+      ok('deep_knowledge_loaded', typeof PI_NODE_DEEP_KNOWLEDGE === 'string' && PI_NODE_DEEP_KNOWLEDGE.length > 800, 'len=' + PI_NODE_DEEP_KNOWLEDGE.length);
+      ok('nl_parser_fn', typeof tryNaturalCommand === 'function' && typeof extractHoursFromText === 'function', 'loaded');
+      const h1 = extractHoursFromText('report at 7am and 6pm');
+      ok('nl_extract_7_18', h1.length === 2 && h1[0] === 7 && h1[1] === 18, JSON.stringify(h1));
+      const h2 = extractHoursFromText('báo cáo hàng ngày 12 giờ đêm');
+      ok('nl_extract_midnight', h2.length >= 1 && h2[0] === 0, JSON.stringify(h2));
+      const h3 = extractHoursFromText('reports at noon');
+      ok('nl_extract_noon', h3.length === 1 && h3[0] === 12, JSON.stringify(h3));
+      const n1 = tryNaturalCommand('turn off alerts');
+      ok('nl_off_alerts', typeof n1 === 'string' && /OFF/i.test(n1), n1 ? n1.slice(0, 40) : 'null');
+      const prevRH = state.reportHours;
+      state.reportHours = prevRH;
+      const n2 = tryNaturalCommand('this is a general question about my node?');
+      ok('nl_skip_question', n2 === null, String(n2));
+      const n3 = tryNaturalCommand('reports at 7am and 6pm');
+      ok('nl_set_report_hours', typeof n3 === 'string', n3 ? n3.slice(0, 40) : 'null');
+      state.reportHours = prevRH;
+      ok('menu_sync_fn', typeof ensureTelegramMenu === 'function' && typeof getStandardMenu === 'function', 'loaded');
+      const menu = getStandardMenu();
+      ok('menu_standard_count', menu.length === 14, 'count=' + menu.length);
       ok('ai_data_providers', Object.keys(AI_DATA_PROVIDERS).length >= 10, 'count=' + Object.keys(AI_DATA_PROVIDERS).length);
       ok('ai_parse_request', typeof parseDataRequests === 'function', 'parseDataRequests');
       ok('dsl_parse_fn', typeof parseDataQueries === 'function' && typeof executeDataQuery === 'function', 'loaded');
@@ -3348,7 +3568,6 @@ const srv = http.createServer(async (req, res) => {
       ok('dsl_exec_summary', e2.ok === true && (e2.stats || e2.note), 'n=' + (e2.stats ? e2.stats.n : 'na'));
       const st2 = stripDataRequests('Hello [DATA_QUERY: metric=ram window=1h] world');
       ok('strip_dsl', st2.indexOf('DATA_QUERY') < 0, st2.slice(0, 40));
-      // Mute + health damper + incident
       const prevMode = state.alertMode;
       state.alertMode = 'off';
       const gate = alertsMuted();
@@ -3619,6 +3838,8 @@ srv.listen(PORT, '0.0.0.0', () => {
   log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' named blocks');
   log('AI DSL metrics: ' + Object.keys(AI_METRIC_WHITELIST).length + ' (numeric + category)');
   log('Language: quick-action buttons use chat-history language');
+  log('NLU parser active · report/alerts/mute in EN/VI/ES/FR');
+  log('Telegram menu sync: delete old + install standard (14 commands)');
   log('Night/off mute applies to alerts, reminders, recovery, scheduled reports');
   log('Telegram long-poll independent of telemetry');
 });
@@ -3633,4 +3854,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       else { try { actionLog('info', 'startup notification muted - ' + gate.why); } catch (e) {} }
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-      }
+  }
