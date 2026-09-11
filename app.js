@@ -8,10 +8,10 @@
  * - Natural Language Command Parser (multi-language)
  * - Auto Telegram Menu Sync on boot
  * - Update checker (48h) via GitHub repo cannoi/pinode-telegram-solohost
- * - Horizon-only disclaimer (hidden when docker.sock is ON)
+ * - Horizon-only notice: shown under Peers line, hidden when docker.sock ON
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
- * - Resource-tuned: readHistory cache + rollup RAM cache
+ * - Resource-tuned: readHistory cache + rollup RAM cache + index cache
  */
 const http = require('http');
 const https = require('https');
@@ -227,8 +227,8 @@ const SCRIPT_DETAILS = {
 const VERSION = '2.6.57-solohost';
 const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
 const GITHUB_REPO_URL = 'https://github.com/' + GITHUB_REPO;
-const UPDATE_CHECK_INTERVAL_MS = 48 * 3600 * 1000; // 48h gate
-const UPDATE_WAKE_INTERVAL_MS = 6 * 3600 * 1000;   // loop wakes every 6h
+const UPDATE_CHECK_INTERVAL_MS = 48 * 3600 * 1000;
+const UPDATE_WAKE_INTERVAL_MS = 6 * 3600 * 1000;
 
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
@@ -529,11 +529,7 @@ function ledgerVelocity(rows) {
 }
 /* END DATA PIPELINE ==================================================== */
 
-/* HORIZON-ONLY DISCLAIMER ============================================== */
-/**
- * Short English footer appended to data-derived messages when docker.sock is OFF.
- * Returns '' when docker.sock (or docker_probe) is enabled.
- */
+/* HORIZON-ONLY FOOTER (Telegram) ====================================== */
 function horizonFooter(t) {
   if (!t || (t.docker_sock || t.docker_probe)) return '';
   return [
@@ -548,16 +544,9 @@ function hasDockerSock(t) {
   if (t && (t.docker_sock === true || t.docker_probe === true)) return true;
   try { return fs.existsSync('/var/run/docker.sock'); } catch (e) { return false; }
 }
-/* END HORIZON DISCLAIMER ============================================== */
+/* END HORIZON FOOTER ================================================== */
 
 /* UPDATE CHECKER ====================================================== */
-/**
- * Check for app updates from the official repo.
- * Strategy:
- *  1. Try /releases/latest (used when author publishes releases/tags)
- *  2. Fallback to /commits?per_page=1 (used when no release yet)
- * 48h gate applied via state.updateCheckedAt.
- */
 async function checkForUpdates(force) {
   const now = Date.now();
   if (!force && state.updateCheckedAt && (now - state.updateCheckedAt) < UPDATE_CHECK_INTERVAL_MS) return null;
@@ -626,8 +615,7 @@ async function sendUpdateNotice(latest) {
   return true;
 }
 async function updateLoop() {
-  // Give telegram loop time to init
-  await wait(15000);
+  await wait(20000);
   while (true) {
     try {
       const latest = await checkForUpdates(false);
@@ -2506,7 +2494,7 @@ const AI_DATA_PROVIDERS = {
 /* END AI DATA PROVIDERS ================================================ */
 
 /* ======================================================================
- * AI DATA QUERY DSL - flexible metric/window/agg/filter
+ * AI DATA QUERY DSL
  * ==================================================================== */
 const AI_METRIC_WHITELIST = {
   ledger: 'number', ledger_age: 'number', peer_in: 'number', peer_out: 'number',
@@ -2712,8 +2700,7 @@ function stripDataRequests(text) {
 /* END DSL ============================================================== */
 
 /* ======================================================================
- * NATURAL LANGUAGE COMMAND PARSER (multi-language)
- * Matches setting-style commands only. Questions go to AI.
+ * NATURAL LANGUAGE COMMAND PARSER
  * ==================================================================== */
 function extractHoursFromText(low) {
   const hours = [];
@@ -3427,14 +3414,6 @@ function getStandardMenu() {
     { command: 'mute',       description: 'Quiet alerts (also mutes recovery)' }
   ];
 }
-
-/**
- * Boot-time sync of Telegram command menu.
- * 1. Read current commands
- * 2. Compare with standard menu
- * 3. If different -> delete ALL then install new
- * 4. Also force default chat menu button
- */
 async function ensureTelegramMenu() {
   if (!BOT_TOKEN) return;
   const desired = getStandardMenu();
@@ -3550,51 +3529,78 @@ function setSecHeaders(res, mode) {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   }
 }
-/**
- * Inject a small client-side script into the SoloHost dashboard:
- *  - Removes any legacy "Optional Docker probe (advanced)..." text
- *  - Adds a clear Horizon-only banner under the main content when docker.sock is OFF
- *  - Removes the banner when docker.sock is ON
- */
-function injectUiNotice(html, showNotice) {
-  const script = showNotice ? `
-<script>
-(function(){
-  try {
-    var LEGACY = /Optional Docker probe\\s*\\(advanced\\)[^<]*/i;
-    document.querySelectorAll('*').forEach(function(el){
-      if(el.children.length===0 && LEGACY.test(el.textContent)){ el.remove(); }
-    });
-    if(!document.getElementById('pn-horizon-notice')){
-      var d=document.createElement('div');
-      d.id='pn-horizon-notice';
-      d.style.cssText='margin:14px 0;padding:12px 14px;border-left:4px solid #f0ad4e;background:#fff8e1;color:#5a3e00;border-radius:6px;font:14px/1.45 system-ui,-apple-system,sans-serif';
-      d.innerHTML='<b>\\u2139\\ufe0f Horizon-only mode (docker.sock OFF)</b><br>'+
-        'Readings come from Horizon; accuracy may lag or differ from Pi Node Desktop.<br>'+
-        '<b>\\ud83d\\udd13 Tip:</b> turn ON Optional Docker in this window to boost Pi Node accuracy.';
-      var host=document.querySelector('main')||document.body;
-      host.appendChild(d);
-    }
-  } catch(e){}
-})();
-</script>
-` : `
-<script>
-(function(){
-  try {
-    var LEGACY = /Optional Docker probe\\s*\\(advanced\\)[^<]*/i;
-    document.querySelectorAll('*').forEach(function(el){
-      if(el.children.length===0 && LEGACY.test(el.textContent)){ el.remove(); }
-    });
-    var n=document.getElementById('pn-horizon-notice');
-    if(n) n.remove();
-  } catch(e){}
-})();
-</script>
-`;
-  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, script + '</body>');
-  return html + script;
+
+/* --- Index transform: remove legacy "Optional Docker probe..." lines,
+       inject new Horizon-only note + placer script when docker.sock is OFF.
+       Cached for 3s to avoid repeated regex on rapid UI refreshes. --- */
+const _indexCache = { html: null, sockOn: null, at: 0 };
+function applyIndexTransform(html, sockOn) {
+  const now = Date.now();
+  if (_indexCache.html && _indexCache.sockOn === sockOn && (now - _indexCache.at) < 3000) {
+    return _indexCache.html;
+  }
+  let out = String(html || '');
+
+  // 1) Strip all legacy "Optional Docker probe..." lines (any position)
+  out = out.replace(/Optional Docker\s*probe[^<\n]{0,260}/gi, '');
+  // 2) Strip any previous yellow banner we injected
+  out = out.replace(/<div[^>]*id=["']pn-horizon-notice["'][\s\S]*?<\/div>/gi, '');
+  out = out.replace(/Horizon-only mode[^<\n]{0,320}/gi, '');
+
+  if (sockOn) {
+    _indexCache.html = out;
+    _indexCache.sockOn = sockOn;
+    _indexCache.at = now;
+    return out;
+  }
+
+  // 3) Inject new notice + placer script (moves it under the last "Peers" line)
+  const notice =
+    '<div id="pn-horizon-note" style="margin-top:6px;font:inherit;opacity:.92;line-height:1.45">' +
+      '\u2139\ufe0f Data may be delayed or differ from Pi Desktop. ' +
+      '<a href="/docker" style="color:#4aa3ff;text-decoration:underline;cursor:pointer">' +
+      '\ud83d\udd13 Turn ON Docker for better accuracy. Optional Docker\u2026</a>' +
+    '</div>';
+
+  const placer = [
+    '<script>',
+    '(function(){',
+      'function p(){',
+        'try{',
+          'var n=document.getElementById("pn-horizon-note");',
+          'if(!n)return;',
+          'var all=document.querySelectorAll("body *");',
+          'var t=null;',
+          'for(var i=0;i<all.length;i++){',
+            'var e=all[i];',
+            'if(e.children.length>2)continue;',
+            'var x=(e.textContent||"").trim();',
+            'if(!x||x.length>90)continue;',
+            'if(/^Peers?\\b/i.test(x)||/\\bIN\\s*\\d+\\s*\\/\\s*OUT\\s*\\d+/i.test(x)){t=e;}',
+          '}',
+          'if(t&&t.parentNode){',
+            'if(n.previousSibling!==t)t.parentNode.insertBefore(n,t.nextSibling);',
+          '}',
+        '}catch(e){}',
+      '}',
+      'p();',
+      'setTimeout(p,300);',
+      'setTimeout(p,1200);',
+      'setTimeout(p,3000);',
+      'try{new MutationObserver(p).observe(document.body,{childList:true,subtree:true});}catch(e){}',
+    '})();',
+    '</script>'
+  ].join('');
+
+  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, notice + placer + '</body>');
+  else out = out + notice + placer;
+
+  _indexCache.html = out;
+  _indexCache.sockOn = sockOn;
+  _indexCache.at = now;
+  return out;
 }
+
 const srv = http.createServer(async (req, res) => {
   const u = (req.url || '/').split('?')[0];
   setSecHeaders(res);
@@ -3763,19 +3769,20 @@ const srv = http.createServer(async (req, res) => {
       ok('menu_sync_fn', typeof ensureTelegramMenu === 'function' && typeof getStandardMenu === 'function', 'loaded');
       const menu = getStandardMenu();
       ok('menu_standard_count', menu.length === 14, 'count=' + menu.length);
-      // v3.5 checks
       ok('update_checker_fn', typeof checkForUpdates === 'function' && typeof updateLoop === 'function', 'loaded');
       ok('github_repo_const', GITHUB_REPO === 'cannoi/pinode-telegram-solohost', GITHUB_REPO);
       ok('update_interval_48h', UPDATE_CHECK_INTERVAL_MS === 48 * 3600 * 1000, String(UPDATE_CHECK_INTERVAL_MS));
       ok('horizon_footer_fn', typeof horizonFooter === 'function', 'horizonFooter');
       ok('horizon_footer_on_when_off', (horizonFooter({ docker_sock: false }) || '').indexOf('Horizon only') >= 0, 'on');
       ok('horizon_footer_off_when_on', horizonFooter({ docker_sock: true }) === '', 'off');
-      ok('ui_notice_inject_fn', typeof injectUiNotice === 'function', 'injectUiNotice');
-      const tOff = injectUiNotice('<html><body>x</body></html>', true);
-      const tOn = injectUiNotice('<html><body>x</body></html>', false);
-      ok('ui_notice_show', tOff.indexOf('pn-horizon-notice') >= 0, 'show');
-      ok('ui_notice_hide_removes', tOn.indexOf('pn-horizon-notice') < 0, 'hide');
       ok('has_docker_sock_fn', typeof hasDockerSock === 'function', 'hasDockerSock');
+      ok('index_transform_fn', typeof applyIndexTransform === 'function', 'applyIndexTransform');
+      const hOff = applyIndexTransform('<html><body><div>x</div></body></html>', false);
+      ok('index_transform_injects_note', hOff.indexOf('pn-horizon-note') >= 0, 'inject');
+      ok('index_transform_has_placer', hOff.indexOf('MutationObserver') >= 0, 'placer');
+      const hOn = applyIndexTransform('<html><body><div>Optional Docker probe (advanced) is configured only on this PC.</div></body></html>', true);
+      ok('index_transform_strips_legacy', hOn.indexOf('Optional Docker') < 0, 'stripped');
+      ok('index_transform_off_hides_note', hOn.indexOf('pn-horizon-note') < 0, 'hidden');
       ok('ai_data_providers', Object.keys(AI_DATA_PROVIDERS).length >= 10, 'count=' + Object.keys(AI_DATA_PROVIDERS).length);
       ok('ai_parse_request', typeof parseDataRequests === 'function', 'parseDataRequests');
       ok('dsl_parse_fn', typeof parseDataQueries === 'function' && typeof executeDataQuery === 'function', 'loaded');
@@ -3902,25 +3909,48 @@ const srv = http.createServer(async (req, res) => {
         const applied = applyDockerConsentFiles();
         try { actionLog('ok', 'docker pref ON via local UI'); } catch (e) {}
         const extra = applied && applied.wrote_host
-          ? '<p><b>docker-compose.yml</b> updated in app folder. SoloHost: Stop -> Start the app.</p>'
-          : '<p>Files ready under <code>data/docker-enable/</code>. Copy <code>docker-compose.yml</code> to app root if needed, then Stop -> Start.</p>';
-        res.end('<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:2rem auto"><h2>Consent saved</h2><p>Docker preference <b>ON</b>.</p>' + extra + '<p><a href="/docker">Back</a></p></body></html>');
+          ? '<p><b>docker-compose.yml</b> updated in app folder.</p>'
+          : '<p>Files ready under <code>data/docker-enable/</code>. Copy <code>docker-compose.yml</code> to app root if needed.</p>';
+        res.end('<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:2rem auto;line-height:1.5">'
+          + '<h2>✅ Docker preference ON</h2>'
+          + extra
+          + '<p><b>Next step (required):</b> In SoloHost, press <b>Stop</b>, then press <b>Start</b> to apply the socket mount.</p>'
+          + '<p>After restart, /status will show <code>Sock: Yes</code> when the socket is live.</p>'
+          + '<p><a href="/docker">Back</a> · <a href="/">Controller home</a></p></body></html>');
         return;
       }
       if (u.indexOf('/docker/off') === 0) {
         writeDockerPref({ enabled: false, at: new Date().toISOString(), by: 'local_ui', consent: false });
         try { actionLog('ok', 'docker pref OFF via local UI'); } catch (e) {}
-        res.end('<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:2rem auto"><h2>OFF</h2><p>Sandbox default.</p><p><a href="/docker">Back</a></p></body></html>');
+        res.end('<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:2rem auto;line-height:1.5">'
+          + '<h2>🔕 Docker preference OFF</h2>'
+          + '<p>Sandbox default. No socket access.</p>'
+          + '<p>If the socket volume is still in docker-compose.yml, remove it, then <b>Stop → Start</b> to fully return to sandbox mode.</p>'
+          + '<p><a href="/docker">Back</a></p></body></html>');
         return;
       }
       let sockExists = false;
       try { sockExists = fs.existsSync('/var/run/docker.sock'); } catch (e) {}
-      res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Docker optional</title><style>body{font-family:system-ui,sans-serif;max-width:640px;margin:1.5rem auto;padding:0 1rem;line-height:1.45}.box{border:1px solid #ccc;border-radius:8px;padding:1rem;margin:1rem 0;background:#f8f8f8}.btn{display:inline-block;margin:.3rem .4rem .3rem 0;padding:.65rem 1rem;border-radius:6px;text-decoration:none;color:#fff;font-weight:600}.yes{background:#0a7}.no{background:#555}</style></head><body>'
-        + '<h1>Optional Docker access</h1>'
-        + '<p>Confirm on <b>this computer</b> (SoloHost node). Default app stays sandboxed.</p>'
-        + '<div class="box"><p><b>Preference:</b> ' + (pref.enabled ? 'ON' : 'OFF') + '<br><b>Socket in container:</b> ' + (sockExists ? 'YES' : 'NO') + '</p>'
-        + '<p><b>Why enable it:</b> boost Pi Node accuracy with real container state + Core version.</p></div>'
-        + '<p><a class="btn yes" href="/docker/confirm">Agree - enable &amp; prepare files</a> <a class="btn no" href="/docker/off">Disable</a></p>'
+      res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docker optional</title>'
+        + '<style>body{font-family:system-ui,sans-serif;max-width:680px;margin:1.5rem auto;padding:0 1rem;line-height:1.55;color:#222}'
+        + '.box{border:1px solid #ccc;border-radius:8px;padding:1rem;margin:1rem 0;background:#f8f8f8}'
+        + '.btn{display:inline-block;margin:.3rem .4rem .3rem 0;padding:.7rem 1.1rem;border-radius:6px;text-decoration:none;color:#fff;font-weight:600}'
+        + '.yes{background:#0a7}.no{background:#555} code{background:#eee;padding:.1rem .35rem;border-radius:4px}'
+        + '.ok{color:#0a7;font-weight:600}.warn{color:#b58900;font-weight:600}</style></head><body>'
+        + '<h1>🔓 Optional Docker — enable for better accuracy</h1>'
+        + '<div class="box"><p><b>Why enable it?</b> With the Docker socket, this app can read the real Pi Node container state and Core version. Without it, data comes from Horizon only and may lag or differ from Pi Node Desktop.</p>'
+        + '<p><b>Current status:</b> '
+        + 'Preference <span class="' + (pref.enabled ? 'ok' : 'warn') + '">' + (pref.enabled ? 'ON' : 'OFF') + '</span> · '
+        + 'Socket in container <span class="' + (sockExists ? 'ok' : 'warn') + '">' + (sockExists ? 'YES' : 'NO') + '</span></p></div>'
+        + '<div class="box"><p><b>SoloHost default</b> ships this app as a sandbox. The Docker socket is <u>not</u> included by default. Enabling it is an <b>Operator opt-in</b>.</p>'
+        + '<p><b>After you click Agree:</b></p>'
+        + '<ol><li>App writes a ready <code>docker-compose.yml</code> (with socket).</li>'
+        + '<li>If the app folder is writable, it is filled automatically.</li>'
+        + '<li>Otherwise use files in <code>data/docker-enable/</code>.</li>'
+        + '<li><b>Stop → Start</b> this SoloHost app so the new mount takes effect.</li></ol>'
+        + '<p>Not required for normal monitoring.</p></div>'
+        + '<p><a class="btn yes" href="/docker/confirm">✅ Agree — enable &amp; prepare files</a>'
+        + '<a class="btn no" href="/docker/off">🔕 Disable</a></p>'
         + '<p><a href="/">Controller home</a></p></body></html>');
       return;
     }
@@ -4012,7 +4042,7 @@ const srv = http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       const tel = cache || {};
       const showNotice = !hasDockerSock(tel);
-      res.end(injectUiNotice(INDEX, showNotice));
+      res.end(applyIndexTransform(INDEX, !showNotice));
       return;
     }
     if (u.startsWith('/scripts/')) {
@@ -4062,24 +4092,15 @@ srv.listen(PORT, '0.0.0.0', () => {
     }
   } catch (e) {}
   log('telemetry=' + TELEMETRY_SEC + 's base · adaptive polling enabled (30-60s)');
-  log('Incident engine active · observe -> alert -> remind -> chronic');
-  log('Diagnostic framework v3.0 loaded · 8 scripts · 4 safety levels · 7-step flow');
-  log('Health damper active · EMA + dead-band + stability-aware adjustment');
-  log('Data pipeline: getTimeWindow (SORTED) + normalize + aggregate');
-  log('Resource opt: readHistory cache(' + _readHistCache.ttlMs + 'ms) + rollup RAM cache');
-  log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' named blocks');
-  log('AI DSL metrics: ' + Object.keys(AI_METRIC_WHITELIST).length + ' (numeric + category)');
-  log('Language: quick-action buttons use chat-history language');
-  log('NLU parser active · report/alerts/mute in EN/VI/ES/FR');
-  log('Telegram menu sync: delete old + install standard (14 commands)');
-  log('Update checker active · 48h window · repo ' + GITHUB_REPO_URL);
-  log('Horizon-only disclaimer active (auto-hides when docker.sock is ON)');
-  log('Night/off mute applies to alerts, reminders, recovery, scheduled reports, update notices');
+  log('Diag framework v3.0 · 8 scripts · 4 safety levels · NLU active');
+  log('Health damper active · readHistory cache(' + _readHistCache.ttlMs + 'ms) + rollup RAM cache');
+  log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' blocks · DSL ' + Object.keys(AI_METRIC_WHITELIST).length + ' metrics');
+  log('Menu sync 14 cmds · Update checker 48h · repo ' + GITHUB_REPO_URL);
+  log('Horizon-only notice shown under Peers (auto-hides when docker.sock is ON)');
   log('Telegram long-poll independent of telemetry');
 });
 telegramLoop();
 telemetryLoop();
-updateLoop();
 if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
   setTimeout(async () => {
     try {
@@ -4089,4 +4110,6 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       else { try { actionLog('info', 'startup notification muted - ' + gate.why); } catch (e) {} }
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-             }
+}
+// Update loop only if bot configured
+if (BOT_TOKEN && CHAT_ID) updateLoop();
