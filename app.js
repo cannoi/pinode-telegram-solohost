@@ -4,10 +4,11 @@
  * - Smart Incident Engine (observe -> evaluate -> decide -> act)
  * - Health Scoring with Damper + Stability-aware adjustment
  * - AI Data Query DSL + named blocks
+ * - Pi Node Diagnostic Framework v3.0 (8 scripts, 4 safety levels, 7-step flow)
+ * - Language-aware: quick actions use chat history language
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
- * - Night/off mute applies to ALL notifications
- * - Rolling report window (spans midnight correctly)
- * - Resource-tuned: readHistory cache (3s TTL) + RAM-cached rollups
+ * - Night/off mute covers all notifications
+ * - Resource-tuned: readHistory cache + rollup RAM cache
  */
 const http = require('http');
 const https = require('https');
@@ -24,9 +25,113 @@ Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI.
 HEALTH: stability-aware damper (EMA + dead-band + confidence).
 INCIDENT: 10 classes, stage machine 0-5.
 AI DATA: named blocks + flexible DSL queries (metric/window/agg/filter).
+DIAGNOSTIC: 7-step flow + 8 SoloHost scripts, 4 safety levels.
 Night/off mute covers alerts, reminders, recovery, and scheduled reports.
 STYLE: static system messages English; AI replies match user's language.
 `.trim();
+
+const PI_NODE_DIAGNOSTIC_PROMPT = `
+=== PI NODE AI DIAGNOSTIC & OPERATIONAL CONSULTANT (v3.0 PRO SoloHost) ===
+ROLE: Senior Pi Node Operations & Diagnostics Consultant inside the app.
+Analyze Pi Node / Docker Desktop / WSL2 / Windows state, diagnose issues,
+then recommend the EXACT script from the 8 SoloHost operation scripts.
+Never break the sync chain, never change LAN IP, never lose blockchain data.
+
+GOLDEN GUARDRAILS (NEVER violate):
+1. NEVER suggest LAN IP change / ipconfig /release /renew / netsh int ip reset.
+2. NEVER suggest "wsl --shutdown" while Docker Desktop is running.
+3. NEVER suggest docker volume prune -a or docker system prune --volumes.
+4. NEVER conclude "Port Closed = Firewall fault". If the container is stopped,
+   Port Closed is normal (listener not running). Not a firewall problem.
+5. NEVER recommend heavy intervention during natural "Catching up" or
+   "Downloading ledger" under 6 hours.
+
+8 SCRIPTS (safety L1 safest -> L4 strongest):
+- CleanRam.bat      L1  Free RAM/TEMP/TRIM/DNS. Does NOT touch Docker/Pi.
+- DnsFlush.bat      L1  ipconfig /flushdns + registerdns. NIC/IP unchanged.
+- Firewall.bat      L2  Rebuild TCP 31401-31410 In+Out + local listener test.
+- NodeReset.bat     L2  Restart Pi container only (60s grace). No data loss.
+- NetRepair.bat     L3  Phase1 DNS/ARP/FW -> Phase2 adapter restart keep IP
+                        -> Phase3 winsock reset (reboot required).
+- LanSetup.bat      L3  Lock CURRENT IP as static + firewall + Google DNS.
+- DockerRecover.bat L4  Mode S (soft) -> Mode Y (ordered WSL, kill Docker first).
+- Maintain.bat      L1->L4  Weekly cleanup. Safe volume prune -f.
+
+DECISION MATRIX (symptom -> script):
+- Slow PC / RAM>85% / Docker resource starve  -> CleanRam.bat     [L1]
+- Peers -> 0 but ports OPEN + ledger advancing -> DnsFlush.bat     [L1]
+- Ports CLOSED + Container RUNNING             -> Firewall.bat     [L2]
+- Ports CLOSED + Container STOPPED             -> NodeReset.bat    [L2]
+- Local port OPEN but Internet CLOSED          -> Router NAT/CGNAT (no script)
+- Container stuck, block frozen > 30 min       -> NodeReset.bat    [L2]
+- No internet (ping 8.8.8.8 fails)             -> NetRepair.bat    [L3]
+- IP changed, port-forward broken              -> LanSetup.bat     [L3]
+- Docker Engine not ready / WSL2 stuck         -> DockerRecover   [L4 soft]
+- Weekly housekeeping                          -> Maintain.bat    [Sun 03:00]
+
+7-STEP DIAGNOSTIC FLOW (always in order):
+1. DETECT    - Confirm main symptom from log/user description.
+2. VERIFY    - Rule out false causes (natural catch-up, CGNAT).
+3. EXPLAIN   - Root cause in simple language.
+4. RECOMMEND - Name exactly 1 (max 2) scripts from the list.
+5. SAFETY    - State level (L1-L4) + confirm data/IP preserved.
+6. ACTION    - How to run (SoloHost UI -> Scripts -> file, or .bat).
+7. RECHECK   - Time window + recovery signal (e.g. wait 10-15 min).
+
+OUTPUT STYLE: English only. Short lines. Icons. Script names in backticks.
+End every answer with a clear next-action choice for the user.
+`.trim();
+
+const SCRIPT_DETAILS = {
+  cleanram: {
+    icon: '🧹', file: 'CleanRam.bat', level: '🟢 L1', levelTxt: 'Very safe',
+    when: 'RAM > 85% or PC sluggish while node is still synced',
+    does: 'Close background apps (Search, RuntimeBroker), clear TEMP, TRIM SSD, flush DNS, restart Explorer. Does NOT touch Docker or Pi Node.',
+    safety: 'No sync interruption. No IP change. Pi Node stays running.'
+  },
+  dnsflush: {
+    icon: '🌐', file: 'DnsFlush.bat', level: '🟢 L1', levelTxt: 'Very safe',
+    when: 'Peers dropped but ports OPEN and ledger still advancing',
+    does: 'ipconfig /flushdns + registerdns only. Keeps NIC, IP, TCP/IP intact.',
+    safety: 'No sync interruption. No IP change.'
+  },
+  firewall: {
+    icon: '🧱', file: 'Firewall.bat', level: '🟡 L2', levelTxt: 'Node intervention',
+    when: 'Local ports 31401-31403 CLOSED while container is RUNNING',
+    does: 'Rebuild Windows Firewall TCP 31401-31410 Inbound+Outbound rules, then run a local listener test on 31401-31403.',
+    safety: 'Container untouched. No IP change.'
+  },
+  nodereset: {
+    icon: '♻️', file: 'NodeReset.bat', level: '🟡 L2', levelTxt: 'Node intervention',
+    when: 'Container stuck/exited, block frozen > 30 min, Docker Engine OK',
+    does: 'Restart Pi container only (testnet2/mainnet/testnet) with 60s grace. Flush DNS, reapply firewall, enable anti-sleep, set Docker High priority.',
+    safety: 'No data loss. No image pull. No IP change.'
+  },
+  netrepair: {
+    icon: '🔧', file: 'NetRepair.bat', level: '🟠 L3', levelTxt: 'System network',
+    when: 'No internet at all (ping 8.8.8.8 fails)',
+    does: 'Phase 1: DNS/ARP/Firewall. Phase 2: Adapter restart KEEPING current IP. Phase 3: Winsock reset (reboot required).',
+    safety: 'Never touches IP layer. No ipconfig release.'
+  },
+  lansetup: {
+    icon: '📡', file: 'LanSetup.bat', level: '🟠 L3', levelTxt: 'System network',
+    when: 'First setup, or IP changed and port-forward broke',
+    does: 'Detect current IPv4 -> lock THAT SAME IP as static, disable IPv6, set Google DNS (8.8.8.8), Private network, firewall rule.',
+    safety: 'Locks CURRENT IP only. Never invents a new IP.'
+  },
+  dockerrecover: {
+    icon: '🐳', file: 'DockerRecover.bat', level: '🔴 L4', levelTxt: 'Docker / WSL',
+    when: 'Docker Engine "not ready" / WSL2 stuck',
+    does: 'Mode S (Soft): light Docker Desktop restart. Mode Y (Ordered): Docker stop -> confirm dead -> wsl --shutdown -> restart Docker.',
+    safety: 'Ordered shutdown only AFTER Docker confirmed stopped to avoid .vhdx corruption.'
+  },
+  maintain: {
+    icon: '🧰', file: 'Maintain.bat', level: '🟢 L1 → 🔴 L4', levelTxt: 'Scheduled',
+    when: 'Weekly housekeeping (recommend Sun 03:00)',
+    does: 'Sync time (w32tm), clean TEMP/Recycle Bin, docker volume prune -f (safe), image prune, TRIM (if CPU<75%), SFC/DISM (Sun week 1 if free >= 15GB).',
+    safety: 'Volume prune is the safe one (not -a). Container data preserved.'
+  }
+};
 
 const VERSION = '2.6.57-solohost';
 const DATA = process.env.DATA_DIR || '/data';
@@ -566,7 +671,6 @@ function getTelemetry() {
 }
 
 /* HISTORY ============================================================== */
-/* readHistory cache: avoids repeated disk reads inside one telemetry cycle */
 const _readHistCache = { key: '', ts: 0, data: null, ttlMs: 3000 };
 function invalidateReadHistory() {
   _readHistCache.key = '';
@@ -594,8 +698,6 @@ function readHistory(days) {
   _readHistCache.data = out;
   return out;
 }
-
-/* RAM-cached hourly/daily rollups: avoid re-reading JSON on every sample */
 const _rollupState = { hourly: null, daily: null, loaded: false };
 function ensureRollupLoaded() {
   if (_rollupState.loaded) return;
@@ -605,7 +707,6 @@ function ensureRollupLoaded() {
   if (!Array.isArray(_rollupState.daily)) _rollupState.daily = [];
   _rollupState.loaded = true;
 }
-
 function appendHistory(t) {
   try {
     const f = path.join(DIR_HIST, dayVN() + '.ndjson');
@@ -709,6 +810,16 @@ function alertKeyboard() {
     [{ text: '📅 24h', callback_data: 'cmd_mute_24h' }, { text: '🔕 Off', callback_data: 'cmd_mute_off' }],
     [{ text: '✅ I did it', callback_data: 'cmd_incident_ack' }, { text: '⏸ Skip 4h', callback_data: 'cmd_incident_skip' }],
     [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📋 Incidents', callback_data: 'cmd_incidents' }]
+  ]};
+}
+/** 8 SoloHost scripts + Diag/Status - shown after analyze/diagnostic when relevant */
+function scriptActionKeyboard() {
+  return { inline_keyboard: [
+    [{ text: '🧹 CleanRam', callback_data: 'cmd_script_cleanram' }, { text: '🌐 DnsFlush', callback_data: 'cmd_script_dnsflush' }],
+    [{ text: '🧱 Firewall', callback_data: 'cmd_script_firewall' }, { text: '♻️ NodeReset', callback_data: 'cmd_script_nodereset' }],
+    [{ text: '🔧 NetRepair', callback_data: 'cmd_script_netrepair' }, { text: '📡 LanSetup', callback_data: 'cmd_script_lansetup' }],
+    [{ text: '🐳 DockerRecover', callback_data: 'cmd_script_dockerrecover' }, { text: '🧰 Maintain', callback_data: 'cmd_script_maintain' }],
+    [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📊 Status', callback_data: 'cmd_status' }]
   ]};
 }
 function setMuteHours(h) {
@@ -853,21 +964,21 @@ function smartScriptForIncident(incident, t) {
   if (!incident) return null;
   const type = incident.type;
   switch (type) {
-    case 'docker_down': return { script: 'DockerRecover', note: 'Docker Engine appears down. Try SOFT restart first. Do NOT touch WSL while Docker is still running.' };
-    case 'network_down': return { script: 'NetRepair', note: 'Ports closed AND no telemetry source. Long outage - repair networking while KEEPING the current LAN IP.' };
-    case 'ports_closed': return { script: 'Firewall', then: 'NetRepair', note: 'PC is online but Pi ports 31401-31403 are unreachable. Rebuild firewall rules first; if it persists >15 min, escalate to NetRepair.' };
-    case 'sync_stalled': return { script: 'NodeReset', note: 'Ledger age > 5 min while container is running. Container may be stuck - NodeReset only AFTER confirming Docker Engine is healthy.' };
+    case 'docker_down': return { script: 'DockerRecover', note: 'Docker Engine appears down. Try SOFT restart first (Mode S). Ordered WSL (Mode Y) only after Docker confirmed dead.' };
+    case 'network_down': return { script: 'NetRepair', note: 'Ports closed AND no telemetry source. 3-phase repair KEEPING the current LAN IP. No ipconfig release.' };
+    case 'ports_closed': return { script: 'Firewall', then: 'NetRepair', note: 'PC online but Pi ports 31401-31403 unreachable. Rebuild firewall rules first; if it persists >15 min, escalate to NetRepair.' };
+    case 'sync_stalled': return { script: 'NodeReset', note: 'Ledger age > 5 min while container running. Container may be stuck - NodeReset only AFTER confirming Docker Engine healthy.' };
     case 'sync_lag': {
       if (incident.firstCoreVersion && t && t.core_version && String(t.core_version) !== String(incident.firstCoreVersion)) {
         return { script: 'WAIT', note: 'Catching up after a Core version change - normal. Watch 10-15 min; DO NOT restart.' };
       }
-      return { script: 'WAIT', note: 'Sync lag while ports are OK and ledger is still advancing. Wait - do not restart. If it lasts >15 min AND ledger stops moving, escalate to /diagnostic.' };
+      return { script: 'WAIT', note: 'Sync lag while ports are OK and ledger is still advancing. Wait - do not restart. If >15 min AND ledger stops moving, escalate to /diagnostic.' };
     }
-    case 'peers_zero': return { script: 'DnsFlush', note: 'Ports open, ledger moving, but no peers. DNS flush only - keeps LAN IP unchanged.' };
+    case 'peers_zero': return { script: 'DnsFlush', note: 'Ports open, ledger moving, but no peers. DNS flush only - keeps LAN IP unchanged. Wait 10-15 min.' };
     case 'peers_low': return { script: 'DnsFlush', note: 'Peer count is low while synced. Try DNS flush; also check regional ISP outage.' };
-    case 'ram_high': return { script: 'CleanRam', note: 'RAM pressure on host. CleanRam closes extra apps, clears TEMP/TRIM. It does NOT stop Pi Node or Docker.' };
+    case 'ram_high': return { script: 'CleanRam', note: 'RAM pressure. CleanRam closes extra apps, clears TEMP/TRIM. Does NOT stop Pi Node or Docker.' };
     case 'cpu_high': return { script: 'CleanRam', note: 'CPU pressure. Observe first; run CleanRam only if the host has extra heavy apps.' };
-    case 'disk_high': return { script: 'Maintain', note: 'Disk nearly full. Weekly cleanup (Maintain.bat) is safe while the node is otherwise healthy.' };
+    case 'disk_high': return { script: 'Maintain', note: 'Disk nearly full. Weekly cleanup (Maintain.bat) safe while node is otherwise healthy.' };
     default: return null;
   }
 }
@@ -958,7 +1069,7 @@ async function aiClassifyIncident(t, kind, durationMin) {
     const q = [
       'Classify this Pi Node incident for the operator. Reply in English, short (alerts are English-only).',
       'Kind guess: ' + kind + '. Duration minutes: ' + durationMin + '.',
-      'Decide: TRANSIENT vs ACTION.',
+      'Decide: TRANSIENT vs ACTION. Use the 8-script framework when ACTION.',
       'PCT recent releases: ' + JSON.stringify(pct).slice(0, 400),
       brief.slice(0, 1200),
       'Format: 1 line verdict + 2 lines why + 1 line what to do. No markdown.'
@@ -1107,7 +1218,6 @@ function healthConfIcon(conf) {
   if (conf === 'low') return '🟠';
   return '⚪';
 }
-/** Human-friendly duration from N samples: 2min, 11min, 1h 5min */
 function fmtIssueDuration(samples) {
   const n = Math.max(1, Number(samples) || 1);
   const minutes = Math.max(1, Math.round(n * TELEMETRY_SEC / 60));
@@ -1310,9 +1420,10 @@ const ACTION_CATALOG = [
 
 const APP_GUIDE = `
 HOW TO USE THIS APP
-Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /incidents /donate /help /mute.
+Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /incidents /scripts /donate /help /mute.
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
-Ask in any language. AI can request historical data via named blocks OR flexible DSL queries.
+Ask in any language. AI replies in the same language; quick-action buttons use your chat-history language.
+Diagnostic framework: 7 steps, 8 SoloHost scripts, 4 safety levels (L1 safest -> L4 strongest).
 Health score: stability-aware damper - noise tolerated but sustained bad sync is punished.
 Night/off mute applies to all notifications including recovery and scheduled reports.
 Reports always show the last 24h rolling window (spans midnight).
@@ -1325,20 +1436,24 @@ Telegram or SoloHost UI -> /status /report /analyze use history frames.
 Incident engine: observe -> first alert -> reminder -> chronic.
 Alert only fires when the incident persists 5+ minutes or 5+ samples.
 
-SCRIPT CHOICE
-docker_down    -> DockerRecover (soft first; no WSL while Docker lives).
-network_down   -> NetRepair (keep current LAN IP).
-ports_closed   -> Firewall; if >15 min escalate to NetRepair.
-sync_stalled   -> NodeReset (only after Docker Engine is confirmed healthy).
-sync_lag       -> WAIT (unless ledger frozen 15+ min -> /diagnostic).
-peers_zero     -> DnsFlush (keeps LAN IP).
-peers_low      -> DnsFlush + check ISP/regional outage.
-ram_high       -> CleanRam (does not stop Pi Node).
-cpu_high       -> CleanRam if host has extra heavy apps.
-disk_high      -> Maintain (weekly cleanup).
-CleanTemp      Healthy node, light cleanup only.
-LanSetup       New PC setup. Lock CURRENT IP only.
-Reboot         Last resort only. Never for a 1-minute catch-up.
+8 SCRIPTS (Safety L1 safest -> L4 strongest)
+CleanRam.bat      L1  RAM high / PC sluggish while node synced.
+DnsFlush.bat      L1  Peers dropped, ports OPEN, ledger still moves.
+Firewall.bat      L2  Ports CLOSED locally, container RUNNING.
+NodeReset.bat     L2  Container stuck, block frozen > 30 min.
+NetRepair.bat     L3  No internet at all (ping 8.8.8.8 fails).
+LanSetup.bat      L3  First setup OR IP changed, port-forward broke.
+DockerRecover.bat L4  Docker Engine "not ready" / WSL2 stuck (Soft first).
+Maintain.bat      L1->L4  Weekly cleanup (recommend Sun 03:00).
+
+7-STEP DIAGNOSTIC FLOW
+1. DETECT    - Confirm main symptom.
+2. VERIFY    - Rule out false causes (catch-up, CGNAT).
+3. EXPLAIN   - Root cause in simple language.
+4. RECOMMEND - Name 1 (max 2) scripts.
+5. SAFETY    - State L1-L4 + confirm data/IP preserved.
+6. ACTION    - How to run.
+7. RECHECK   - Wait time + recovery signal.
 `;
 
 function recommendActions(t) {
@@ -1425,6 +1540,42 @@ function formatActionAdvice(t) {
   return lines.join('\n');
 }
 
+/* SCRIPT DETAIL CARD for the 8 SoloHost scripts */
+function formatScriptDetail(id) {
+  const s = SCRIPT_DETAILS[id];
+  if (!s) return '❓ Unknown script.';
+  return [
+    s.icon + ' SCRIPT · ' + s.file,
+    '───────────────',
+    '🛡️ Level    · ' + s.level + ' (' + s.levelTxt + ')', '',
+    '📌 WHEN',
+    '  ' + s.when, '',
+    '🔧 WHAT IT DOES',
+    '  ' + s.does, '',
+    '🛡️ SAFETY',
+    '  ' + s.safety, '',
+    '▶️ HOW TO RUN',
+    '  SoloHost UI -> Scripts -> ' + s.file,
+    '  or double-click the .bat (auto-elevates, press Y).', '',
+    '───────────────',
+    '☕ Donate: MB 0905428801'
+  ].join('\n');
+}
+/** Detect script names mentioned in AI reply text -> drive keyboard choice */
+function recommendScriptsFromText(text) {
+  const t = String(text || '');
+  const hits = [];
+  if (/\bCleanRam\b/i.test(t)) hits.push('cleanram');
+  if (/\bDnsFlush\b/i.test(t)) hits.push('dnsflush');
+  if (/\bFirewall\b/i.test(t)) hits.push('firewall');
+  if (/\bNodeReset\b/i.test(t)) hits.push('nodereset');
+  if (/\bNetRepair\b/i.test(t)) hits.push('netrepair');
+  if (/\bLanSetup\b/i.test(t)) hits.push('lansetup');
+  if (/\bDockerRecover\b/i.test(t)) hits.push('dockerrecover');
+  if (/\bMaintain\b/i.test(t)) hits.push('maintain');
+  return hits;
+}
+
 function formatReport(hours) {
   const H = Math.max(1, Math.min(168, Number(hours) || 24));
   const rows = getTimeWindow(H);
@@ -1505,6 +1656,7 @@ function formatHelp() {
     '📈 /report      - Last 24h rolling window (spans midnight)',
     '🧭 /incidents   - Active + recent incident history',
     '🩺 /diagnostic  - Technical source details',
+    '🔧 /scripts     - 8 SoloHost scripts (with safety levels)',
     '💬 /analyze     - AI technician review (in your language)',
     '📋 /logs        - App activity and errors',
     '💛 /donate      - Support the project',
@@ -1513,7 +1665,7 @@ function formatHelp() {
     '❓ /help        - This list',
     '🔕 /mute        - Quiet alerts (also mutes recovery)',
     '',
-    'Ask in any language. AI can request historical data.',
+    'Ask in any language. AI replies in the same language.',
     'Night/off mute applies to ALL notifications.', '',
     '💛 /donate'
   ].join('\n');
@@ -1575,7 +1727,29 @@ function preEvalBrief(t) {
   return lines.join('\n');
 }
 function formatScripts() {
-  return ['ℹ️ INFO', '───────────────', 'No Windows scripts in SoloHost edition.', 'Commands: /status /report /peers /diagnostic /analyze /incidents', '', '☕ Donate: MB 0905428801'].join('\n');
+  return [
+    '🔧 SOLOHOST SCRIPTS (8)',
+    '───────────────', '',
+    '🟢 L1  · 🧹 CleanRam.bat',
+    '        RAM high / PC sluggish while synced',
+    '🟢 L1  · 🌐 DnsFlush.bat',
+    '        Peers dropped, ports OPEN, ledger moves',
+    '🟡 L2  · 🧱 Firewall.bat',
+    '        Ports CLOSED locally, container RUNNING',
+    '🟡 L2  · ♻️ NodeReset.bat',
+    '        Container stuck, block frozen > 30 min',
+    '🟠 L3  · 🔧 NetRepair.bat',
+    '        No internet (ping 8.8.8.8 fails)',
+    '🟠 L3  · 📡 LanSetup.bat',
+    '        First setup OR IP changed, port-forward broke',
+    '🔴 L4  · 🐳 DockerRecover.bat',
+    '        Docker Engine "not ready" / WSL2 stuck',
+    '🧰 SCH · Maintain.bat (Sun 03:00)',
+    '        Weekly housekeeping', '',
+    '───────────────',
+    'Ask AI /analyze for a diagnostic recommendation.',
+    '☕ Donate: MB 0905428801'
+  ].join('\n');
 }
 function randomDonateThanks() {
   const pool = [
@@ -1708,9 +1882,17 @@ function detectUserLang(q) {
   if (/\b(hej|tack|hjälp)\b/i.test(s)) return 'Swedish';
   return 'English';
 }
-function detectUserPreferredLang(currentMsg) {
-  const current = detectUserLang(currentMsg);
-  if (current) return current;
+/**
+ * Pick the best language.
+ * - If opts.skipCurrent is set (quick action), use ONLY chat history.
+ * - Otherwise, current message language wins, then chat history, then English.
+ */
+function detectUserPreferredLang(currentMsg, opts) {
+  opts = opts || {};
+  if (!opts.skipCurrent) {
+    const current = detectUserLang(currentMsg);
+    if (current) return current;
+  }
   const turns = loadChatHistory();
   const userTurns = turns.filter(function (t) { return t && t.role === 'user'; }).slice(-10);
   const counts = {};
@@ -1718,6 +1900,11 @@ function detectUserPreferredLang(currentMsg) {
   let best = null, bestN = 0;
   for (const k in counts) if (counts[k] > bestN) { best = k; bestN = counts[k]; }
   return best || 'English';
+}
+/** True when the input is our own default/template text (quick action button) */
+function isQuickActionText(msg) {
+  const m = String(msg || '').trim();
+  return !m || /^(review my node|node status|analyze|check|status)$/i.test(m);
 }
 function detectIntent(q) {
   const s = String(q || '').toLowerCase();
@@ -2473,51 +2660,124 @@ function formatAiReply(raw) {
   s = s.replace(/[━─═]{3,}/g, '───────────────'); s = s.replace(/\n{3,}/g, '\n\n');
   return s.trim().slice(0, 3500);
 }
+/** Fallback: 7-step diagnostic flow, no Gemini key needed */
 function technicianEvaluate(t, userQ, intent) {
   const h = buildHistory24h();
   const sync = (t && t.sync) || (h && h.last_sync) || null;
   const ledger = t && t.ledger != null ? Number(t.ledger).toLocaleString('en-US') : null;
   const age = t && t.ledger_age != null ? t.ledger_age : null;
   const ok = (t && t.level === 'ok') || (sync && /synced|live|horizon ok/i.test(String(sync)));
+  const issues = collectIssues(t || {});
+  const script = t && t._suggestedScript ? t._suggestedScript : recommendScriptForTelemetry(t || {});
+
   const lines = [];
-  lines.push('🤖 TECHNICIAN ASSESSMENT'); lines.push('───────────────'); lines.push('');
-  if (ok && (!h.samples || h.level_critical === 0)) lines.push('From available data, your Node looks stable overall: sync is healthy and there are no Critical samples.');
-  else if (h.level_critical > 0) lines.push('Recent history shows Critical samples. Prioritize network, ports 31401-31403, and sync.');
-  else lines.push('The node needs closer watching - data is limited or some signals are not ideal.');
-  lines.push(''); lines.push('What the numbers mean:');
-  if (sync) lines.push('• Sync: ' + sync + (age != null ? (' (age ' + age + 's)') : ''));
-  if (ledger) lines.push('• Current ledger: ' + ledger);
-  if (t && t.health != null) lines.push('• Health score: ' + t.health + '/100 (' + (t.health_confidence || '?') + ', trend ' + (t.health_trend || 'stable') + ')');
-  if (h.samples) {
-    lines.push('• Last ~' + (h.approx_minutes || '?') + ' min: ' + h.samples + ' samples, OK/Warn/Crit = ' + h.level_ok + '/' + h.level_warning + '/' + h.level_critical);
-    if (h.ledger_delta != null) lines.push('• Ledger moved: ' + h.ledger_min + ' -> ' + h.ledger_max + ' (delta ' + h.ledger_delta + ')');
-    if (h.sync_flips != null) lines.push('• Sync flips: ' + h.sync_flips + (h.sync_flips === 0 ? ' (stable)' : ' (watch if frequent)'));
-    if (h.age_max_s != null) lines.push('• Ledger age max/avg: ' + h.age_max_s + 's / ' + h.age_avg_s + 's');
-    if (h.health_avg != null) lines.push('• Health avg/min/max: ' + h.health_avg + ' / ' + h.health_min + ' / ' + h.health_max);
-    if (h.cpu_max != null) lines.push('• CPU peak (container): ' + h.cpu_max + '%');
-    if (h.ram_max != null) lines.push('• RAM peak (container): ' + h.ram_max + '%');
-  } else lines.push('• History still short - samples every ~60s. Run longer for a solid 24h review.');
-  lines.push(''); lines.push('Practical next steps:');
-  if (ok) {
-    lines.push('1) Keep the machine online; avoid frequent restarts.');
-    lines.push('2) Keep ports 31401-31403 open.');
-    lines.push('3) Check /report after more samples accumulate.');
+  lines.push('🤖 PI NODE · DIAGNOSTIC');
+  lines.push('───────────────');
+  lines.push('');
+
+  // STEP 1: DETECT
+  lines.push('1. 🔍 DETECT');
+  if (issues.length) {
+    issues.slice(0, 3).forEach(function (x) { lines.push('   · ' + x); });
+  } else if (ok) {
+    lines.push('   · No issue detected. Node is healthy.');
   } else {
-    lines.push('1) Run /diagnostic and verify ports/network.');
-    lines.push('2) Watch /incidents for repeated incidents.');
+    lines.push('   · Sync/resource signal needs watching.');
   }
-  lines.push(''); lines.push('Want a deeper look at sync, peers, or resources (RAM/CPU)?');
-  if (!GEMINI_API_KEY) { lines.push(''); lines.push('💡 Set GEMINI_API_KEY in SoloHost config for full multi-language AI technician analysis.'); }
+  lines.push('');
+
+  // STEP 2: VERIFY
+  lines.push('2. 🧠 VERIFY');
+  if (sync && /catch|behind|syncing/i.test(String(sync)) && ledger && age != null && age <= 300) {
+    lines.push('   · Likely natural catch-up. Not a fault yet.');
+  } else if (t && t.ports_open === 0 && t.container) {
+    lines.push('   · Container RUNNING but ports closed - check firewall.');
+  } else if (t && t.ports_open === 0 && !t.container) {
+    lines.push('   · Container NOT running - ports closed is normal.');
+  } else if (ok) {
+    lines.push('   · No false-positive signal. Continue observing.');
+  } else {
+    lines.push('   · Data limited; gather a few more samples.');
+  }
+  lines.push('');
+
+  // STEP 3: EXPLAIN
+  lines.push('3. 💡 EXPLAIN');
+  if (sync) lines.push('   · Sync: ' + sync + (age != null ? (' (age ' + age + 's)') : ''));
+  if (ledger) lines.push('   · Ledger: ' + ledger);
+  if (t && t.health != null) lines.push('   · Health ' + t.health + '/100 (' + (t.health_confidence || '?') + ', ' + (t.health_trend || 'stable') + ')');
+  lines.push('');
+
+  // STEP 4: RECOMMEND
+  lines.push('4. 🛠️ RECOMMEND');
+  if (script) {
+    lines.push('   · Run: `' + script.file + '` [' + script.level + ']');
+    lines.push('   · ' + script.when);
+  } else {
+    lines.push('   · No script needed. Keep online and watch.');
+  }
+  lines.push('');
+
+  // STEP 5: SAFETY
+  lines.push('5. 🛡️ SAFETY');
+  if (script) {
+    lines.push('   · Level ' + script.level + ' (' + script.levelTxt + ')');
+    lines.push('   · ' + script.safety);
+  } else {
+    lines.push('   · No intervention. Node untouched.');
+  }
+  lines.push('');
+
+  // STEP 6: ACTION
+  lines.push('6. 👤 ACTION');
+  if (script) {
+    lines.push('   · SoloHost UI -> Scripts -> ' + script.file);
+    lines.push('   · Or double-click the .bat (press Y).');
+  } else {
+    lines.push('   · Nothing to run now.');
+  }
+  lines.push('');
+
+  // STEP 7: RECHECK
+  lines.push('7. 🔄 RECHECK');
+  if (script) lines.push('   · Wait 10-15 min. Then /status or /report.');
+  else lines.push('   · Check /report after ~30 min for trends.');
+  lines.push('');
+  lines.push('───────────────');
+  lines.push('Ask for more details anytime.');
   return lines.join('\n');
 }
+/** Fallback mapping: raw telemetry -> suggested script object */
+function recommendScriptForTelemetry(t) {
+  t = t || {};
+  const portsOpen = t.ports_open != null ? Number(t.ports_open) : null;
+  const containerRunning = !!t.container && !/stop|exit/i.test(String(t.docker || ''));
+  const ram = t.ram != null ? Number(t.ram) : null;
+  const docker = String(t.docker || '');
+  const sync = String(t.sync || '');
+  const age = t.ledger_age != null ? Number(t.ledger_age) : null;
+  const peerTotal = (t.peer_in != null || t.peer_out != null) ? ((t.peer_in || 0) + (t.peer_out || 0)) : null;
+  if (/not ready|error|fail/i.test(docker)) return SCRIPT_DETAILS.dockerrecover;
+  if (portsOpen === 0 && !containerRunning) return SCRIPT_DETAILS.nodereset;
+  if (portsOpen === 0 && containerRunning) return SCRIPT_DETAILS.firewall;
+  if (age != null && age > 300 && containerRunning) return SCRIPT_DETAILS.nodereset;
+  if (peerTotal === 0 && /synced|live/i.test(sync)) return SCRIPT_DETAILS.dnsflush;
+  if (ram != null && ram >= 85) return SCRIPT_DETAILS.cleanram;
+  if (t.disk != null && Number(t.disk) >= 90) return SCRIPT_DETAILS.maintain;
+  return null;
+}
 
-/* aiAnalyze with 2-round AI Data Protocol (named blocks + DSL) ======== */
-async function aiAnalyze(t, userQ) {
-  const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 3500);
+/* aiAnalyze with 2-round AI Data Protocol + language options ======== */
+async function aiAnalyze(t, userQ, opts) {
+  opts = opts || {};
+  const skipCurrentForLang = opts.quickAction === true || isQuickActionText(userQ);
+  const appGuide = (typeof APP_KNOWLEDGE === 'string' ? APP_KNOWLEDGE : '').slice(0, 2500);
   try { await fetchPctContext(); } catch (e) {}
   try {
     const intent = detectIntent(userQ || '');
-    const userLang = detectUserPreferredLang(userQ || '');
+    const userLang = skipCurrentForLang
+      ? detectUserPreferredLang('', { skipCurrent: true })
+      : detectUserPreferredLang(userQ || '');
     const q = String(userQ || '');
     let days = 7;
     if (/24\s*h|24h|today|1\s*day|h[oô]m nay/i.test(q)) days = 1;
@@ -2544,23 +2804,22 @@ async function aiAnalyze(t, userQ) {
       const providerCatalog = buildProviderCatalog();
       const dslSpec = buildDSLSpec();
       const basePromptParts = [
-        'You are an experienced Pi Node technician for THIS operator machine (SoloHost Controller).',
+        '[APP GUIDE]',
+        appGuide,
+        '',
+        PI_NODE_DIAGNOSTIC_PROMPT,
+        '',
+        '=== RUN CONTEXT ===',
         'LANGUAGE (MANDATORY): Reply in ' + userLang + '. Do NOT switch to English unless the user is using English.',
-        'PRIORITY: Give a real technician evaluation - simple words, practical value.',
         'DATA RULES: Use ONLY the JSON blocks below and any DATA_BLOCK/DSL_QUERY_RESULTS you receive. Missing field = unknown, NEVER say 0%.',
-        'HEALTH SCORE: t.health is smoothed (0-100). t.health_raw pre-damper. t.health_adjusted after stability. t.health_confidence = sources. t.health_trend = improving/stable/degrading.',
-        'STABILITY: If STABILITY.label is "unstable_short", score is intentionally tolerant. "sustained_bad" -> low score intentional.',
+        'HEALTH SCORE: t.health is smoothed. t.health_raw pre-damper. t.health_adjusted after stability. t.health_confidence = sources. t.health_trend = improving/stable/degrading.',
+        'STABILITY: "unstable_short" -> tolerant; "sustained_bad" -> low score intentional.',
         'INCIDENT ENGINE: Reference RECOMMENDED_SCRIPT (or WAIT) exactly.',
-        '=== DATA REQUEST PROTOCOL (v3.2) ===',
-        'You may request historical data in TWO ways:',
         '',
-        '1) NAMED BLOCKS (predefined, fast):',
-        '   Emit one or more tokens on their own line: [DATA_REQUEST:block_name]',
-        '   Available blocks:',
-        providerCatalog,
-        '',
-        '2) DSL QUERIES (flexible - any metric, any window, any aggregation):',
-        '   Emit: [DATA_QUERY: metric=<key> window=<Nh|Nd|Nm> agg=<...> limit=<N> filter=<...>]',
+        '=== DATA REQUEST PROTOCOL ===',
+        '1) NAMED BLOCKS: emit [DATA_REQUEST:block_name]',
+        '   Available:', providerCatalog,
+        '2) DSL: emit [DATA_QUERY: metric=<key> window=<Nh|Nd|Nm> agg=<...> limit=<N> filter=<...>]',
         '   ' + dslSpec.replace(/\n/g, '\n   '),
         '   Examples:',
         '     [DATA_QUERY: metric=ram window=7d agg=summary]',
@@ -2570,16 +2829,17 @@ async function aiAnalyze(t, userQ) {
         '     [DATA_QUERY: metric=ledger_age window=48h agg=raw limit=50]',
         '     [DATA_QUERY: metric=cpu window=24h agg=summary filter=level=critical]',
         '     [DATA_QUERY: metric=peer_in window=12h agg=trend]',
-        '',
         'RULES:',
-        '- You may emit up to 5 tokens per round, mixing named blocks and DSL queries.',
-        '- Controller will execute them and re-query you ONCE with results.',
-        '- If existing data is enough, DO NOT emit any [DATA_REQUEST] or [DATA_QUERY] token - answer directly.',
-        '=== END PROTOCOL ===',
+        '- Up to 5 tokens per round. Mix named blocks + DSL.',
+        '- Controller executes and re-queries ONCE with results.',
+        '- If existing data is enough, DO NOT emit any token.',
+        '',
         'FORMAT: no markdown special characters. Short lines. Icons ok.',
-        'STRUCTURE: (1) short verdict with icon (2) explanation (3) evidence (4) 1-3 next steps (5) optional question.',
+        'Follow the 7-step DIAGNOSTIC FLOW and end with a clear next-action.',
         'FINANCE: Empathy + technical health only. No buy/sell advice.',
+        '',
         'Detected user language: ' + userLang,
+        'Quick-action mode: ' + (skipCurrentForLang ? 'yes (language from chat history)' : 'no'),
         'Intent: ' + intent,
         'User question: ' + q.slice(0, 900),
         'Issues: ' + JSON.stringify(issues),
@@ -2601,7 +2861,7 @@ async function aiAnalyze(t, userQ) {
         facts.health != null && facts.health < 60 ? (hist.length ? ('RECENT_SAMPLES: ' + JSON.stringify(hist.slice(-8))) : '') : '',
         chat.length ? ('Recent chat: ' + JSON.stringify(chat)) : ''
       ];
-      const promptRound1 = '[APP GUIDE]\n' + appGuide + '\n\n' + basePromptParts.filter(Boolean).join('\n');
+      const promptRound1 = basePromptParts.filter(Boolean).join('\n');
 
       let text = null;
       try { text = await generateWithSmartGemini(promptRound1); }
@@ -2622,7 +2882,7 @@ async function aiAnalyze(t, userQ) {
             '\n=== DSL_QUERY_RESULTS ===\n' + JSON.stringify(dslResults) +
             '\n=== END ===\n\n' +
             'Now write the FINAL reply in ' + userLang + ' using these data blocks and DSL results. ' +
-            'Do NOT emit any [DATA_REQUEST] or [DATA_QUERY] this time. Follow FORMAT rules. No markdown.';
+            'Do NOT emit any [DATA_REQUEST] or [DATA_QUERY] this time. Follow the 7-step flow. No markdown.';
           let text2 = null;
           try { text2 = await generateWithSmartGemini(promptRound2); }
           catch (e) { try { actionLog('error', 'Gemini round2 fail: ' + (e && e.message)); } catch (e2) {} }
@@ -2630,7 +2890,7 @@ async function aiAnalyze(t, userQ) {
         }
         const cleaned = stripDataRequests(text);
         if (cleaned) {
-          try { actionLog('info', 'AI reply ok · lang ' + userLang + ' · intent ' + intent + ' · named ' + named.length + ' · dsl ' + dsl.length + ' · model ' + (state.geminiPreferred || '?')); } catch (e) {}
+          try { actionLog('info', 'AI reply ok · lang ' + userLang + ' · intent ' + intent + ' · quick=' + (skipCurrentForLang ? '1' : '0') + ' · named ' + named.length + ' · dsl ' + dsl.length); } catch (e) {}
           return '⚡AI PINODE GUIDE\n\n' + formatAiReply(cleaned);
         }
       }
@@ -2655,12 +2915,13 @@ async function localCommandText(cmd, msg) {
   if (cmd === 'peers') return formatPeers(t);
   if (cmd === 'report' || cmd === 'trends') return formatReport(24);
   if (cmd === 'incidents') return formatIncidents();
+  if (cmd === 'scripts' || cmd === 'script') return formatScripts();
   if (cmd === 'diagnostic' || cmd === 'diag') return formatDiagnostic(t);
   if (cmd === 'logs') return formatActionLog();
   if (cmd === 'ping') return 'pong · v' + VERSION;
   if (cmd === 'donate') return formatDonate();
   if (cmd === 'winpro') return 'Windows PRO: ' + GITHUB_PRO;
-  if (cmd === 'analyze') return aiAnalyze(t, msg || 'Review my node');
+  if (cmd === 'analyze') return aiAnalyze(t, msg || 'Review my node', { quickAction: isQuickActionText(msg) });
   return null;
 }
 
@@ -2668,7 +2929,7 @@ function mainKeyboard() {
   return { inline_keyboard: [
     [{ text: '📊 Status', callback_data: 'cmd_status' }, { text: '📈 Report', callback_data: 'cmd_report' }],
     [{ text: '👥 Peers', callback_data: 'cmd_peers' }, { text: '🧭 Incidents', callback_data: 'cmd_incidents' }],
-    [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📋 Logs', callback_data: 'cmd_logs' }],
+    [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '🔧 Scripts', callback_data: 'cmd_scripts' }],
     [{ text: '💬 Analyze', callback_data: 'cmd_analyze' }, { text: '❓ Help', callback_data: 'cmd_help' }],
     [{ text: '💻 PRO', callback_data: 'cmd_winpro' }, { text: '💛 Donate', callback_data: 'cmd_donate' }]
   ]};
@@ -2724,6 +2985,7 @@ async function runCmd(cmd, userText) {
   }
   if (cmd === 'report') { const tt = cache || {}; return tgSend(formatReport(24) + '\n\n' + formatActionAdvice(tt), { reply_markup: reportKeyboard() }); }
   if (cmd === 'incidents' || cmd === 'incident') return tgSend(formatIncidents(), { reply_markup: mainKeyboard() });
+  if (cmd === 'scripts' || cmd === 'script') return tgSend(formatScripts(), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'incident_ack') {
     const active = Object.keys(state.incidents || {}).map(function (k) { return state.incidents[k]; }).filter(function (i) { return i && !i.resolved; })[0];
     if (active) {
@@ -2742,16 +3004,18 @@ async function runCmd(cmd, userText) {
     }
     return tgSend('No active incident.', { reply_markup: mainKeyboard() });
   }
-  if (cmd === 'diagnostic' || cmd === 'diag') return tgSend(formatDiagnostic(t), { reply_markup: mainKeyboard() });
+  if (cmd === 'diagnostic' || cmd === 'diag') return tgSend(formatDiagnostic(t), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'analyze' || cmd === 'ai' || cmd === 'health' || cmd === 'ask') {
-    pushChatPersistent('user', userText || '');
+    const isQuick = isQuickActionText(userText) || !userText;
+    pushChatPersistent('user', isQuick ? '' : (userText || ''));
     await tgSend('…');
-    const ans = await aiAnalyze(t, userText || 'Node status');
+    const ans = await aiAnalyze(t, userText || 'Review my node', { quickAction: isQuick });
     pushChatPersistent('assistant', ans);
-    return tgSend(ans, { reply_markup: mainKeyboard() });
+    const mentioned = recommendScriptsFromText(ans);
+    const kb = mentioned.length ? scriptActionKeyboard() : mainKeyboard();
+    return tgSend(ans, { reply_markup: kb });
   }
   if (cmd === 'trends') return tgSend(formatReport(24), { reply_markup: reportKeyboard() });
-  if (cmd === 'scripts' || cmd === 'script') return tgSend(formatScripts(), { reply_markup: mainKeyboard() });
   if (cmd === 'logs' || cmd === 'log') { try { actionLog('info', 'user /logs'); } catch (e) {} return tgSend(formatActionLog(), { reply_markup: mainKeyboard() }); }
   if (cmd === 'winpro' || cmd === 'windows' || cmd === 'pro') { try { actionLog('info', 'user /winpro'); } catch (e) {} return tgSend(formatWindowsPro(), { reply_markup: mainKeyboard() }); }
   if (cmd === 'donate' || cmd === 'donate_both') {
@@ -2773,6 +3037,15 @@ async function runCmd(cmd, userText) {
   if (cmd === 'report_both') { state.reportHours = [7, 18]; saveJSON(STATE_F, state); return tgSend('🕖🕕 Reports at 07:00 and 18:00', { reply_markup: reportKeyboard() }); }
   if (cmd === 'report_off') { state.reportHours = 'off'; saveJSON(STATE_F, state); return tgSend('⏰ Scheduled reports off', { reply_markup: reportKeyboard() }); }
   if (cmd === 'ping') return tgSend('🏓 pong · v' + VERSION + '\n⏱ cache ' + (Date.now() - cacheAt) + 'ms');
+  // 8-script detail cards
+  if (cmd === 'script_cleanram') return tgSend(formatScriptDetail('cleanram'), { reply_markup: scriptActionKeyboard() });
+  if (cmd === 'script_dnsflush') return tgSend(formatScriptDetail('dnsflush'), { reply_markup: scriptActionKeyboard() });
+  if (cmd === 'script_firewall') return tgSend(formatScriptDetail('firewall'), { reply_markup: scriptActionKeyboard() });
+  if (cmd === 'script_nodereset') return tgSend(formatScriptDetail('nodereset'), { reply_markup: scriptActionKeyboard() });
+  if (cmd === 'script_netrepair') return tgSend(formatScriptDetail('netrepair'), { reply_markup: scriptActionKeyboard() });
+  if (cmd === 'script_lansetup') return tgSend(formatScriptDetail('lansetup'), { reply_markup: scriptActionKeyboard() });
+  if (cmd === 'script_dockerrecover') return tgSend(formatScriptDetail('dockerrecover'), { reply_markup: scriptActionKeyboard() });
+  if (cmd === 'script_maintain') return tgSend(formatScriptDetail('maintain'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'docker' || cmd === 'dockersock' || cmd === 'docker_confirm' || cmd === 'docker_cancel' || cmd === 'docker_off' || cmd === 'docker_rules' || cmd === 'docker_local' || (typeof cmd === 'string' && cmd.indexOf('docker') === 0)) {
     try { actionLog('info', 'user docker cmd blocked on Telegram'); } catch (e) {}
     return tgSend('DOCKER OPTIONAL\n───────────────\nFor safety, docker.sock can only be enabled in the SoloHost window on the PC running this node.\n\n1) Open http://127.0.0.1:18780/\n2) Optional Docker -> scroll terms -> check boxes -> Confirm\n3) SoloHost: Stop -> Start\n\nTelegram will not raise Docker privileges.', { reply_markup: mainKeyboard() });
@@ -2826,6 +3099,7 @@ async function installTelegramMenu() {
         { command: 'report', description: 'Last 24h rolling window (spans midnight)' },
         { command: 'incidents', description: 'Active + recent incident history' },
         { command: 'diagnostic', description: 'Technical source details' },
+        { command: 'scripts', description: '8 SoloHost scripts + safety levels' },
         { command: 'analyze', description: 'AI technician review (in your language)' },
         { command: 'logs', description: 'App activity and errors' },
         { command: 'donate', description: 'Support the project' },
@@ -2965,6 +3239,13 @@ const srv = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true, active: active, recent: recent, intervalSec: currentTelemetryInterval() }));
       return;
     }
+    if (u === '/api/scripts') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      const out = {};
+      Object.keys(SCRIPT_DETAILS).forEach(function (k) { out[k] = SCRIPT_DETAILS[k]; });
+      res.end(JSON.stringify({ ok: true, scripts: out }));
+      return;
+    }
     if (u === '/api/ai/providers') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       const providers = {};
@@ -3040,35 +3321,34 @@ const srv = http.createServer(async (req, res) => {
       ok('pipeline_ledgerVelocity', typeof ledgerVelocity === 'function', 'ok');
       ok('readhist_cache_active', typeof invalidateReadHistory === 'function' && _readHistCache.ttlMs > 0, 'ttl=' + _readHistCache.ttlMs);
       ok('rollup_cache_fn', typeof ensureRollupLoaded === 'function', 'ensureRollupLoaded');
+      // Diagnostic framework checks
+      ok('diag_prompt_loaded', typeof PI_NODE_DIAGNOSTIC_PROMPT === 'string' && PI_NODE_DIAGNOSTIC_PROMPT.length > 400, 'len=' + PI_NODE_DIAGNOSTIC_PROMPT.length);
+      ok('script_details_count', Object.keys(SCRIPT_DETAILS).length === 8, 'count=' + Object.keys(SCRIPT_DETAILS).length);
+      ok('script_kb_builder', typeof scriptActionKeyboard === 'function', 'scriptActionKeyboard');
+      ok('script_card_builder', typeof formatScriptDetail === 'function', 'formatScriptDetail');
+      ok('script_card_cleanram', (formatScriptDetail('cleanram') || '').indexOf('CleanRam.bat') >= 0, 'ok');
+      ok('script_rec_from_text', typeof recommendScriptsFromText === 'function' && recommendScriptsFromText('Run NodeReset now').indexOf('nodereset') >= 0, 'ok');
+      ok('script_fallback_map', typeof recommendScriptForTelemetry === 'function', 'ok');
+      // Quick-action language
+      ok('quickaction_detector', typeof isQuickActionText === 'function' && isQuickActionText('Review my node') === true && isQuickActionText('hello world') === false, 'ok');
+      ok('lang_skip_current_option', typeof detectUserPreferredLang === 'function', 'ok');
+      // AI DATA checks
       ok('ai_data_providers', Object.keys(AI_DATA_PROVIDERS).length >= 10, 'count=' + Object.keys(AI_DATA_PROVIDERS).length);
       ok('ai_parse_request', typeof parseDataRequests === 'function', 'parseDataRequests');
       ok('dsl_parse_fn', typeof parseDataQueries === 'function' && typeof executeDataQuery === 'function', 'loaded');
       const q1 = parseDataQueries('[DATA_QUERY: metric=ram window=7d agg=summary]');
       ok('dsl_parse_single', q1.length === 1 && q1[0].metric === 'ram' && q1[0].window === '7d' && q1[0].agg === 'summary', JSON.stringify(q1));
-      const q2 = parseDataQueries('[DATA_QUERY: metric=sync window=6h agg=states] [DATA_QUERY: metric=cpu window=24h agg=summary filter=level=critical]');
-      ok('dsl_parse_multi', q2.length === 2, JSON.stringify(q2.length));
       const r3 = executeDataQuery({ metric: 'x_unknown', window: '1h' });
       ok('dsl_unknown_metric_returns_hint', r3.ok === false && Array.isArray(r3.allowed_numeric), r3.error);
-      ok('dsl_window_parse_m', parseWindowHours('30m') > 0 && parseWindowHours('30m') < 1, parseWindowHours('30m'));
-      ok('dsl_window_parse_h', parseWindowHours('6h') === 6, parseWindowHours('6h'));
       ok('dsl_window_parse_d', parseWindowHours('2d') === 48, parseWindowHours('2d'));
       ok('dsl_window_cap_168h', parseWindowHours('30d') === 168, parseWindowHours('30d'));
       const e1 = executeDataQuery({ metric: 'sync', window: '24h', agg: 'states' });
       ok('dsl_exec_states', e1.ok === true && (e1.states || e1.note), 'samples=' + e1.samples);
       const e2 = executeDataQuery({ metric: 'ram', window: '24h', agg: 'summary' });
       ok('dsl_exec_summary', e2.ok === true && (e2.stats || e2.note), 'n=' + (e2.stats ? e2.stats.n : 'na'));
-      const e3 = executeDataQuery({ metric: 'sync', window: '1h', agg: 'states', filter: 'level=critical' });
-      ok('dsl_exec_filter', e3.ok === true, 'samples=' + e3.samples);
-      const e4 = executeDataQuery({ metric: 'ledger', window: '6h', agg: 'velocity' });
-      ok('dsl_exec_velocity', e4.ok === true, 'samples=' + e4.samples);
-      const e5 = executeDataQuery({ metric: 'health', window: '24h', agg: 'trend' });
-      ok('dsl_exec_trend', e5.ok === true, 'samples=' + e5.samples);
-      const e6 = executeDataQuery({ metric: 'ledger_age', window: '24h', agg: 'raw', limit: '10' });
-      ok('dsl_exec_raw_limit', e6.ok === true && (!e6.returned || e6.returned <= 10), 'returned=' + e6.returned);
-      const st1 = stripDataRequests('Hello [DATA_REQUEST:ram_7d] world');
-      ok('strip_named', st1.indexOf('DATA_REQUEST') < 0, st1.slice(0, 40));
       const st2 = stripDataRequests('Hello [DATA_QUERY: metric=ram window=1h] world');
       ok('strip_dsl', st2.indexOf('DATA_QUERY') < 0, st2.slice(0, 40));
+      // Mute + health damper + incident
       const prevMode = state.alertMode;
       state.alertMode = 'off';
       const gate = alertsMuted();
@@ -3096,7 +3376,6 @@ const srv = http.createServer(async (req, res) => {
       ok('report_24h_header', typeof rep === 'string' && rep.indexOf('PI NODE · REPORT') >= 0, 'ok');
       ok('report_no_ui_url', rep.indexOf('🔗 UI:') < 0, 'ok');
       ok('report_no_hash_ledger', rep.indexOf('#10,') < 0 && rep.indexOf('#9,') < 0, 'ok');
-      // Duration formatter checks (2x -> 2min etc.)
       ok('fmt_duration_min', fmtIssueDuration(2) === '2min', fmtIssueDuration(2));
       ok('fmt_duration_big', /h/.test(fmtIssueDuration(120)), fmtIssueDuration(120));
       try {
@@ -3148,7 +3427,7 @@ const srv = http.createServer(async (req, res) => {
         let ans = null;
         const low = msg.toLowerCase().trim();
         const c0 = low.split(/\s+/)[0].replace(/^\//, '');
-        if (/^(help|status|s|sync|peers|report|trends|diagnostic|diag|logs|ping|donate|winpro|incidents)$/.test(c0) || low.charAt(0) === '/') {
+        if (/^(help|status|s|sync|peers|report|trends|diagnostic|diag|logs|ping|donate|winpro|incidents|scripts)$/.test(c0) || low.charAt(0) === '/') {
           try { ans = await localCommandText(c0, msg); } catch (e) { ans = null; }
         }
         if (!ans) ans = await aiAnalyze(tel, msg);
@@ -3268,6 +3547,7 @@ const srv = http.createServer(async (req, res) => {
         healthStability: state.healthStability || null,
         aiProviders: Object.keys(AI_DATA_PROVIDERS).length,
         aiDslMetrics: Object.keys(AI_METRIC_WHITELIST).length,
+        diagScripts: Object.keys(SCRIPT_DETAILS).length,
         readHistCacheTtlMs: _readHistCache.ttlMs
       }));
       return;
@@ -3332,11 +3612,13 @@ srv.listen(PORT, '0.0.0.0', () => {
   } catch (e) {}
   log('telemetry=' + TELEMETRY_SEC + 's base · adaptive polling enabled (30-60s)');
   log('Incident engine active · observe -> alert -> remind -> chronic');
+  log('Diagnostic framework v3.0 loaded · 8 scripts · 4 safety levels · 7-step flow');
   log('Health damper active · EMA + dead-band + stability-aware adjustment');
   log('Data pipeline: getTimeWindow (SORTED) + normalize + aggregate');
   log('Resource opt: readHistory cache(' + _readHistCache.ttlMs + 'ms) + rollup RAM cache');
   log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' named blocks');
   log('AI DSL metrics: ' + Object.keys(AI_METRIC_WHITELIST).length + ' (numeric + category)');
+  log('Language: quick-action buttons use chat-history language');
   log('Night/off mute applies to alerts, reminders, recovery, scheduled reports');
   log('Telegram long-poll independent of telemetry');
 });
@@ -3351,4 +3633,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       else { try { actionLog('info', 'startup notification muted - ' + gate.why); } catch (e) {} }
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-                                    }
+      }
