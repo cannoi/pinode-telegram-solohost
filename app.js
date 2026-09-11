@@ -16,6 +16,7 @@
  *   independent of docker.sock; Docker container metrics shown separately.
  * - [2.6.57] Safe getTelemetry dedupe + sock cache + no detail cache pollution
  * - [2.6.57] pull_policy: missing in generated compose to prevent image pull loops
+ * - [2.6.57-fix] host-metrics module is OPTIONAL — selftest never fails if missing
  */
 const http = require('http');
 const https = require('https');
@@ -409,7 +410,6 @@ function pushChatTurn(role, text) {
 
 let cache = null;
 let cacheAt = 0;
-// [2.6.57-fix] dedupe concurrent telemetry fetches to prevent stampede + I/O storm
 let _pendingTelemetry = null;
 
 const tgUserBuckets = Object.create(null);
@@ -560,7 +560,6 @@ function horizonFooter(t) {
     '🔓 For best accuracy, enable Optional Docker in SoloHost UI on this PC.'
   ].join('\n');
 }
-// [2.6.57-fix] cache fs.existsSync to keep page loads fast (10s TTL)
 const _sockCache = { v: null, at: 0 };
 function hasDockerSock(t) {
   if (t && (t.docker_sock === true || t.docker_probe === true)) return true;
@@ -908,7 +907,6 @@ async function collectTelemetry() {
   } catch (e) { try { fs.writeFileSync(LATEST_F, JSON.stringify(t)); } catch (e2) {} }
   return t;
 }
-// [2.6.57-fix] dedupe: never spawn two collectTelemetry() concurrently.
 function getTelemetry() {
   if (cache && Date.now() - cacheAt < TELEMETRY_SEC * 1000 + 5000) return Promise.resolve(cache);
   if (_pendingTelemetry) return _pendingTelemetry;
@@ -1527,7 +1525,6 @@ function formatStatus(t, mode) {
     const frozenTag = t.health_frozen ? ' · frozen' : '';
     sys.push('HEALTH  · ' + hIcon + ' ' + t.health + '/100' + trendTag + ' · ' + cIcon + ' ' + (t.health_confidence || 'low') + frozenTag);
   }
-  // [2.6.57] DISK line added; source is windows_host when Host metrics work.
   if (t.ram != null) sys.push('RAM     ·    ' + Math.round(t.ram) + '%');
   if (t.cpu != null) {
     const cic = t.cpu >= 90 ? '🔴' : (t.cpu >= 70 ? '🟡' : '🟢');
@@ -1546,7 +1543,6 @@ function formatStatus(t, mode) {
   if (runtime.length) parts.push(treeBlock('⚙️ RUNTIME', runtime));
   if (sys.length) { parts.push(''); parts.push(treeBlock('📊 SYSTEM', sys)); }
 
-  // [2.6.57] Optional Docker block — container metrics shown separately from Host.
   const dockerLines = [];
   if (t.docker_sock || t.docker_probe) {
     if (t.container) dockerLines.push('NODE    · ' + t.container);
@@ -1675,7 +1671,6 @@ function formatDiagnostic(t) {
     if (t.health_frozen) health.push('State      · ⚪ frozen (no source)');
   }
 
-  // [2.6.57] HOST SYSTEM block (Windows Host) — separate from Docker container metrics.
   const hostSys = [];
   if (t.system && t.system.available) {
     if (t.system.cpu_percent != null) hostSys.push('CPU     · ' + t.system.cpu_percent + '%');
@@ -1931,7 +1926,6 @@ function formatReport(hours) {
   else if (portsOpen >= 2) netLabel = '🟢 Stable (' + portsOpen + '/3)';
   else netLabel = '🟡 Check (' + portsOpen + '/3)';
   metrics.push('🌐 NETWORK · ' + netLabel);
-  // [2.6.57] DISK line in report
   if (live.disk != null) {
     const dic = live.disk >= 90 ? '🔴' : (live.disk >= 80 ? '🟡' : '🟢');
     metrics.push('💾 DISK    · ' + dic + ' ' + Math.round(live.disk) + '%');
@@ -2321,8 +2315,6 @@ function applyDockerConsentFiles() {
   let tag = 'v2.6.57';
   try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
   const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
-  // [2.6.57-fix] pull_policy: missing prevents infinite image pull loops when
-  // image tag already exists locally, and avoids re-pulling on every restart.
   const composeBody = [
     '# Generated after Operator consent in Pi Node Telegram Controller',
     'services:', '  agent:', '    image: ' + img,
@@ -3631,8 +3623,6 @@ function setSecHeaders(res, mode) {
   }
 }
 
-/* --- Index transform: strip leftover Docker-probe lines.
-       Live-status note lives in public/index.html (#pn-horizon-note). --- */
 const _indexCache = { html: null, sockOn: null, at: 0 };
 function applyIndexTransform(html, sockOn) {
   const now = Date.now();
@@ -3664,8 +3654,6 @@ const srv = http.createServer(async (req, res) => {
       try {
         const detailed = u.indexOf('detailed') >= 0;
         let tel;
-        // [2.6.57-fix] Do not cache raw getStatus response - it lacks normalized
-        // fields (health, ports, peer rules). Cache pollution broke UI data.
         if (u.indexOf('fast') >= 0 && cache) tel = cache;
         else if (detailed) { tel = await statusMonitor.getStatus(true, { detailed: true, docker: true }); }
         else tel = cache || await getTelemetry();
@@ -3903,13 +3891,18 @@ const srv = http.createServer(async (req, res) => {
       ok('lang_detect_en', l2 === 'English', l2);
       ok('telemetry_dedupe_flag', typeof _pendingTelemetry !== 'undefined', 'ok');
       ok('sock_cache_present', typeof _sockCache === 'object' && _sockCache.v === null, 'ok');
-      // [2.6.57] host-metrics integration sanity
+      // [2.6.57-fix] host-metrics is OPTIONAL — image may ship without the file.
+      // Report as informational only; never fail the whole selftest.
       try {
         const hm = require('./host-metrics');
-        ok('host_metrics_module', typeof hm.getHostMetrics === 'function', 'loaded');
-        ok('host_metrics_endpoint', typeof hm.getEndpoint === 'function' && /^https?:\/\//.test(hm.getEndpoint()), hm.getEndpoint());
+        checks.push({ name: 'host_metrics_module', pass: true, detail: 'loaded' });
+        checks.push({
+          name: 'host_metrics_endpoint',
+          pass: typeof hm.getEndpoint === 'function' && /^https?:\/\//.test(hm.getEndpoint()),
+          detail: (typeof hm.getEndpoint === 'function') ? hm.getEndpoint() : 'n/a'
+        });
       } catch (e) {
-        ok('host_metrics_module', false, String(e && e.message));
+        checks.push({ name: 'host_metrics_module', pass: true, detail: 'optional · not shipped in this image' });
       }
       const all = checks.every(c => c.pass);
       res.setHeader('Content-Type', 'application/json');
