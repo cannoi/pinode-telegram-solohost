@@ -3,8 +3,9 @@
  * Lightweight live frame + local health/trend. No extra HTTP.
  * Missing metrics stay null/unknown — never invented.
  *
- * [2.6.57] t.cpu / t.ram / t.disk now come from Windows Host (windows_host).
+ * [2.6.57] t.cpu / t.ram / t.disk now come from Node OS (os.cpus/os.totalmem/fs.statfsSync).
  * scoreCoreHealth() must NOT fall back to those for container metrics.
+ * hostMetric() must treat 0 as a VALID reading (not "unavailable").
  */
 
 function num(v) {
@@ -13,10 +14,15 @@ function num(v) {
   const n = Number(v);
   return isFinite(n) ? n : null;
 }
-/** Host resources: 0 means not collected on SoloHost, not a real reading. */
+
+/**
+ * Host resources normalizer.
+ * [2.6.57-fix] 0 is valid: CPU can be 0%, disk used can be 0%.
+ * Only negative or non-finite values are treated as unavailable.
+ */
 function hostMetric(v) {
   const n = num(v);
-  if (n == null || n <= 0) return null;
+  if (n == null || n < 0) return null;
   return n;
 }
 
@@ -95,8 +101,8 @@ function scoreCoreHealth(t) {
     if (lag <= 5) score += 4;
     else if (lag > 50) score -= 10;
   }
-  // [2.6.57] Chỉ dùng container_cpu/container_ram cho core health.
-  // KHÔNG fallback sang t.cpu/t.ram vì đó là Host metrics (windows_host).
+  // [2.6.57] Only container_cpu/container_ram feed core health.
+  // Never fall back to t.cpu/t.ram — those are Node OS metrics now.
   const cpu = hostMetric(t.container_cpu);
   const ram = hostMetric(t.container_ram);
   if (cpu != null && cpu >= 95) score -= 8;
@@ -112,7 +118,7 @@ function scoreHealth(t) {
   if (sync) {
     used++;
     if (/synced|live|horizon ok/i.test(sync)) score += 18;
-    catchup: if (/catch|syncing|slow/i.test(sync)) score -= 8;
+    if (/catch|syncing|slow/i.test(sync)) score -= 8;
     if (/not synced|offline|fail|error/i.test(sync)) score -= 28;
   }
   const age = num(t.ledger_age);
@@ -137,6 +143,7 @@ function scoreHealth(t) {
   const dh = dockerHealthFrom(t);
   if (dh === 'healthy') { used++; score += 4; }
   else if (dh === 'unhealthy') { used++; score -= 10; }
+  // RAM / CPU / Disk — from Node OS. 0 is valid, negative/null = skip.
   const ram = hostMetric(t.ram);
   if (ram != null) {
     used++;
