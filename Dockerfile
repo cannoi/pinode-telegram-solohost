@@ -1,14 +1,30 @@
+# SoloHost Controller — Pi Node Telegram Controller PRO
+# Node.js runtime, no privileged access, sandbox by default.
+#
+# IMPORTANT: every .js file used by require() must be listed in COPY below.
+# If you add a new module (e.g. host-metrics.js), add it here too.
+
 FROM node:20-alpine
+
 WORKDIR /app
-RUN apk add --no-cache wget tzdata docker-cli \
- && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
- && echo "Asia/Ho_Chi_Minh" > /etc/timezone
-COPY package.json app.js loader.js auto-compose.js status-monitor.js pi-node-discovery.js optimized-pi-node-reader.js optimized-http-reader.js horizon-sync-label.js data-validator.js docker-probe.js data-frame.js telemetry-lite.js ./
-COPY public/ ./public/
-COPY scripts/ ./scripts/
-ENV DATA_DIR=/data PORT=8080 TZ=Asia/Ho_Chi_Minh TELEMETRY_SEC=60 AUTO_DOCKER_SOCK=0
-VOLUME ["/data"]
+
+# Install dependencies first (better Docker layer caching)
+COPY package.json ./
+RUN npm install --omit=dev --no-audit --no-fund || npm install --no-audit --no-fund
+
+# Application source files — every require() target must be here.
+COPY package.json app.js loader.js auto-compose.js status-monitor.js \
+     pi-node-discovery.js optimized-pi-node-reader.js optimized-http-reader.js \
+     horizon-sync-label.js data-validator.js docker-probe.js data-frame.js \
+     telemetry-lite.js host-metrics.js ./
+
+# Static assets served by the app
+COPY public ./public
+COPY scripts ./scripts
+
+# Data directory (usually a volume at runtime)
+RUN mkdir -p /data/history /data/hourly /data/daily /data/state /data/logs
+
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
-CMD ["node", "loader.js"]
+
+CMD ["node", "app.js"]
