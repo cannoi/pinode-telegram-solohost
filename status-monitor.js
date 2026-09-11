@@ -6,9 +6,10 @@ const dataFrame = require('./data-frame');
  * Primary (always): Horizon root + Core HTTP + TCP ports + state files + HOST METRICS
  * Optional: Docker sock/exec when DOCKER_PROBE=1 and socket mounted by user
  *
- * [2.6.57] Host Metrics (Windows Host CPU/RAM/Disk/Uptime) is a first-class
- * source, independent of Docker. If host-metrics.js is missing from the image,
- * a safe fallback stub is used so the app still boots (available=false).
+ * [2.6.57] Host Metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
+ * via host-metrics.js. Fallback require paths let the operator drop the module
+ * into the mounted app folder without rebuilding the image.
+ * Source label: 'node_os' (NOT windows_host — because we read the Node runtime).
  */
 
 const http = require('http');
@@ -20,27 +21,46 @@ const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
 const dockerProbe = require('./docker-probe');
 
-// [2.6.57-fix] DEFENSIVE require: if host-metrics.js isn't shipped in the image,
-// fall back to a stub that reports available=false. App never crashes.
-let hostMetrics;
-try {
-  hostMetrics = require('./host-metrics');
-} catch (e) {
+// [2.6.57-fix] DEFENSIVE require with multiple candidate paths.
+// Lets the operator drop host-metrics.js into the mounted app folder
+// (/solohost-config) without rebuilding the image.
+let hostMetrics = null;
+let _hostMetricsSource = null;
+const _hostMetricsCandidates = (function () {
+  const list = ['./host-metrics'];
+  try { list.push('/solohost-config/host-metrics.js'); } catch (e) {}
+  try { list.push('/solohost-config/host-metrics'); } catch (e) {}
+  try { list.push(path.join(process.env.DATA_DIR || '/data', 'host-metrics.js')); } catch (e) {}
+  try { list.push('/data/host-metrics.js'); } catch (e) {}
+  return list;
+})();
+for (let _i = 0; _i < _hostMetricsCandidates.length; _i++) {
+  try {
+    const mod = require(_hostMetricsCandidates[_i]);
+    if (mod && typeof mod.getHostMetrics === 'function') {
+      hostMetrics = mod;
+      _hostMetricsSource = _hostMetricsCandidates[_i];
+      try { console.log('[status-monitor] host-metrics loaded from ' + _hostMetricsSource); } catch (e) {}
+      break;
+    }
+  } catch (e) {}
+}
+if (!hostMetrics) {
   hostMetrics = {
     getHostMetrics: function () {
       return Promise.resolve({
         available: false,
-        source: 'windows_host',
+        source: 'node_os',
         error: 'host_metrics_module_missing',
-        url: process.env.HOST_METRICS_URL || 'http://host.docker.internal:18790/v1/status'
+        tried: _hostMetricsCandidates
       });
     },
     getEndpoint: function () {
-      return (process.env.HOST_METRICS_URL || 'http://host.docker.internal:18790/v1/status').trim();
+      return 'node_os:os+fs';
     },
     isHostMetricsDisabled: function () { return false; }
   };
-  try { console.warn('[status-monitor] host-metrics.js not found · using stub (available=false)'); } catch (e2) {}
+  try { console.warn('[status-monitor] host-metrics not found in any path · using stub (available=false). Tried: ' + _hostMetricsCandidates.join(', ')); } catch (e) {}
 }
 
 let applyHorizonSyncLabel;
@@ -89,6 +109,7 @@ class PiNodeStatusMonitor {
     this.optReader = new OptimizedPiNodeReader({ stateDir: this.stateDir });
     this.httpReader = new OptimizedHttpReader({ stateDir: this.stateDir });
     this.metrics = { requests: 0, failures: 0, lastMs: 0, lastSource: null };
+    this.hostMetricsSource = _hostMetricsSource;
   }
 
   saveSticky() {
@@ -229,7 +250,7 @@ class PiNodeStatusMonitor {
       this.probeCoreHttp(),
       this.probeNetwork(),
       hostMetrics.getHostMetrics().catch(function (e) {
-        return { available: false, source: 'windows_host', error: e && e.message };
+        return { available: false, source: 'node_os', error: e && e.message };
       })
     ];
 
@@ -301,13 +322,8 @@ class PiNodeStatusMonitor {
       primary.core_verified = false;
       primary.sync_verified = false;
       primary.warning = primary.warning || 'CORE_HTTP_UNAVAILABLE';
-      try {
-        applyHorizonSyncLabel(primary);
-      } catch (e) {
-        if (primary.sync && /synced/i.test(String(primary.sync))) {
-          primary.sync = 'Horizon live';
-        }
-      }
+      try { applyHorizonSyncLabel(primary); }
+      catch (e) { if (primary.sync && /synced/i.test(String(primary.sync))) primary.sync = 'Horizon live'; }
       primary.sync_confidence = primary.sync_confidence || 'medium';
     }
 
@@ -317,15 +333,17 @@ class PiNodeStatusMonitor {
     try { dataFrame.applyPeerRule(primary); } catch (e) {}
     primary.network_probe = netw.ports;
 
-    // [2.6.57] HOST SYSTEM METRICS — never overwrite with container metrics.
+    // [2.6.57] HOST SYSTEM METRICS from Node OS (os.cpus / os.totalmem / fs.statfsSync).
+    // Independent of Docker. Never overwrite with container metrics.
     primary.sources.host_metrics = !!(host && host.available);
     if (host && host.available) {
       primary.system = {
-        source: 'windows_host',
+        source: 'node_os',
         available: true,
         timestamp: host.timestamp,
         age_seconds: host.age_seconds,
         cpu_percent: host.cpu ? host.cpu.usage_percent : null,
+        cpu_loadavg: host.cpu ? host.cpu.loadavg : null,
         memory_percent: host.memory ? host.memory.used_percent : null,
         memory_used_bytes: host.memory ? host.memory.used_bytes : null,
         memory_total_bytes: host.memory ? host.memory.total_bytes : null,
@@ -335,30 +353,21 @@ class PiNodeStatusMonitor {
         disk_used_bytes: host.disk ? host.disk.used_bytes : null,
         disk_total_bytes: host.disk ? host.disk.total_bytes : null,
         disk_free_bytes: host.disk ? host.disk.free_bytes : null,
-        uptime_seconds: host.uptime_seconds
+        uptime_seconds: host.uptime_seconds,
+        host_info: host.host_info || null
       };
-      if (host.cpu && host.cpu.usage_percent != null) {
-        primary.cpu = host.cpu.usage_percent;
-        primary.cpu_source = 'windows_host';
-      }
-      if (host.memory && host.memory.used_percent != null) {
-        primary.ram = host.memory.used_percent;
-        primary.ram_source = 'windows_host';
-      }
-      if (host.disk && host.disk.used_percent != null) {
-        primary.disk = host.disk.used_percent;
-        primary.disk_source = 'windows_host';
-      }
-      if (host.uptime_seconds != null) {
-        primary.uptime_seconds = host.uptime_seconds;
-        primary.uptime_source = 'windows_host';
-      }
+      if (host.cpu && host.cpu.usage_percent != null) { primary.cpu = host.cpu.usage_percent; primary.cpu_source = 'node_os'; }
+      if (host.memory && host.memory.used_percent != null) { primary.ram = host.memory.used_percent; primary.ram_source = 'node_os'; }
+      if (host.disk && host.disk.used_percent != null) { primary.disk = host.disk.used_percent; primary.disk_source = 'node_os'; }
+      if (host.uptime_seconds != null) { primary.uptime_seconds = host.uptime_seconds; primary.uptime_source = 'node_os'; }
     } else {
       primary.system = {
-        source: 'windows_host',
+        source: 'node_os',
         available: false,
         error: (host && host.error) || 'unavailable',
-        endpoint: hostMetrics.getEndpoint()
+        endpoint: hostMetrics.getEndpoint(),
+        tried: (host && host.tried) || undefined,
+        module_source: this.hostMetricsSource || null
       };
     }
 
@@ -404,9 +413,7 @@ class PiNodeStatusMonitor {
       if (dock.restart_count != null) primary.restart_count = dock.restart_count;
       if (dock.oom) primary.oom = true;
       if (dock.pid) primary.pid = dock.pid;
-      if (Array.isArray(dock.containers) && dock.containers.length) {
-        primary.docker_containers = dock.containers.length;
-      }
+      if (Array.isArray(dock.containers) && dock.containers.length) primary.docker_containers = dock.containers.length;
     } else {
       primary.docker_probe = false;
       primary.docker_sock = false;
@@ -492,10 +499,7 @@ function httpGet(url, timeoutMs) {
       });
     });
     req.on('error', reject);
-    req.on('timeout', function () {
-      try { req.destroy(); } catch (e) {}
-      reject(new Error('timeout'));
-    });
+    req.on('timeout', function () { try { req.destroy(); } catch (e) {} reject(new Error('timeout')); });
   });
 }
 
