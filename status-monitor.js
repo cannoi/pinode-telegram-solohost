@@ -3,12 +3,16 @@ const dataFrame = require('./data-frame');
 
 /**
  * SoloHost-allowed multi-source Pi Node status
- * Primary (always): Horizon root + Core HTTP + TCP ports + state files
+ * Primary (always): Horizon root + Core HTTP + TCP ports + state files + HOST METRICS
  * Optional: Docker sock/exec when DOCKER_PROBE=1 and socket mounted by user
  *
  * Consensus (from cannoi monitor package):
  *   confidence = okSources / total
  *   ≥75% HEALTHY, ≥50% DEGRADED, else soft/offline knowledge
+ *
+ * [2.6.57] Host Metrics (Windows Host CPU/RAM/Disk/Uptime) is now a first-class
+ * source, independent of Docker. When Docker is OFF, system.* fields are still
+ * populated from DataLive/System Agent — never from containers.
  */
 
 const http = require('http');
@@ -19,6 +23,7 @@ const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
 const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
 const dockerProbe = require('./docker-probe');
+const hostMetrics = require('./host-metrics');   // [2.6.57] Windows Host metrics (independent of docker.sock)
 let applyHorizonSyncLabel;
 try { applyHorizonSyncLabel = require('./horizon-sync-label').applyHorizonSyncLabel; }
 catch (e) {
@@ -181,7 +186,7 @@ class PiNodeStatusMonitor {
   }
 
   /**
-   * Main collect — SoloHost default sources + optional docker
+   * Main collect — SoloHost default sources + host metrics + optional docker
    */
   async getStatus(forceFresh, opts) {
     opts = opts || {};
@@ -204,13 +209,17 @@ class PiNodeStatusMonitor {
       }
     } catch (e) {}
 
-    // Parallel: Horizon optimized + Core + Network (+ optional Docker)
+    // Parallel: Horizon optimized + Core + Network + Host Metrics (+ optional Docker)
     const tasks = [
       this.httpReader.getStatus({ fresh: true }).then(function (d) {
         return { ok: true, data: d };
       }).catch(function (e) { return { ok: false, error: e.message }; }),
       this.probeCoreHttp(),
-      this.probeNetwork()
+      this.probeNetwork(),
+      // [2.6.57] Host Metrics - independent of Docker. Never blocks other sources.
+      hostMetrics.getHostMetrics().catch(function (e) {
+        return { available: false, source: 'windows_host', error: e && e.message };
+      })
     ];
     // Docker only when operator opted in (env or /docker on) AND socket exists
     let wantDocker = false;
@@ -230,7 +239,8 @@ class PiNodeStatusMonitor {
     const hz = results[0];
     const core = results[1];
     const netw = results[2];
-    const dock = wantDocker ? (results[3] || { available: false }) : { available: false, skipped: true };
+    const host = results[3] || { available: false };
+    const dock = wantDocker ? (results[4] || { available: false }) : { available: false, skipped: true };
 
     const files = this.readFileSource();
 
@@ -297,6 +307,55 @@ class PiNodeStatusMonitor {
     primary.ports_all_open = primary.ports_open >= 3;
     try { dataFrame.applyPeerRule(primary); } catch (e) {}
     primary.network_probe = netw.ports;
+
+    // [2.6.57] HOST SYSTEM METRICS (Windows Host) — from DataLive/System Agent.
+    // Independent of Docker. Source is explicitly "windows_host"; never container.
+    primary.sources.host_metrics = !!(host && host.available);
+    if (host && host.available) {
+      primary.system = {
+        source: 'windows_host',
+        available: true,
+        timestamp: host.timestamp,
+        age_seconds: host.age_seconds,
+        cpu_percent: host.cpu ? host.cpu.usage_percent : null,
+        memory_percent: host.memory ? host.memory.used_percent : null,
+        memory_used_bytes: host.memory ? host.memory.used_bytes : null,
+        memory_total_bytes: host.memory ? host.memory.total_bytes : null,
+        memory_free_bytes: host.memory ? host.memory.free_bytes : null,
+        disk_percent: host.disk ? host.disk.used_percent : null,
+        disk_drive: host.disk ? host.disk.drive : null,
+        disk_used_bytes: host.disk ? host.disk.used_bytes : null,
+        disk_total_bytes: host.disk ? host.disk.total_bytes : null,
+        disk_free_bytes: host.disk ? host.disk.free_bytes : null,
+        uptime_seconds: host.uptime_seconds
+      };
+      // Backward-compatible fields — same names used by Dashboard/Telegram/AI.
+      if (host.cpu && host.cpu.usage_percent != null) {
+        primary.cpu = host.cpu.usage_percent;
+        primary.cpu_source = 'windows_host';
+      }
+      if (host.memory && host.memory.used_percent != null) {
+        primary.ram = host.memory.used_percent;
+        primary.ram_source = 'windows_host';
+      }
+      if (host.disk && host.disk.used_percent != null) {
+        primary.disk = host.disk.used_percent;
+        primary.disk_source = 'windows_host';
+      }
+      if (host.uptime_seconds != null) {
+        primary.uptime_seconds = host.uptime_seconds;
+        primary.uptime_source = 'windows_host';
+      }
+    } else {
+      primary.system = {
+        source: 'windows_host',
+        available: false,
+        error: (host && host.error) || 'unavailable',
+        endpoint: hostMetrics.getEndpoint()
+      };
+      // Do NOT touch primary.cpu / primary.ram / primary.disk if host unavailable.
+      // They may be set by another source (rare) or stay undefined/null.
+    }
 
     // Optional docker enrichment
     if (dock && dock.available) {
@@ -381,7 +440,8 @@ class PiNodeStatusMonitor {
       horizon_ok: !!primary.sources.horizon,
       core_ok: !!primary.core_verified,
       files_ok: !!files.ok,
-      network_ok: !!netw.ok
+      network_ok: !!netw.ok,
+      host_metrics_ok: !!(host && host.available)
     };
 
     // FSM / level for alerts
