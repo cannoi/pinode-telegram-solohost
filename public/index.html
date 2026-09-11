@@ -10,7 +10,51 @@ body{font-family:"Segoe UI",system-ui,sans-serif;color:var(--t);min-height:100vh
 background-color:#1b140c;
 background-image:linear-gradient(180deg,rgba(10,18,30,.32),rgba(8,12,18,.46)),var(--bg-image,url("/bg-cave.jpg"));
 background-position:center top;background-size:cover;background-repeat:no-repeat;background-attachment:fixed;
-padding:14px;display:flex;justify-content:center}
+padding:14px;display:flex;justify-content:center;
+transition:padding-top .22s ease}
+/* Reserve space when SYSTEM RESOURCES bar is visible */
+body.has-sysres{padding-top:74px}
+
+/* ============================================================
+ * SYSTEM RESOURCES bar — Windows 10 Aero / glassmorphism
+ * Fixed at top of viewport. Auto-hides when host metrics off.
+ * ============================================================ */
+.sysres-bar{
+  position:fixed;top:0;left:0;right:0;z-index:60;
+  display:flex;align-items:center;justify-content:center;flex-wrap:wrap;
+  gap:14px;
+  padding:12px 18px;
+  background:linear-gradient(180deg,rgba(22,30,44,.72),rgba(18,24,36,.56));
+  -webkit-backdrop-filter:blur(30px) saturate(180%);
+  backdrop-filter:blur(30px) saturate(180%);
+  border-bottom:1px solid rgba(255,255,255,.28);
+  box-shadow:0 8px 24px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.12);
+  color:#fff;font-size:.8rem;font-weight:600;letter-spacing:.2px;
+  animation:sysresIn .28s ease;
+}
+.sysres-bar[hidden]{display:none!important}
+@keyframes sysresIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.sysres-title{
+  color:var(--m);font-weight:700;text-transform:uppercase;
+  font-size:.66rem;letter-spacing:.7px;margin-right:4px
+}
+.sysres-item{
+  display:flex;align-items:center;gap:6px;
+  padding:3px 10px;border-radius:5px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+  transition:background .2s,border-color .2s;
+  white-space:nowrap;
+}
+.sysres-item:hover{background:rgba(255,255,255,.11)}
+.sysres-icon{font-size:.98rem;line-height:1;opacity:.96}
+.sysres-label{color:var(--m);font-weight:600;font-size:.74rem}
+.sysres-value{font-weight:700;color:#fff;font-size:.79rem}
+.sysres-item.warn{border-color:rgba(255,193,7,.55);background:rgba(255,193,7,.10)}
+.sysres-item.warn .sysres-value{color:#ffc107}
+.sysres-item.crit{border-color:rgba(232,17,35,.65);background:rgba(232,17,35,.14)}
+.sysres-item.crit .sysres-value{color:#ff5a5a}
+
 .w{width:100%;max-width:480px}
 .hero{text-align:center;margin-bottom:10px}
 .ring{width:72px;height:72px;margin:0 auto 8px;border-radius:50%;padding:2px;background:linear-gradient(135deg,#4cc2ff,#0078d7)}
@@ -24,15 +68,12 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.16);font-size:.85rem}
 .k{color:var(--m)}.val{font-weight:700}
 
-/* Styling cải tiến tối ưu khoảng cách Gauge */
 .status-layout{display:flex;align-items:center;justify-content:space-between;padding:4px 0}
 .status-col{display:flex;flex-direction:column;gap:10px;font-size:.85rem;min-width:70px}
 .status-col.left{text-align:left}
 .status-col.right{text-align:right}
 .gauge-wrap{position:relative;width:210px;height:120px;display:flex;flex-direction:column;align-items:center;margin:0 auto}
 .gauge-svg{width:100%;height:100%;overflow:visible}
-
-/* Tham số vị trí top:42px đảm bảo chữ luôn nằm hoàn toàn bên trong vòng cung */
 .gauge-center{position:absolute;top:42px;left:0;right:0;text-align:center;display:flex;flex-direction:column;align-items:center;line-height:1.2}
 .gauge-score{font-size:1.4rem;font-weight:800;letter-spacing:.5px}
 .gauge-label{font-size:.75rem;font-weight:700;color:#fff;margin-top:2px}
@@ -64,7 +105,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .panel .item{border-bottom:1px dashed rgba(255,255,255,.2);padding:6px 0;white-space:pre-wrap}
 .foot{text-align:center;font-size:.62rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
 .link{color:#9ad8ff;cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:70;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
 .modal.on{display:flex}
 .modal .box{background:rgba(20,28,40,.55);border:1px solid rgba(255,255,255,.35);border-radius:6px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;backdrop-filter:blur(24px)}
 .modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(255,255,255,.2)}
@@ -78,6 +119,30 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 </style>
 </head>
 <body>
+
+<!-- ============================================================
+     SYSTEM RESOURCES — fixed at top, Windows 10 Aero
+     Auto-hides when host metrics unavailable.
+     ============================================================ -->
+<div id="sysresBar" class="sysres-bar" hidden aria-label="System Resources">
+  <span class="sysres-title">System Resources:</span>
+  <div class="sysres-item" id="sysresRamRow">
+    <span class="sysres-icon">💾</span>
+    <span class="sysres-label">RAM:</span>
+    <span class="sysres-value" id="sysresRam">—</span>
+  </div>
+  <div class="sysres-item" id="sysresCpuRow">
+    <span class="sysres-icon">📊</span>
+    <span class="sysres-label">CPU:</span>
+    <span class="sysres-value" id="sysresCpu">—</span>
+  </div>
+  <div class="sysres-item" id="sysresDiskRow">
+    <span class="sysres-icon">💿</span>
+    <span class="sysres-label">Disk:</span>
+    <span class="sysres-value" id="sysresDisk">—</span>
+  </div>
+</div>
+
 <div class="w">
   <div class="hero">
     <div class="ring"><img src="/avatar.jpg" alt=""></div>
@@ -173,10 +238,6 @@ SoloHost UI: press Stop, then Start the app again so the new compose applies.
 
 Confirm only if you accept these terms in full.`;
 
-// [2.6.57-fix] Safe element access helper - prevents TypeError when the
-// server-side index transform strips optional DOM nodes (e.g. pn-horizon-note
-// is removed when docker.sock is ON) which previously killed the whole script
-// and broke UI data updates (loadStatus never ran).
 function $(id){ return document.getElementById(id); }
 function on(el, ev, fn){ if (el) el.addEventListener(ev, fn); }
 
@@ -184,7 +245,7 @@ const box=$('chatbox');
 const termsBox=$('termsBox');
 if(termsBox) termsBox.textContent=TERMS;
 
-function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;}
+function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;if(box){box.appendChild(d);box.scrollTop=box.scrollHeight;}}
 
 function setupTermsScroll(){
   const read=$('dkRead');
@@ -193,17 +254,95 @@ function setupTermsScroll(){
   if(!read||!agree||!conf) return;
   function refresh(){conf.disabled=!(read.checked&&agree.checked);}
   read.onchange=refresh;agree.onchange=refresh;
-  termsBox.onscroll=function(){
-    const el=termsBox;
-    if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){
-      read.disabled=false;
-    }
-  };
-  setTimeout(function(){
-    if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
-  },400);
+  if(termsBox){
+    termsBox.onscroll=function(){
+      const el=termsBox;
+      if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){
+        read.disabled=false;
+      }
+    };
+    setTimeout(function(){
+      if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
+    },400);
+  }
 }
 
+/* ============================================================
+ * SYSTEM RESOURCES bar
+ * Reads t.system from /api/status. Auto-hides if unavailable.
+ * ============================================================ */
+function _fmtGB(b){ return b != null && isFinite(Number(b)) ? (Number(b)/1073741824).toFixed(1) : null; }
+function _fmtGB0(b){ return b != null && isFinite(Number(b)) ? (Number(b)/1073741824).toFixed(0) : null; }
+
+function _updateSysresRow(rowId, valueId, opts){
+  const row = $(rowId); const el = $(valueId);
+  if(!row || !el) return;
+  if(opts.text == null){ el.textContent = '—'; row.classList.remove('warn','crit'); return; }
+  el.textContent = opts.text;
+  row.classList.toggle('warn', !!(opts.warn));
+  row.classList.toggle('crit', !!(opts.crit));
+}
+
+function _applySysres(sys){
+  const bar = $('sysresBar');
+  if(!bar) return;
+  const avail = !!(sys && sys.available);
+  bar.hidden = !avail;
+  if(document.body) document.body.classList.toggle('has-sysres', avail);
+  if(!avail) return;
+
+  // RAM
+  let ramText = null, ramWarn = false, ramCrit = false;
+  if(sys.memory_percent != null){
+    const pct = Number(sys.memory_percent);
+    const usedGB = _fmtGB(sys.memory_used_bytes);
+    const totGB = _fmtGB(sys.memory_total_bytes);
+    ramText = (usedGB != null && totGB != null)
+      ? (usedGB + ' GB / ' + totGB + ' GB')
+      : (pct + '%');
+    ramWarn = pct >= 85 && pct < 92;
+    ramCrit = pct >= 92;
+  }
+  _updateSysresRow('sysresRamRow','sysresRam',{ text: ramText, warn: ramWarn, crit: ramCrit });
+
+  // CPU
+  let cpuText = null, cpuWarn = false, cpuCrit = false;
+  if(sys.cpu_percent != null){
+    const pct = Number(sys.cpu_percent);
+    cpuText = pct + '% (Avg)';
+    cpuWarn = pct >= 85 && pct < 95;
+    cpuCrit = pct >= 95;
+  }
+  _updateSysresRow('sysresCpuRow','sysresCpu',{ text: cpuText, warn: cpuWarn, crit: cpuCrit });
+
+  // Disk
+  let diskText = null, diskWarn = false, diskCrit = false;
+  if(sys.disk_percent != null){
+    const pct = Number(sys.disk_percent);
+    const drv = sys.disk_drive ? (sys.disk_drive + ' ') : '';
+    const used = _fmtGB0(sys.disk_used_bytes);
+    const tot  = _fmtGB0(sys.disk_total_bytes);
+    diskText = (used != null && tot != null) ? (drv + used + ' GB / ' + tot + ' GB') : (drv + pct + '%');
+    diskWarn = pct >= 88 && pct < 95;
+    diskCrit = pct >= 95;
+  }
+  _updateSysresRow('sysresDiskRow','sysresDisk',{ text: diskText, warn: diskWarn, crit: diskCrit });
+}
+
+async function loadSysResources(){
+  try{
+    const t = await fetch('/api/status').then(r=>r.json());
+    _applySysres(t && t.system);
+  }catch(e){
+    const bar = $('sysresBar');
+    if(bar) bar.hidden = true;
+    if(document.body) document.body.classList.remove('has-sysres');
+  }
+}
+
+/* ============================================================
+ * Live status (gauge)
+ * ============================================================ */
 async function loadStatus(){
   try{
     const t=await fetch('/api/status').then(r=>r.json());
@@ -212,18 +351,15 @@ async function loadStatus(){
     const ageVal = t.ledger_age!=null ? t.ledger_age+'s' : '—';
     const peersVal = t.peers!=null ? String(t.peers) : ((t.peer_in!=null||t.peer_out!=null)?String((t.peer_in??0)+(t.peer_out??0)):'—');
 
-    // Đọc điểm sức khỏe theo thời gian thực từ API
     const rawH = (t.core_health!=null && t.docker_sock) ? t.core_health : t.health;
     const health = rawH!=null ? Math.min(100, Math.max(0, Number(rawH))) : 0;
 
-    // Tự động gán màu sắc và trạng thái tương ứng theo thang điểm 100
     let color = '#16c60c';
     let statusText = 'Excellent';
     if(health < 50){ color='#e81123'; statusText='Poor'; }
     else if(health < 75){ color='#ffc107'; statusText='Fair'; }
     else if(health < 90){ color='#a3e635'; statusText='Good'; }
 
-    // Chu vi bán cầu với bán kính R=82px: PI * 82 ≈ 257.61
     const maxArc = 257.61;
     const offset = maxArc * (1 - (health / 100));
 
@@ -258,6 +394,10 @@ async function loadStatus(){
         </div>
       </div>
     `;
+
+    // Also refresh the SYSTEM RESOURCES bar in the same fetch (no extra HTTP)
+    _applySysres(t && t.system);
+
     const note=$('pn-horizon-note');
     if(note){
       const sock=t.docker_sock===true||t.docker_probe===true||t.hasDockerSock===true;
@@ -274,7 +414,7 @@ async function send(){
   try{
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
     const j=await r.json();
-    box.lastChild.textContent=j.reply||j.error||'No reply';
+    if(box) box.lastChild.textContent=j.reply||j.error||'No reply';
     if(j.images&&j.images.length){
       const wrap=document.createElement('div');
       wrap.className='msg bot';
@@ -284,13 +424,11 @@ async function send(){
         im.src=src; im.alt='QR'; im.style.maxWidth='46%'; im.style.margin='4px'; im.style.borderRadius='8px';
         wrap.appendChild(im);
       });
-      box.appendChild(wrap); box.scrollTop=box.scrollHeight;
+      if(box){ box.appendChild(wrap); box.scrollTop=box.scrollHeight; }
     }
-  }catch(e){ box.lastChild.textContent='Chat error'; }
+  }catch(e){ if(box) box.lastChild.textContent='Chat error'; }
 }
 
-// [2.6.57-fix] All optional DOM handlers are null-safe. If server strips
-// #pn-horizon-note (sock ON), we simply skip - no script crash.
 on($('dkTip'),'click',function(){
   const read=$('dkRead'), agree=$('dkAgree'), conf=$('dkConfirm'), modal=$('dkModal');
   if(!read||!agree||!conf||!modal) return;
@@ -300,7 +438,7 @@ on($('dkTip'),'click',function(){
   agree.disabled=false;
   conf.disabled=true;
   modal.classList.add('on');
-  termsBox.scrollTop=0;
+  if(termsBox) termsBox.scrollTop=0;
   setupTermsScroll();
 });
 on($('dkCancel'),'click',function(){
@@ -314,11 +452,11 @@ on($('dkConfirm'),'click',async function(){
   try{
     const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
     const j=await r.json();
-    if(!j.ok){box.lastChild.textContent=j.error||'Failed';return;}
-    box.lastChild.textContent=j.wrote_host
+    if(!j.ok){ if(box) box.lastChild.textContent=j.error||'Failed';return; }
+    if(box) box.lastChild.textContent=j.wrote_host
       ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: press Stop, then Start the app again.'
       : (j.hint||'Saved. SoloHost: Stop → Start if compose updated.');
-  }catch(e){box.lastChild.textContent='Network error';}
+  }catch(e){ if(box) box.lastChild.textContent='Network error'; }
 });
 on($('dkAgree'),'change',function(){
   const read=$('dkRead'), agree=$('dkAgree'), conf=$('dkConfirm');
@@ -402,7 +540,10 @@ on($('bell'),'click',async function(){
 });
 loadAlerts();setInterval(loadAlerts,20000);
 
-loadStatus();setInterval(loadStatus,15000);
+// Initial load + periodic refresh
+loadSysResources();
+loadStatus();
+setInterval(loadStatus,15000);
 </script>
 </body>
 </html>
