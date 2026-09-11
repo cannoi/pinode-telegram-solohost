@@ -7,6 +7,8 @@
  * - Pi Node Diagnostic Framework v3.0 + Deep Knowledge Base
  * - Natural Language Command Parser (multi-language)
  * - Auto Telegram Menu Sync on boot
+ * - Update checker (48h) via GitHub repo cannoi/pinode-telegram-solohost
+ * - Horizon-only disclaimer (hidden when docker.sock is ON)
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
  * - Resource-tuned: readHistory cache + rollup RAM cache
@@ -28,7 +30,8 @@ INCIDENT: 10 classes, stage machine 0-5.
 AI DATA: named blocks + flexible DSL queries (metric/window/agg/filter).
 DIAGNOSTIC: 7-step flow + 8 SoloHost scripts, 4 safety levels.
 NATURAL LANGUAGE: report schedule, alerts on/off/night, mute N hours, stop reports.
-Night/off mute covers alerts, reminders, recovery, and scheduled reports.
+UPDATE CHECK: every 48h from github.com/cannoi/pinode-telegram-solohost.
+NIGHT MUTE: applies to alerts, reminders, recovery, scheduled reports, update notices.
 STYLE: static system messages English; AI replies match user's language.
 `.trim();
 
@@ -159,6 +162,9 @@ SCH: Maintain.bat (Sun 03:00, weekly cleanup)
 - docker.sock gives Core version + real container state.
 - Without it, app uses Horizon + TCP ports probe (still works).
 - Operator must opt-in via SoloHost UI. Telegram cannot raise privileges.
+- Horizon-only accuracy note: Horizon ingest can lag behind Core state,
+  so ledger/sync numbers may differ from Pi Node Desktop. Enable Optional
+  Docker for exact Core state + real container metrics.
 
 12) INTERNATIONAL SUPPORT
 - AI replies in user's language.
@@ -219,6 +225,11 @@ const SCRIPT_DETAILS = {
 };
 
 const VERSION = '2.6.57-solohost';
+const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
+const GITHUB_REPO_URL = 'https://github.com/' + GITHUB_REPO;
+const UPDATE_CHECK_INTERVAL_MS = 48 * 3600 * 1000; // 48h gate
+const UPDATE_WAKE_INTERVAL_MS = 6 * 3600 * 1000;   // loop wakes every 6h
+
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
@@ -366,7 +377,8 @@ let state = loadJSON(STATE_F, {
   incidents: {},
   healthSmooth: null, healthRaw: null, healthAdjusted: null,
   healthConfidence: null, healthConfidenceScore: null, healthSourceCount: null,
-  healthAt: 0, healthTrend: null, healthStability: null
+  healthAt: 0, healthTrend: null, healthStability: null,
+  updateCheckedAt: 0, updateLastSeenId: null, updateLastSeenAt: 0
 });
 if (!state.incidents || typeof state.incidents !== 'object') state.incidents = {};
 
@@ -402,6 +414,25 @@ function httpGetUrl(urlStr, headers, timeout) {
         let b = '';
         r.on('data', d => b += d);
         r.on('end', () => resolve({ status: r.statusCode, body: b }));
+      });
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => { try { req.destroy(); } catch (e) {} resolve(null); });
+      req.end();
+    } catch (e) { resolve(null); }
+  });
+}
+function httpGetJson(urlStr, headers, timeout) {
+  return new Promise(resolve => {
+    try {
+      const u = new URL(urlStr);
+      const req = https.request({
+        hostname: u.hostname, port: 443, path: u.pathname + u.search, method: 'GET',
+        headers: Object.assign({ 'User-Agent': 'pinode-solohost-controller', 'Accept': 'application/vnd.github+json' }, headers || {}),
+        timeout: timeout || 8000
+      }, r => {
+        let b = '';
+        r.on('data', d => b += d);
+        r.on('end', () => { try { resolve(safeParse(b)); } catch (e) { resolve(null); } });
       });
       req.on('error', () => resolve(null));
       req.on('timeout', () => { try { req.destroy(); } catch (e) {} resolve(null); });
@@ -497,6 +528,117 @@ function ledgerVelocity(rows) {
            perHour: Math.round((last.ledger - first.ledger) / dt * 10) / 10 };
 }
 /* END DATA PIPELINE ==================================================== */
+
+/* HORIZON-ONLY DISCLAIMER ============================================== */
+/**
+ * Short English footer appended to data-derived messages when docker.sock is OFF.
+ * Returns '' when docker.sock (or docker_probe) is enabled.
+ */
+function horizonFooter(t) {
+  if (!t || (t.docker_sock || t.docker_probe)) return '';
+  return [
+    '',
+    '───────────────',
+    'ℹ️ SOURCE · Horizon only (no docker.sock)',
+    '⚠️ Horizon can lag behind Pi Node Desktop — data may not be 100% exact.',
+    '🔓 For best accuracy, enable Optional Docker in SoloHost UI on this PC.'
+  ].join('\n');
+}
+function hasDockerSock(t) {
+  if (t && (t.docker_sock === true || t.docker_probe === true)) return true;
+  try { return fs.existsSync('/var/run/docker.sock'); } catch (e) { return false; }
+}
+/* END HORIZON DISCLAIMER ============================================== */
+
+/* UPDATE CHECKER ====================================================== */
+/**
+ * Check for app updates from the official repo.
+ * Strategy:
+ *  1. Try /releases/latest (used when author publishes releases/tags)
+ *  2. Fallback to /commits?per_page=1 (used when no release yet)
+ * 48h gate applied via state.updateCheckedAt.
+ */
+async function checkForUpdates(force) {
+  const now = Date.now();
+  if (!force && state.updateCheckedAt && (now - state.updateCheckedAt) < UPDATE_CHECK_INTERVAL_MS) return null;
+  state.updateCheckedAt = now;
+  try { saveJSON(STATE_F, state); } catch (e) {}
+
+  let latest = null;
+  try {
+    const r = await httpGetJson('https://api.github.com/repos/' + GITHUB_REPO + '/releases/latest');
+    if (r && r.tag_name) {
+      latest = {
+        id: String(r.tag_name),
+        name: String(r.name || r.tag_name),
+        at: String(r.published_at || r.created_at || ''),
+        url: String(r.html_url || GITHUB_REPO_URL),
+        kind: 'release'
+      };
+    }
+  } catch (e) {}
+
+  if (!latest) {
+    try {
+      const c = await httpGetJson('https://api.github.com/repos/' + GITHUB_REPO + '/commits?per_page=1');
+      if (Array.isArray(c) && c[0] && c[0].sha) {
+        latest = {
+          id: String(c[0].sha).slice(0, 7),
+          name: String((c[0].commit && c[0].commit.message) || 'commit').split('\n')[0].slice(0, 80),
+          at: String((c[0].commit && c[0].commit.author && c[0].commit.author.date) || ''),
+          url: String(c[0].html_url || GITHUB_REPO_URL),
+          kind: 'commit'
+        };
+      }
+    } catch (e) {}
+  }
+
+  if (!latest || !latest.id) {
+    try { actionLog('info', 'update check: no data'); } catch (e) {}
+    return null;
+  }
+  if (state.updateLastSeenId === latest.id) return null;
+  state.updateLastSeenId = latest.id;
+  state.updateLastSeenAt = now;
+  try { saveJSON(STATE_F, state); } catch (e) {}
+  return latest;
+}
+async function sendUpdateNotice(latest) {
+  if (!latest) return false;
+  const gate = alertsMuted();
+  const txt = [
+    '🚀 APP UPDATE AVAILABLE',
+    '───────────────',
+    '📦 ' + latest.name,
+    '🔖 ' + latest.id,
+    latest.at ? ('🕐 ' + String(latest.at).slice(0, 10)) : '',
+    '',
+    '🔗 ' + latest.url,
+    '',
+    'Update when convenient to get the latest fixes.'
+  ].filter(Boolean).join('\n');
+  try { actionLog('info', 'update notice: ' + latest.id); } catch (e) {}
+  if (gate.muted) {
+    try { actionLog('info', 'update notice muted - ' + gate.why); } catch (e) {}
+    return false;
+  }
+  await tgSend(txt, { reply_markup: mainKeyboard() });
+  return true;
+}
+async function updateLoop() {
+  // Give telegram loop time to init
+  await wait(15000);
+  while (true) {
+    try {
+      const latest = await checkForUpdates(false);
+      if (latest) await sendUpdateNotice(latest);
+    } catch (e) {
+      try { actionLog('warn', 'update check fail - ' + (e && e.message)); } catch (e2) {}
+    }
+    await wait(UPDATE_WAKE_INTERVAL_MS);
+  }
+}
+/* END UPDATE CHECKER ================================================== */
 
 function normalizeAny(j, sourceTag) {
   const o = { source: sourceTag || j.source || 'unknown', timestamp: j.timestamp || nowISO() };
@@ -920,7 +1062,7 @@ function formatMuteAck() {
     'Mute until · ' + until,
     'Now        · ' + (m.muted ? ('QUIET · ' + m.why) : 'ACTIVE'), '',
     'Night/off mute applies to ALL notifications:',
-    'alerts, reminders, recovery, scheduled reports.'
+    'alerts, reminders, recovery, scheduled reports, update notices.'
   ].join('\n');
 }
 function mapLevelToFsm(level) {
@@ -1376,7 +1518,8 @@ function formatStatus(t, mode) {
   parts.push('───────────────');
   parts.push('📡 ' + sourceLabel(t) + ' · ⏱ ' + age + 's ago');
   parts.push('🕐 ' + footerTime() + ' · v' + VERSION);
-  return parts.join('\n');
+  const footer = horizonFooter(t);
+  return parts.join('\n') + footer;
 }
 function formatPeers(t) {
   t = t || {};
@@ -1393,7 +1536,7 @@ function formatPeers(t) {
     parts.push('');
     parts.push('───────────────');
     parts.push('📡 Controller Pro · ⏱ ' + age + 's ago');
-    return parts.join('\n');
+    return parts.join('\n') + horizonFooter(t);
   }
   const conn = [];
   if (inn != null) conn.push('🟢 IN    · ' + inn);
@@ -1422,7 +1565,7 @@ function formatPeers(t) {
   } catch (e) { parts.push(' └ 👥 collecting'); }
   parts.push(''); parts.push('───────────────');
   parts.push('📡 Controller Pro · ⏱ ' + age + 's ago');
-  return parts.join('\n');
+  return parts.join('\n') + horizonFooter(t);
 }
 function formatDiagnostic(t) {
   t = t || {};
@@ -1486,7 +1629,7 @@ function formatDiagnostic(t) {
   parts.push('💡 Level: ' + levelIc + ' ' + String(t.level || 'unknown').toUpperCase());
   parts.push('🧭 Incidents: /incidents');
   parts.push('☕ Donate: MB 0905428801');
-  return parts.join('\n');
+  return parts.join('\n') + horizonFooter(t);
 }
 
 const ACTION_CATALOG = [
@@ -1509,7 +1652,9 @@ Natural language: "reports at 7am and 6pm", "turn off alerts", "mute for 2 hours
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
 Diagnostic framework: 7 steps, 8 SoloHost scripts, 4 safety levels (L1 safest -> L4 strongest).
 Health score: stability-aware damper - noise tolerated but sustained bad sync is punished.
-Night/off mute applies to all notifications including recovery and scheduled reports.
+Update check: every 48h from github.com/cannoi/pinode-telegram-solohost.
+Source note: when docker.sock is OFF, data is Horizon-only and may differ slightly from Pi Node Desktop.
+Night/off mute applies to all notifications including recovery, scheduled reports, update notices.
 Reports always show the last 24h rolling window (spans midnight).
 Donate: /donate - Pay with Pi or MB Bank QR.
 `;
@@ -1660,13 +1805,14 @@ function recommendScriptsFromText(text) {
 function formatReport(hours) {
   const H = Math.max(1, Math.min(168, Number(hours) || 24));
   const rows = getTimeWindow(H);
+  const t = cache || {};
   if (!rows.length) {
     return [
       '🟢 PI NODE · REPORT', '', '⏱ RANGE · collecting…', '',
       '📊 METRICS', ' └ 🔄 SYNC · n/a', '',
       '💡 DIAGNOSIS', ' ├ 🟢 NODE   · Healthy (n/a)', ' └ 🛠️ ACTION · None (No BAT needed)', '',
       '───────────────', '☕ Donate: MB 0905428801'
-    ].join('\n');
+    ].join('\n') + horizonFooter(t);
   }
   const first = rows[0], last = rows[rows.length - 1];
   const fmtHM = function (iso) {
@@ -1726,7 +1872,7 @@ function formatReport(hours) {
   parts.push('');
   parts.push('───────────────');
   parts.push('☕ Donate: MB 0905428801');
-  return parts.join('\n');
+  return parts.join('\n') + horizonFooter(t);
 }
 function formatHelp() {
   return [
@@ -2900,7 +3046,7 @@ function technicianEvaluate(t, userQ, intent) {
   lines.push('');
   lines.push('───────────────');
   lines.push('Ask for more details anytime.');
-  return lines.join('\n');
+  return lines.join('\n') + horizonFooter(t);
 }
 function recommendScriptForTelemetry(t) {
   t = t || {};
@@ -2977,6 +3123,7 @@ async function aiAnalyze(t, userQ, opts) {
         'HEALTH SCORE: t.health is smoothed. t.health_raw pre-damper. t.health_adjusted after stability. t.health_confidence = sources. t.health_trend = improving/stable/degrading.',
         'STABILITY: "unstable_short" -> tolerant; "sustained_bad" -> low score intentional.',
         'INCIDENT ENGINE: Reference RECOMMENDED_SCRIPT (or WAIT) exactly.',
+        'SOURCE NOTE: If docker.sock is OFF, data is Horizon-only and may differ from Pi Node Desktop. Be honest about that limitation.',
         '',
         '=== DATA REQUEST PROTOCOL ===',
         '1) NAMED BLOCKS: emit [DATA_REQUEST:block_name]',
@@ -3053,7 +3200,7 @@ async function aiAnalyze(t, userQ, opts) {
         const cleaned = stripDataRequests(text);
         if (cleaned) {
           try { actionLog('info', 'AI reply ok · lang ' + userLang + ' · intent ' + intent + ' · quick=' + (skipCurrentForLang ? '1' : '0') + ' · named ' + named.length + ' · dsl ' + dsl.length); } catch (e) {}
-          return '⚡AI PINODE GUIDE\n\n' + formatAiReply(cleaned);
+          return '⚡AI PINODE GUIDE\n\n' + formatAiReply(cleaned) + horizonFooter(t);
         }
       }
     }
@@ -3134,7 +3281,7 @@ async function runCmd(cmd, userText) {
     if (t.ledger_age != null) lines.push('⏱️ Age: ' + t.ledger_age + 's');
     if (t.health != null) lines.push('💚 Health: ' + t.health + '/100 (' + (t.health_confidence || 'low') + ')');
     if (lines.length === 2) lines.push('⚠️ Sync data unavailable');
-    return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
+    return tgSend(lines.join('\n') + horizonFooter(t), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'peers') return tgSend(formatPeers(t), { reply_markup: mainKeyboard() });
   if (cmd === 'ports') {
@@ -3143,7 +3290,7 @@ async function runCmd(cmd, userText) {
       const st = t.ports && t.ports[String(p)];
       lines.push((st === 'OPEN' ? '🟢' : '🔴') + ' ' + p + ' · ' + (st || '?'));
     });
-    return tgSend(lines.join('\n'), { reply_markup: mainKeyboard() });
+    return tgSend(lines.join('\n') + horizonFooter(t), { reply_markup: mainKeyboard() });
   }
   if (cmd === 'report') { const tt = cache || {}; return tgSend(formatReport(24) + '\n\n' + formatActionAdvice(tt), { reply_markup: reportKeyboard() }); }
   if (cmd === 'incidents' || cmd === 'incident') return tgSend(formatIncidents(), { reply_markup: mainKeyboard() });
@@ -3403,6 +3550,51 @@ function setSecHeaders(res, mode) {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   }
 }
+/**
+ * Inject a small client-side script into the SoloHost dashboard:
+ *  - Removes any legacy "Optional Docker probe (advanced)..." text
+ *  - Adds a clear Horizon-only banner under the main content when docker.sock is OFF
+ *  - Removes the banner when docker.sock is ON
+ */
+function injectUiNotice(html, showNotice) {
+  const script = showNotice ? `
+<script>
+(function(){
+  try {
+    var LEGACY = /Optional Docker probe\\s*\\(advanced\\)[^<]*/i;
+    document.querySelectorAll('*').forEach(function(el){
+      if(el.children.length===0 && LEGACY.test(el.textContent)){ el.remove(); }
+    });
+    if(!document.getElementById('pn-horizon-notice')){
+      var d=document.createElement('div');
+      d.id='pn-horizon-notice';
+      d.style.cssText='margin:14px 0;padding:12px 14px;border-left:4px solid #f0ad4e;background:#fff8e1;color:#5a3e00;border-radius:6px;font:14px/1.45 system-ui,-apple-system,sans-serif';
+      d.innerHTML='<b>\\u2139\\ufe0f Horizon-only mode (docker.sock OFF)</b><br>'+
+        'Readings come from Horizon; accuracy may lag or differ from Pi Node Desktop.<br>'+
+        '<b>\\ud83d\\udd13 Tip:</b> turn ON Optional Docker in this window to boost Pi Node accuracy.';
+      var host=document.querySelector('main')||document.body;
+      host.appendChild(d);
+    }
+  } catch(e){}
+})();
+</script>
+` : `
+<script>
+(function(){
+  try {
+    var LEGACY = /Optional Docker probe\\s*\\(advanced\\)[^<]*/i;
+    document.querySelectorAll('*').forEach(function(el){
+      if(el.children.length===0 && LEGACY.test(el.textContent)){ el.remove(); }
+    });
+    var n=document.getElementById('pn-horizon-notice');
+    if(n) n.remove();
+  } catch(e){}
+})();
+</script>
+`;
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, script + '</body>');
+  return html + script;
+}
 const srv = http.createServer(async (req, res) => {
   const u = (req.url || '/').split('?')[0];
   setSecHeaders(res);
@@ -3502,6 +3694,24 @@ const srv = http.createServer(async (req, res) => {
       }));
       return;
     }
+    if (u === '/api/update-check') {
+      if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      try {
+        const latest = await checkForUpdates(true);
+        res.end(JSON.stringify({
+          ok: true,
+          current: VERSION,
+          repo: GITHUB_REPO_URL,
+          latest: latest,
+          lastSeenId: state.updateLastSeenId || null,
+          lastCheckedAt: state.updateCheckedAt ? new Date(state.updateCheckedAt).toISOString() : null
+        }));
+      } catch (e) {
+        res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+      }
+      return;
+    }
     if (u === '/api/selftest') {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
@@ -3553,6 +3763,19 @@ const srv = http.createServer(async (req, res) => {
       ok('menu_sync_fn', typeof ensureTelegramMenu === 'function' && typeof getStandardMenu === 'function', 'loaded');
       const menu = getStandardMenu();
       ok('menu_standard_count', menu.length === 14, 'count=' + menu.length);
+      // v3.5 checks
+      ok('update_checker_fn', typeof checkForUpdates === 'function' && typeof updateLoop === 'function', 'loaded');
+      ok('github_repo_const', GITHUB_REPO === 'cannoi/pinode-telegram-solohost', GITHUB_REPO);
+      ok('update_interval_48h', UPDATE_CHECK_INTERVAL_MS === 48 * 3600 * 1000, String(UPDATE_CHECK_INTERVAL_MS));
+      ok('horizon_footer_fn', typeof horizonFooter === 'function', 'horizonFooter');
+      ok('horizon_footer_on_when_off', (horizonFooter({ docker_sock: false }) || '').indexOf('Horizon only') >= 0, 'on');
+      ok('horizon_footer_off_when_on', horizonFooter({ docker_sock: true }) === '', 'off');
+      ok('ui_notice_inject_fn', typeof injectUiNotice === 'function', 'injectUiNotice');
+      const tOff = injectUiNotice('<html><body>x</body></html>', true);
+      const tOn = injectUiNotice('<html><body>x</body></html>', false);
+      ok('ui_notice_show', tOff.indexOf('pn-horizon-notice') >= 0, 'show');
+      ok('ui_notice_hide_removes', tOn.indexOf('pn-horizon-notice') < 0, 'hide');
+      ok('has_docker_sock_fn', typeof hasDockerSock === 'function', 'hasDockerSock');
       ok('ai_data_providers', Object.keys(AI_DATA_PROVIDERS).length >= 10, 'count=' + Object.keys(AI_DATA_PROVIDERS).length);
       ok('ai_parse_request', typeof parseDataRequests === 'function', 'parseDataRequests');
       ok('dsl_parse_fn', typeof parseDataQueries === 'function' && typeof executeDataQuery === 'function', 'loaded');
@@ -3651,7 +3874,7 @@ const srv = http.createServer(async (req, res) => {
         }
         if (!ans) ans = await aiAnalyze(tel, msg);
         pushChatPersistent('assistant', ans);
-        const payload = { ok: true, reply: ans, version: VERSION, source: tel && tel.source };
+        const payload = { ok: true, reply: ans, version: VERSION, source: tel && tel.source, horizonOnly: !hasDockerSock(tel) };
         if (c0 === 'donate') {
           payload.images = [];
           try {
@@ -3695,7 +3918,8 @@ const srv = http.createServer(async (req, res) => {
       res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Docker optional</title><style>body{font-family:system-ui,sans-serif;max-width:640px;margin:1.5rem auto;padding:0 1rem;line-height:1.45}.box{border:1px solid #ccc;border-radius:8px;padding:1rem;margin:1rem 0;background:#f8f8f8}.btn{display:inline-block;margin:.3rem .4rem .3rem 0;padding:.65rem 1rem;border-radius:6px;text-decoration:none;color:#fff;font-weight:600}.yes{background:#0a7}.no{background:#555}</style></head><body>'
         + '<h1>Optional Docker access</h1>'
         + '<p>Confirm on <b>this computer</b> (SoloHost node). Default app stays sandboxed.</p>'
-        + '<div class="box"><p><b>Preference:</b> ' + (pref.enabled ? 'ON' : 'OFF') + '<br><b>Socket in container:</b> ' + (sockExists ? 'YES' : 'NO') + '</p></div>'
+        + '<div class="box"><p><b>Preference:</b> ' + (pref.enabled ? 'ON' : 'OFF') + '<br><b>Socket in container:</b> ' + (sockExists ? 'YES' : 'NO') + '</p>'
+        + '<p><b>Why enable it:</b> boost Pi Node accuracy with real container state + Core version.</p></div>'
         + '<p><a class="btn yes" href="/docker/confirm">Agree - enable &amp; prepare files</a> <a class="btn no" href="/docker/off">Disable</a></p>'
         + '<p><a href="/">Controller home</a></p></body></html>');
       return;
@@ -3759,6 +3983,7 @@ const srv = http.createServer(async (req, res) => {
     }
     if (u === '/api/info') {
       res.setHeader('Content-Type', 'application/json');
+      const tel = cache || {};
       res.end(JSON.stringify({
         version: VERSION, dataLive: false, hasBot: !!BOT_TOKEN, hasAI: !!GEMINI_API_KEY,
         telemetrySec: TELEMETRY_SEC, incidentCount: Object.keys(state.incidents || {}).length,
@@ -3767,7 +3992,12 @@ const srv = http.createServer(async (req, res) => {
         aiProviders: Object.keys(AI_DATA_PROVIDERS).length,
         aiDslMetrics: Object.keys(AI_METRIC_WHITELIST).length,
         diagScripts: Object.keys(SCRIPT_DETAILS).length,
-        readHistCacheTtlMs: _readHistCache.ttlMs
+        readHistCacheTtlMs: _readHistCache.ttlMs,
+        hasDockerSock: hasDockerSock(tel),
+        horizonOnly: !hasDockerSock(tel),
+        updateLastSeenId: state.updateLastSeenId || null,
+        updateCheckedAt: state.updateCheckedAt ? new Date(state.updateCheckedAt).toISOString() : null,
+        updateRepo: GITHUB_REPO_URL
       }));
       return;
     }
@@ -3780,7 +4010,9 @@ const srv = http.createServer(async (req, res) => {
     if (u === '/' || u === '/index.html') {
       setSecHeaders(res);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end(INDEX);
+      const tel = cache || {};
+      const showNotice = !hasDockerSock(tel);
+      res.end(injectUiNotice(INDEX, showNotice));
       return;
     }
     if (u.startsWith('/scripts/')) {
@@ -3840,11 +4072,14 @@ srv.listen(PORT, '0.0.0.0', () => {
   log('Language: quick-action buttons use chat-history language');
   log('NLU parser active · report/alerts/mute in EN/VI/ES/FR');
   log('Telegram menu sync: delete old + install standard (14 commands)');
-  log('Night/off mute applies to alerts, reminders, recovery, scheduled reports');
+  log('Update checker active · 48h window · repo ' + GITHUB_REPO_URL);
+  log('Horizon-only disclaimer active (auto-hides when docker.sock is ON)');
+  log('Night/off mute applies to alerts, reminders, recovery, scheduled reports, update notices');
   log('Telegram long-poll independent of telemetry');
 });
 telegramLoop();
 telemetryLoop();
+updateLoop();
 if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
   setTimeout(async () => {
     try {
@@ -3854,4 +4089,4 @@ if (BOT_TOKEN && CHAT_ID && ALERT_ON_START) {
       else { try { actionLog('info', 'startup notification muted - ' + gate.why); } catch (e) {} }
     } catch (e) { log('start ' + e.message, 'error'); }
   }, 4000);
-  }
+             }
