@@ -1,5 +1,5 @@
 title: Pi Node Telegram Controller PRO
-description: Monitor Pi Node via Horizon + Core + ports + Windows Host metrics. AI technician analysis needs Gemini API Key.
+description: Monitor Pi Node via Horizon + Core + ports. AI technician analysis needs Gemini API Key.
 output_file: .env
 
 fixed_values:
@@ -24,16 +24,3 @@ fields:
     type: password
     required: false
     help: Free key at Google AI Studio. Without it, chat uses local technician summary only.
-
-  # [2.6.57] Optional Host Metrics overrides — leave blank for defaults.
-  - name: HOST_METRICS_URL
-    label: Host Metrics URL (Windows Host CPU/RAM/Disk via DataLive)
-    type: text
-    required: false
-    help: Để trống = http://host.docker.internal:18790/v1/status. Đây là endpoint DataLive/System Agent trả metrics thật của Windows Host.
-
-  - name: AUTO_COMPOSE_IMAGE
-    label: Docker image tag (chỉ đổi khi GHCR chưa có tag v2.6.57)
-    type: text
-    required: false
-    help: Để trống = ghcr.io/cannoi/pinode-telegram-solohost:v2.6.57. Nếu bị pull lặp, dán tag có sẵn (VD latest).
