@@ -6,13 +6,9 @@ const dataFrame = require('./data-frame');
  * Primary (always): Horizon root + Core HTTP + TCP ports + state files + HOST METRICS
  * Optional: Docker sock/exec when DOCKER_PROBE=1 and socket mounted by user
  *
- * Consensus (from cannoi monitor package):
- *   confidence = okSources / total
- *   ≥75% HEALTHY, ≥50% DEGRADED, else soft/offline knowledge
- *
- * [2.6.57] Host Metrics (Windows Host CPU/RAM/Disk/Uptime) is now a first-class
- * source, independent of Docker. When Docker is OFF, system.* fields are still
- * populated from DataLive/System Agent — never from containers.
+ * [2.6.57] Host Metrics (Windows Host CPU/RAM/Disk/Uptime) is a first-class
+ * source, independent of Docker. If host-metrics.js is missing from the image,
+ * a safe fallback stub is used so the app still boots (available=false).
  */
 
 const http = require('http');
@@ -23,7 +19,30 @@ const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
 const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
 const dockerProbe = require('./docker-probe');
-const hostMetrics = require('./host-metrics');   // [2.6.57] Windows Host metrics (independent of docker.sock)
+
+// [2.6.57-fix] DEFENSIVE require: if host-metrics.js isn't shipped in the image,
+// fall back to a stub that reports available=false. App never crashes.
+let hostMetrics;
+try {
+  hostMetrics = require('./host-metrics');
+} catch (e) {
+  hostMetrics = {
+    getHostMetrics: function () {
+      return Promise.resolve({
+        available: false,
+        source: 'windows_host',
+        error: 'host_metrics_module_missing',
+        url: process.env.HOST_METRICS_URL || 'http://host.docker.internal:18790/v1/status'
+      });
+    },
+    getEndpoint: function () {
+      return (process.env.HOST_METRICS_URL || 'http://host.docker.internal:18790/v1/status').trim();
+    },
+    isHostMetricsDisabled: function () { return false; }
+  };
+  try { console.warn('[status-monitor] host-metrics.js not found · using stub (available=false)'); } catch (e2) {}
+}
+
 let applyHorizonSyncLabel;
 try { applyHorizonSyncLabel = require('./horizon-sync-label').applyHorizonSyncLabel; }
 catch (e) {
@@ -111,7 +130,6 @@ class PiNodeStatusMonitor {
       ok: openCount > 0,
       ports: map,
       openCount: openCount,
-      // app-facing ports only 31401-3
       app_ports: {
         '31401': map['31401'] || 'CLOSED',
         '31402': map['31402'] || 'CLOSED',
@@ -146,7 +164,6 @@ class PiNodeStatusMonitor {
           if (/synced/i.test(st) && !/not\s*synced/i.test(st)) o.sync = 'Synced';
           else if (/catching/i.test(st)) o.sync = 'Catching up';
           else o.sync = st || 'Core OK';
-          // peers
           try {
             const pb = await httpGet('http://' + hosts[h] + ':' + ports[p] + '/peers', 1200);
             const pj = JSON.parse(pb);
@@ -185,9 +202,6 @@ class PiNodeStatusMonitor {
     }
   }
 
-  /**
-   * Main collect — SoloHost default sources + host metrics + optional docker
-   */
   async getStatus(forceFresh, opts) {
     opts = opts || {};
     const detailed = !!opts.detailed;
@@ -200,7 +214,6 @@ class PiNodeStatusMonitor {
 
     this.metrics.requests++;
 
-    // Discovery (HTTP only)
     try {
       await this.discovery.discover(false);
       const d = this.discovery.discovered;
@@ -209,19 +222,17 @@ class PiNodeStatusMonitor {
       }
     } catch (e) {}
 
-    // Parallel: Horizon optimized + Core + Network + Host Metrics (+ optional Docker)
     const tasks = [
       this.httpReader.getStatus({ fresh: true }).then(function (d) {
         return { ok: true, data: d };
       }).catch(function (e) { return { ok: false, error: e.message }; }),
       this.probeCoreHttp(),
       this.probeNetwork(),
-      // [2.6.57] Host Metrics - independent of Docker. Never blocks other sources.
       hostMetrics.getHostMetrics().catch(function (e) {
         return { available: false, source: 'windows_host', error: e && e.message };
       })
     ];
-    // Docker only when operator opted in (env or /docker on) AND socket exists
+
     let wantDocker = false;
     try {
       wantDocker = dockerProbe.dockerAllowed();
@@ -244,7 +255,6 @@ class PiNodeStatusMonitor {
 
     const files = this.readFileSource();
 
-    // Build primary telemetry maximizing Horizon fields
     let primary = {
       source: 'none',
       sync: 'Unknown',
@@ -301,15 +311,13 @@ class PiNodeStatusMonitor {
       primary.sync_confidence = primary.sync_confidence || 'medium';
     }
 
-    // Network ports
     primary.ports = netw.app_ports || netw.ports || {};
     primary.ports_open = netw.app_open != null ? netw.app_open : netw.openCount;
     primary.ports_all_open = primary.ports_open >= 3;
     try { dataFrame.applyPeerRule(primary); } catch (e) {}
     primary.network_probe = netw.ports;
 
-    // [2.6.57] HOST SYSTEM METRICS (Windows Host) — from DataLive/System Agent.
-    // Independent of Docker. Source is explicitly "windows_host"; never container.
+    // [2.6.57] HOST SYSTEM METRICS — never overwrite with container metrics.
     primary.sources.host_metrics = !!(host && host.available);
     if (host && host.available) {
       primary.system = {
@@ -329,7 +337,6 @@ class PiNodeStatusMonitor {
         disk_free_bytes: host.disk ? host.disk.free_bytes : null,
         uptime_seconds: host.uptime_seconds
       };
-      // Backward-compatible fields — same names used by Dashboard/Telegram/AI.
       if (host.cpu && host.cpu.usage_percent != null) {
         primary.cpu = host.cpu.usage_percent;
         primary.cpu_source = 'windows_host';
@@ -353,11 +360,8 @@ class PiNodeStatusMonitor {
         error: (host && host.error) || 'unavailable',
         endpoint: hostMetrics.getEndpoint()
       };
-      // Do NOT touch primary.cpu / primary.ram / primary.disk if host unavailable.
-      // They may be set by another source (rare) or stay undefined/null.
     }
 
-    // Optional docker enrichment
     if (dock && dock.available) {
       primary.docker_probe = true;
       primary.docker_sock = !!dock.docker_sock;
@@ -408,7 +412,6 @@ class PiNodeStatusMonitor {
       primary.docker_sock = false;
     }
 
-    // Consensus verification (uploaded monitor model)
     const flags = [
       primary.sources.horizon,
       primary.sources.core || primary.core_verified,
@@ -422,7 +425,6 @@ class PiNodeStatusMonitor {
     else if (confidence >= 0.5) consensus = 'DEGRADED';
     else if (okCount >= 1) consensus = 'PARTIAL';
 
-    // Ledger drift check
     let ledger_gap = null;
     if (core.ok && core.ledger != null && hz.ok && hz.data && hz.data.ledger != null) {
       ledger_gap = Math.abs(Number(core.ledger) - Number(hz.data.ledger));
@@ -444,7 +446,6 @@ class PiNodeStatusMonitor {
       host_metrics_ok: !!(host && host.available)
     };
 
-    // FSM / level for alerts
     let level = 'ok';
     if (consensus === 'OFFLINE' || (primary.ports_open === 0 && !hz.ok)) level = 'critical';
     else if (consensus === 'DEGRADED' || consensus === 'PARTIAL') level = 'soft';
