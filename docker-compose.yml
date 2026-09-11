@@ -33,5 +33,9 @@ services:
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
+      # [2.6.57-fix] Overlay local public/ (with SYSTEM RESOURCES bar) over image.
+      - ./public:/app/public:rw
+      # [2.6.57-fix] Optional: overlay host-metrics.js directly (uncomment if needed).
+      # - ./host-metrics.js:/app/host-metrics.js:ro
 
     restart: unless-stopped
