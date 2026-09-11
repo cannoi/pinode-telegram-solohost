@@ -30,10 +30,6 @@ services:
       # Timezone
       - TZ=Asia/Ho_Chi_Minh
 
-      # Real Windows Host Metrics source.
-      # Internal setting — intentionally hidden from SoloHost UI.
-      - HOST_METRICS_URL=http://host.docker.internal:18790/v1/status
-
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
