@@ -3530,8 +3530,9 @@ function setSecHeaders(res, mode) {
   }
 }
 
-/* --- Index transform: strip leftover Docker-probe lines.
-       Live-status note lives in public/index.html (#pn-horizon-note). --- */
+/* --- Index transform: remove legacy "Optional Docker probe..." lines,
+       inject new Horizon-only note + placer script when docker.sock is OFF.
+       Cached for 3s to avoid repeated regex on rapid UI refreshes. --- */
 const _indexCache = { html: null, sockOn: null, at: 0 };
 function applyIndexTransform(html, sockOn) {
   const now = Date.now();
@@ -3539,13 +3540,61 @@ function applyIndexTransform(html, sockOn) {
     return _indexCache.html;
   }
   let out = String(html || '');
+
+  // 1) Strip all legacy "Optional Docker probe..." lines (any position)
   out = out.replace(/Optional Docker\s*probe[^<\n]{0,260}/gi, '');
+  // 2) Strip any previous yellow banner we injected
   out = out.replace(/<div[^>]*id=["']pn-horizon-notice["'][\s\S]*?<\/div>/gi, '');
   out = out.replace(/Horizon-only mode[^<\n]{0,320}/gi, '');
+
   if (sockOn) {
-    out = out.replace(/<p[^>]*id=["']pn-horizon-note["'][\s\S]*?<\/p>/gi, '');
-    out = out.replace(/<div[^>]*id=["']pn-horizon-note["'][\s\S]*?<\/div>/gi, '');
+    _indexCache.html = out;
+    _indexCache.sockOn = sockOn;
+    _indexCache.at = now;
+    return out;
   }
+
+  // 3) Inject new notice + placer script (moves it under the last "Peers" line)
+  const notice =
+    '<div id="pn-horizon-note" style="margin-top:6px;font:inherit;opacity:.92;line-height:1.45">' +
+      '\u2139\ufe0f Data may be delayed or differ from Pi Desktop. ' +
+      '<a href="/docker" style="color:#4aa3ff;text-decoration:underline;cursor:pointer">' +
+      '\ud83d\udd13 Turn ON Docker for better accuracy. Optional Docker\u2026</a>' +
+    '</div>';
+
+  const placer = [
+    '<script>',
+    '(function(){',
+      'function p(){',
+        'try{',
+          'var n=document.getElementById("pn-horizon-note");',
+          'if(!n)return;',
+          'var all=document.querySelectorAll("body *");',
+          'var t=null;',
+          'for(var i=0;i<all.length;i++){',
+            'var e=all[i];',
+            'if(e.children.length>2)continue;',
+            'var x=(e.textContent||"").trim();',
+            'if(!x||x.length>90)continue;',
+            'if(/^Peers?\\b/i.test(x)||/\\bIN\\s*\\d+\\s*\\/\\s*OUT\\s*\\d+/i.test(x)){t=e;}',
+          '}',
+          'if(t&&t.parentNode){',
+            'if(n.previousSibling!==t)t.parentNode.insertBefore(n,t.nextSibling);',
+          '}',
+        '}catch(e){}',
+      '}',
+      'p();',
+      'setTimeout(p,300);',
+      'setTimeout(p,1200);',
+      'setTimeout(p,3000);',
+      'try{new MutationObserver(p).observe(document.body,{childList:true,subtree:true});}catch(e){}',
+    '})();',
+    '</script>'
+  ].join('');
+
+  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, notice + placer + '</body>');
+  else out = out + notice + placer;
+
   _indexCache.html = out;
   _indexCache.sockOn = sockOn;
   _indexCache.at = now;
