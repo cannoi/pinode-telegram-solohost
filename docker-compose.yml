@@ -2,6 +2,7 @@
 services:
   agent:
     image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.57
+    pull_policy: missing
     labels:
       pi.ui.primary: "true"
     ports:
@@ -17,6 +18,9 @@ services:
       - AUTO_DOCKER_SOCK=0
       - TELEMETRY_SEC=60
       - TZ=Asia/Ho_Chi_Minh
+      # [2.6.57] Windows Host CPU/RAM/Disk/Uptime (read-only HTTP).
+      # Independent of docker.sock. Leave empty to use default.
+      - HOST_METRICS_URL=${HOST_METRICS_URL:-http://host.docker.internal:18790/v1/status}
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
