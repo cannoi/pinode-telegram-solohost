@@ -2,7 +2,7 @@
 
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.58
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.59
     pull_policy: missing
 
     labels:

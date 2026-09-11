@@ -67,6 +67,7 @@ body.has-sysres{padding-top:64px}
 .ring{width:72px;height:72px;margin:0 auto 8px;border-radius:50%;padding:2px;background:linear-gradient(135deg,#4cc2ff,#0078d7)}
 .ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
 h1{font-size:1.12rem;font-weight:700;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.45)}
+#appTitle,#appSub,#appLogo{cursor:pointer}
 .sub{font-size:.75rem;color:var(--m)}
 .card{background:var(--p);border:1px solid var(--bd);border-radius:6px;padding:12px;margin-bottom:10px;
 backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
@@ -148,18 +149,17 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   </div>
 </div>
 
+<input type="file" id="logoFile" accept="image/*" hidden>
 <div class="w">
   <div class="hero">
     <div class="ring"><img id="appLogo" src="/brand-logo" alt="" onerror="this.src='/avatar.jpg'"></div>
     <h1><span id="appTitle">Pi Node Controller PRO</span> <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
-    <p class="sub" id="appSub">SoloHost · v2.6.58</p>
+    <p class="sub" id="appSub">SoloHost · v2.6.59</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
       <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
       <label>📤 Wallpaper<input type="file" id="bgFile" accept="image/*" hidden></label>
-      <button type="button" id="brandNameBtn">✏️ Name</button>
-      <label>🖼️ Logo<input type="file" id="logoFile" accept="image/*" hidden></label>
     </div>
   </div>
   <div class="panel" id="alertPanel"></div>
@@ -317,7 +317,7 @@ function _applySysres(sys){
   if(sys.cpu_percent != null){
     const pct = Number(sys.cpu_percent);
     const cores = sys.cpu_cores != null ? Number(sys.cpu_cores) : (sys.host_info && sys.host_info.cpu_count);
-    cpuText = cores ? (pct + '% / ' + cores + 'c') : (pct + '%');
+    cpuText = cores ? (pct + '% / ' + cores + ' cores') : (pct + '%');
     cpuWarn = pct >= 85 && pct < 95;
     cpuCrit = pct >= 95;
   }
@@ -550,6 +550,56 @@ loadAlerts();setInterval(loadAlerts,20000);
 loadSysResources();
 loadStatus();
 setInterval(loadStatus,15000);
+
+function applyBrand(b){
+  if(!b) return;
+  const title=document.getElementById('appTitle');
+  const sub=document.getElementById('appSub');
+  const logo=document.getElementById('appLogo');
+  if(title && b.name) title.textContent=b.name;
+  if(sub && b.versionLabel) sub.textContent=b.versionLabel;
+  if(logo){ logo.src='/brand-logo?t='+Date.now(); logo.onerror=function(){ this.onerror=null; this.src='/avatar.jpg'; }; }
+  document.title=(b.name||'Pi Node Controller PRO');
+}
+async function loadBrand(){
+  try{
+    const j=await fetch('/api/brand').then(function(r){return r.json();});
+    if(j && j.brand) applyBrand(j.brand);
+  }catch(e){}
+}
+async function saveBrand(patch){
+  try{
+    const j=await fetch('/api/brand',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)}).then(function(r){return r.json();});
+    if(j && j.brand) applyBrand(j.brand);
+  }catch(e){ alert('Save brand failed'); }
+}
+function editBrandText(){
+  const title=document.getElementById('appTitle');
+  const sub=document.getElementById('appSub');
+  const name=prompt('App name', (title&&title.textContent)||'Pi Node Controller PRO');
+  if(name==null) return;
+  const ver=prompt('Version label', (sub&&sub.textContent)||'SoloHost · v2.6.59');
+  if(ver==null) return;
+  saveBrand({name:name.trim().slice(0,48), versionLabel:String(ver).trim().slice(0,48)});
+}
+(function(){
+  const title=document.getElementById('appTitle');
+  const sub=document.getElementById('appSub');
+  const logo=document.getElementById('appLogo');
+  const file=document.getElementById('logoFile');
+  if(title) title.ondblclick=editBrandText;
+  if(sub) sub.ondblclick=editBrandText;
+  if(logo) logo.ondblclick=function(){ if(file) file.click(); };
+  if(file) file.onchange=function(){
+    const f=this.files&&this.files[0]; if(!f) return;
+    if(f.size>1200000){ alert('Logo max 1.2 MB'); return; }
+    const r=new FileReader();
+    r.onload=function(){ saveBrand({logoData:r.result}); };
+    r.readAsDataURL(f);
+  };
+})();
+loadBrand();
+
 </script>
 </body>
 </html>

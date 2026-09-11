@@ -42,6 +42,7 @@ NIGHT MUTE: applies to alerts, reminders, recovery, scheduled reports, update no
 HOST METRICS: Node OS CPU/RAM/Disk/Uptime (os.cpus / os.totalmem / fs.statfsSync).
 DOCKER METRICS: container CPU/RAM/health only when docker.sock ON (separate from Host).
 STYLE: static system messages English; AI replies match user's language.
+GITHUB: https://github.com/cannoi/pinode-telegram-solohost — read README and issues when unsure about this app.
 `.trim();
 
 const PI_NODE_DIAGNOSTIC_PROMPT = `
@@ -245,7 +246,7 @@ const SCRIPT_DETAILS = {
   }
 };
 
-const VERSION = '2.6.58-solohost';
+const VERSION = '2.6.59-solohost';
 const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
 const GITHUB_REPO_URL = 'https://github.com/' + GITHUB_REPO;
 const UPDATE_CHECK_INTERVAL_MS = 48 * 3600 * 1000;
@@ -1132,9 +1133,9 @@ function detectIncidentSignature(t) {
   if (/stop|exit/i.test(docker)) return { type: 'docker_down', severity: 'critical' };
   if (portsOpen === 0 && source === 'none') return { type: 'network_down', severity: 'critical' };
   if (portsOpen === 0) return { type: 'ports_closed', severity: 'warning' };
-  if (age != null && age > 300) return { type: 'sync_stalled', severity: 'warning' };
-  if (age != null && age > 120) return { type: 'sync_lag', severity: 'soft' };
-  if (/catching|behind|slow|ingest lag/i.test(sync)) return { type: 'sync_lag', severity: 'soft' };
+  if (age != null && age > 600) return { type: 'sync_stalled', severity: 'warning' };
+  if (age != null && age > 240) return { type: 'sync_lag', severity: 'soft' };
+  if (/catching|behind/i.test(sync) && (age == null || age > 180)) return { type: 'sync_lag', severity: 'soft' };
   if (peerTotal === 0 && synced) return { type: 'peers_zero', severity: 'warning' };
   if (ram != null && ram >= 88) return { type: 'ram_high', severity: 'warning' };
   if (cpu != null && cpu >= 90) return { type: 'cpu_high', severity: 'warning' };
@@ -1383,11 +1384,16 @@ async function runAlertMachine(t) {
         .sort(function (a, b) { return (b.resolvedAt || 0) - (a.resolvedAt || 0); })[0];
       if (justResolved) {
         const gate = alertsMuted();
+        const reportsOff = effectiveReportHours().length === 0;
         const durMin = Math.max(1, Math.round((justResolved.resolvedAt - justResolved.firstSeen) / 60000));
+        const softShort = justResolved.severity === 'soft' && durMin < 20;
         const recTxt = '🟢 RECOVERED after ~' + durMin + ' min\nPrevious issue: ' + justResolved.type + '\n\n' + formatStatus(t, 'RECOVERED');
-        try { pushDashAlert(recTxt, t); } catch (e3) {}
-        if (gate.muted) { try { actionLog('info', 'recovery muted - ' + gate.why); } catch (e) {} }
-        else { await tgSend(recTxt); }
+        if (gate.muted || reportsOff || softShort) {
+          try { actionLog('info', 'recovery skipped - ' + (gate.muted ? gate.why : (reportsOff ? 'reports off' : 'soft<'+durMin+'m'))); } catch (e) {}
+        } else {
+          try { pushDashAlert(recTxt, t); } catch (e3) {}
+          await tgSend(recTxt);
+        }
       }
     }
     state.fsm = 'HEALTHY'; state.failCount = 0;
@@ -2323,7 +2329,7 @@ function readDockerPref() { try { return JSON.parse(fs.readFileSync(dockerPrefPa
 function writeDockerPref(obj) { try { fs.mkdirSync(path.dirname(dockerPrefPath()), { recursive: true }); fs.writeFileSync(dockerPrefPath(), JSON.stringify(obj, null, 2)); } catch (e) {} }
 function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
-  let tag = 'v2.6.58';
+  let tag = 'v2.6.59';
   try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
   const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
   const composeBody = [
@@ -3894,7 +3900,7 @@ const srv = http.createServer(async (req, res) => {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
       const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
-      ok('version', VERSION === '2.6.58-solohost', VERSION);
+      ok('version', VERSION === '2.6.59-solohost', VERSION);
       ok('telegram_loop_independent', true, 'separate loops');
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_datalive', true, 'Horizon removed');
@@ -4062,7 +4068,8 @@ const srv = http.createServer(async (req, res) => {
         let ans = null;
         const low = msg.toLowerCase().trim();
         const c0 = low.split(/\s+/)[0].replace(/^\//, '');
-        if (/^(help|status|s|sync|peers|report|trends|diagnostic|diag|logs|ping|donate|winpro|incidents|scripts)$/.test(c0) || low.charAt(0) === '/') {
+        try { ans = tryNaturalCommand(msg); } catch (e) { ans = null; }
+        if (!ans && (/^(help|status|s|sync|peers|report|trends|diagnostic|diag|logs|ping|donate|winpro|incidents|scripts|mute)$/.test(c0) || low.charAt(0) === '/')) {
           try { ans = await localCommandText(c0, msg); } catch (e) { ans = null; }
         }
         if (!ans) ans = await aiAnalyze(tel, msg);

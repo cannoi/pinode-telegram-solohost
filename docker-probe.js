@@ -26,23 +26,17 @@ function readUserPref() {
   } catch (e) { return null; }
 }
 
+function sockPresent() {
+  try { return fs.existsSync(SOCK); } catch (e) { return false; }
+}
 function dockerAllowed() {
-  // Explicit off via env always wins
-  if (ENABLED === '0' || ENABLED === 'false' || ENABLED === 'off') return false;
-  // Explicit on via env
-  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on') {
-    try { return fs.existsSync(SOCK); } catch (e) { return false; }
-  }
-  // User preference from chat (/docker on) — only if socket already mounted by operator
   const pref = readUserPref();
-  if (pref && pref.enabled === false) return false;
-  if (pref && pref.enabled === true) {
-    try { return fs.existsSync(SOCK); } catch (e) { return false; }
-  }
-  // auto: use sock only if present (never force)
-  if (ENABLED === 'auto') {
-    try { return fs.existsSync(SOCK); } catch (e) { return false; }
-  }
+  if (pref && pref.enabled === false && ENABLED !== '1' && ENABLED !== 'true' && ENABLED !== 'on') return false;
+  // Socket already mounted (Stop→Start after consent) → read Core via exec.
+  if (sockPresent()) return true;
+  if (ENABLED === '0' || ENABLED === 'false' || ENABLED === 'off') return false;
+  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on' || ENABLED === 'auto') return sockPresent();
+  if (pref && pref.enabled === true) return sockPresent();
   return false;
 }
 

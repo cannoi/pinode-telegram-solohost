@@ -322,8 +322,6 @@ class PiNodeStatusMonitor {
       primary.core_verified = false;
       primary.sync_verified = false;
       primary.warning = primary.warning || 'CORE_HTTP_UNAVAILABLE';
-      try { applyHorizonSyncLabel(primary); }
-      catch (e) { if (primary.sync && /synced/i.test(String(primary.sync))) primary.sync = 'Horizon live'; }
       primary.sync_confidence = primary.sync_confidence || 'medium';
     }
 
@@ -418,6 +416,15 @@ class PiNodeStatusMonitor {
     } else {
       primary.docker_probe = false;
       primary.docker_sock = false;
+    }
+
+    if (primary.core_verified) {
+      const st = String(primary.core_state || primary.sync || '');
+      if (/synced/i.test(st) && !/not\s*synced/i.test(st)) primary.sync = 'Synced';
+      else if (/catching/i.test(st)) primary.sync = 'Catching up';
+    } else if (hz.ok) {
+      try { applyHorizonSyncLabel(primary); }
+      catch (e) { if (primary.sync && /synced/i.test(String(primary.sync))) primary.sync = 'Horizon live'; }
     }
 
     const flags = [
