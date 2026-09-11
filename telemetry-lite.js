@@ -2,6 +2,9 @@
 /**
  * Lightweight live frame + local health/trend. No extra HTTP.
  * Missing metrics stay null/unknown — never invented.
+ *
+ * [2.6.57] t.cpu / t.ram / t.disk now come from Windows Host (windows_host).
+ * scoreCoreHealth() must NOT fall back to those for container metrics.
  */
 
 function num(v) {
@@ -92,8 +95,10 @@ function scoreCoreHealth(t) {
     if (lag <= 5) score += 4;
     else if (lag > 50) score -= 10;
   }
-  const cpu = hostMetric(t.container_cpu != null ? t.container_cpu : t.cpu);
-  const ram = hostMetric(t.container_ram != null ? t.container_ram : t.ram);
+  // [2.6.57] Chỉ dùng container_cpu/container_ram cho core health.
+  // KHÔNG fallback sang t.cpu/t.ram vì đó là Host metrics (windows_host).
+  const cpu = hostMetric(t.container_cpu);
+  const ram = hostMetric(t.container_ram);
   if (cpu != null && cpu >= 95) score -= 8;
   if (ram != null && ram >= 92) score -= 10;
   return Math.max(0, Math.min(100, Math.round(score)));
