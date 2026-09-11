@@ -11,45 +11,52 @@ background-color:#1b140c;
 background-image:linear-gradient(180deg,rgba(10,18,30,.32),rgba(8,12,18,.46)),var(--bg-image,url("/bg-cave.jpg"));
 background-position:center top;background-size:cover;background-repeat:no-repeat;background-attachment:fixed;
 padding:14px;display:flex;justify-content:center;
-transition:padding-top .22s ease}
-/* Reserve space when SYSTEM RESOURCES bar is visible */
-body.has-sysres{padding-top:74px}
+transition:padding-top .25s ease}
+/* Reserve space for fixed SYSTEM RESOURCES bar so logo is not hidden */
+body.has-sysres{padding-top:64px}
 
 /* ============================================================
- * SYSTEM RESOURCES bar — Windows 10 Aero / glassmorphism
- * Fixed at top of viewport. Auto-hides when host metrics off.
+ * SYSTEM RESOURCES bar — compact single row, centered, floating
+ * Auto-hidden when host metrics unavailable.
  * ============================================================ */
 .sysres-bar{
-  position:fixed;top:0;left:0;right:0;z-index:60;
-  display:flex;align-items:center;justify-content:center;flex-wrap:wrap;
-  gap:14px;
-  padding:12px 18px;
-  background:linear-gradient(180deg,rgba(22,30,44,.72),rgba(18,24,36,.56));
-  -webkit-backdrop-filter:blur(30px) saturate(180%);
-  backdrop-filter:blur(30px) saturate(180%);
-  border-bottom:1px solid rgba(255,255,255,.28);
-  box-shadow:0 8px 24px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.12);
-  color:#fff;font-size:.8rem;font-weight:600;letter-spacing:.2px;
-  animation:sysresIn .28s ease;
+  position:fixed;top:8px;left:50%;transform:translateX(-50%);
+  z-index:60;
+  width:calc(100% - 28px);
+  max-width:480px;
+  display:flex;align-items:center;justify-content:center;
+  gap:5px;
+  padding:5px 8px;
+  border-radius:12px;
+  background:linear-gradient(180deg,rgba(22,30,44,.92),rgba(18,24,36,.78));
+  -webkit-backdrop-filter:blur(26px) saturate(180%);
+  backdrop-filter:blur(26px) saturate(180%);
+  border:1px solid rgba(255,255,255,.20);
+  box-shadow:0 10px 28px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.10);
+  color:#fff;font-size:.7rem;font-weight:600;letter-spacing:.15px;
+  animation:sysresIn .25s ease;
 }
 .sysres-bar[hidden]{display:none!important}
-@keyframes sysresIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes sysresIn{from{opacity:0;transform:translateX(-50%) translateY(-6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .sysres-title{
   color:var(--m);font-weight:700;text-transform:uppercase;
-  font-size:.66rem;letter-spacing:.7px;margin-right:4px
+  font-size:.58rem;letter-spacing:.6px;flex-shrink:0;padding-right:2px;
 }
 .sysres-item{
-  display:flex;align-items:center;gap:6px;
-  padding:3px 10px;border-radius:5px;
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.10);
+  flex:1 1 0;min-width:0;
+  display:flex;align-items:center;justify-content:center;
+  gap:4px;
+  padding:3px 6px;
+  border-radius:6px;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+  white-space:nowrap;overflow:hidden;
   transition:background .2s,border-color .2s;
-  white-space:nowrap;
 }
 .sysres-item:hover{background:rgba(255,255,255,.11)}
-.sysres-icon{font-size:.98rem;line-height:1;opacity:.96}
-.sysres-label{color:var(--m);font-weight:600;font-size:.74rem}
-.sysres-value{font-weight:700;color:#fff;font-size:.79rem}
+.sysres-icon{font-size:.85rem;line-height:1;flex-shrink:0}
+.sysres-label{color:var(--m);font-weight:600;font-size:.6rem;flex-shrink:0}
+.sysres-value{font-weight:700;font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sysres-item.warn{border-color:rgba(255,193,7,.55);background:rgba(255,193,7,.10)}
 .sysres-item.warn .sysres-value{color:#ffc107}
 .sysres-item.crit{border-color:rgba(232,17,35,.65);background:rgba(232,17,35,.14)}
@@ -67,7 +74,6 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.16);font-size:.85rem}
 .k{color:var(--m)}.val{font-weight:700}
-
 .status-layout{display:flex;align-items:center;justify-content:space-between;padding:4px 0}
 .status-col{display:flex;flex-direction:column;gap:10px;font-size:.85rem;min-width:70px}
 .status-col.left{text-align:left}
@@ -79,7 +85,6 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .gauge-label{font-size:.75rem;font-weight:700;color:#fff;margin-top:2px}
 .gauge-status{font-size:.72rem;color:#fff;margin-top:1px}
 .gauge-status span{font-weight:700}
-
 #chatbox{height:200px;overflow-y:auto;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);border-radius:4px;padding:8px;margin-bottom:8px;font-size:.8rem}
 .msg{margin:6px 0;padding:7px 9px;border-radius:4px;max-width:96%;white-space:pre-wrap}
 .msg.user{background:rgba(0,120,215,.28);margin-left:auto;text-align:right}
@@ -121,24 +126,24 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 <body>
 
 <!-- ============================================================
-     SYSTEM RESOURCES — fixed at top, Windows 10 Aero
+     SYSTEM RESOURCES — compact, centered, floating.
      Auto-hides when host metrics unavailable.
      ============================================================ -->
 <div id="sysresBar" class="sysres-bar" hidden aria-label="System Resources">
-  <span class="sysres-title">System Resources:</span>
+  <span class="sysres-title">SYS:</span>
   <div class="sysres-item" id="sysresRamRow">
     <span class="sysres-icon">💾</span>
-    <span class="sysres-label">RAM:</span>
+    <span class="sysres-label">RAM</span>
     <span class="sysres-value" id="sysresRam">—</span>
   </div>
   <div class="sysres-item" id="sysresCpuRow">
     <span class="sysres-icon">📊</span>
-    <span class="sysres-label">CPU:</span>
+    <span class="sysres-label">CPU</span>
     <span class="sysres-value" id="sysresCpu">—</span>
   </div>
   <div class="sysres-item" id="sysresDiskRow">
     <span class="sysres-icon">💿</span>
-    <span class="sysres-label">Disk:</span>
+    <span class="sysres-label">Disk</span>
     <span class="sysres-value" id="sysresDisk">—</span>
   </div>
 </div>
@@ -298,7 +303,7 @@ function _applySysres(sys){
     const usedGB = _fmtGB(sys.memory_used_bytes);
     const totGB = _fmtGB(sys.memory_total_bytes);
     ramText = (usedGB != null && totGB != null)
-      ? (usedGB + ' GB / ' + totGB + ' GB')
+      ? (usedGB + ' / ' + totGB + ' GB')
       : (pct + '%');
     ramWarn = pct >= 85 && pct < 92;
     ramCrit = pct >= 92;
@@ -309,7 +314,7 @@ function _applySysres(sys){
   let cpuText = null, cpuWarn = false, cpuCrit = false;
   if(sys.cpu_percent != null){
     const pct = Number(sys.cpu_percent);
-    cpuText = pct + '% (Avg)';
+    cpuText = pct + '%';
     cpuWarn = pct >= 85 && pct < 95;
     cpuCrit = pct >= 95;
   }
@@ -319,10 +324,9 @@ function _applySysres(sys){
   let diskText = null, diskWarn = false, diskCrit = false;
   if(sys.disk_percent != null){
     const pct = Number(sys.disk_percent);
-    const drv = sys.disk_drive ? (sys.disk_drive + ' ') : '';
     const used = _fmtGB0(sys.disk_used_bytes);
     const tot  = _fmtGB0(sys.disk_total_bytes);
-    diskText = (used != null && tot != null) ? (drv + used + ' GB / ' + tot + ' GB') : (drv + pct + '%');
+    diskText = (used != null && tot != null) ? (used + ' / ' + tot + ' GB') : (pct + '%');
     diskWarn = pct >= 88 && pct < 95;
     diskCrit = pct >= 95;
   }
@@ -395,7 +399,7 @@ async function loadStatus(){
       </div>
     `;
 
-    // Also refresh the SYSTEM RESOURCES bar in the same fetch (no extra HTTP)
+    // Refresh SYSTEM RESOURCES bar in same fetch (no extra HTTP)
     _applySysres(t && t.system);
 
     const note=$('pn-horizon-note');
@@ -489,28 +493,28 @@ on($('qbar'),'click',function(e){
   send();
 });
 on($('send'),'click',send);
-on($('inp'),'keydown',e=>{if(e.key==='Enter')send();});
+on($('inp'),'keydown',function(e){if(e.key==='Enter')send();});
 
 const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")',pi:'url("/bg-pi.jpg")'};
 function applyBg(kind, custom){
   const root=document.documentElement;
   if(kind==='custom' && custom){ root.style.setProperty('--bg-image','url("'+custom+'")'); }
   else { root.style.setProperty('--bg-image', BG[kind]||BG.cave); kind = BG[kind]?kind:'cave'; }
-  document.querySelectorAll('.bgbar button').forEach(b=>b.classList.toggle('on', b.getAttribute('data-bg')===kind));
-  try{ localStorage.setItem('pinode_bg', JSON.stringify({kind, custom: kind==='custom'?custom:''})); }catch(e){}
+  document.querySelectorAll('.bgbar button').forEach(function(b){b.classList.toggle('on', b.getAttribute('data-bg')===kind);});
+  try{ localStorage.setItem('pinode_bg', JSON.stringify({kind:kind, custom: kind==='custom'?custom:''})); }catch(e){}
 }
 try{
   const saved=JSON.parse(localStorage.getItem('pinode_bg')||'{}');
   applyBg(saved.kind||'cave', saved.custom||'');
 }catch(e){ applyBg('cave'); }
-on($('bgCave'),'click',()=>applyBg('cave'));
-on($('bgClassic'),'click',()=>applyBg('classic'));
-on($('bgPi'),'click',()=>applyBg('pi'));
+on($('bgCave'),'click',function(){applyBg('cave');});
+on($('bgClassic'),'click',function(){applyBg('classic');});
+on($('bgPi'),'click',function(){applyBg('pi');});
 on($('bgFile'),'change',function(){
   const f=this.files&&this.files[0]; if(!f)return;
   if(f.size>2500000){ add('bot','🌄 Wallpaper too large (max 2.5 MB).'); return; }
   const r=new FileReader();
-  r.onload=()=>applyBg('custom', r.result);
+  r.onload=function(){applyBg('custom', r.result);};
   r.readAsDataURL(f);
 });
 
@@ -540,7 +544,6 @@ on($('bell'),'click',async function(){
 });
 loadAlerts();setInterval(loadAlerts,20000);
 
-// Initial load + periodic refresh
 loadSysResources();
 loadStatus();
 setInterval(loadStatus,15000);
