@@ -77,7 +77,6 @@ function firstObject() {
   return null;
 }
 
-/** Chuẩn hóa JSON DataLive về schema cố định. Không tạo số nếu không có. */
 function normalize(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const root = firstObject(raw.data, raw.payload, raw.status, raw.metrics, raw) || raw;
@@ -86,14 +85,12 @@ function normalize(raw) {
   const memObj = firstObject(root.memory, root.mem, root.ram_info, sys.memory, sys.mem, null);
   const diskObj = firstObject(root.disk, root.storage, root.disk_c, sys.disk, sys.storage, null);
 
-  // CPU
   let cpu_percent = pickNum(
     typeof cpuObj === 'object' ? (cpuObj.usage_percent ?? cpuObj.usagePercent ?? cpuObj.percent ?? cpuObj.load_percent ?? cpuObj.load) : cpuObj,
     sys.cpu_percent, sys.cpuPercent, root.cpu_percent, root.cpuPercent, root.cpuUsage, root.cpu_usage
   );
   if (cpu_percent != null) cpu_percent = Math.max(0, Math.min(100, Math.round(cpu_percent * 10) / 10));
 
-  // Memory
   const mem_total_bytes = memObj ? pickNum(memObj.total_bytes, memObj.totalBytes, memObj.total, memObj.total_mb != null ? memObj.total_mb * 1048576 : null) : null;
   const mem_free_bytes = memObj ? pickNum(memObj.free_bytes, memObj.freeBytes, memObj.free, memObj.free_mb != null ? memObj.free_mb * 1048576 : null) : null;
   let mem_used_bytes = memObj ? pickNum(memObj.used_bytes, memObj.usedBytes, memObj.used, memObj.used_mb != null ? memObj.used_mb * 1048576 : null) : null;
@@ -102,7 +99,6 @@ function normalize(raw) {
   if (mem_used_percent == null && mem_used_bytes != null && mem_total_bytes && mem_total_bytes > 0) mem_used_percent = mem_used_bytes / mem_total_bytes * 100;
   if (mem_used_percent != null) mem_used_percent = Math.max(0, Math.min(100, Math.round(mem_used_percent * 10) / 10));
 
-  // Disk (chọn ổ đầu tiên hoặc C:)
   let disk_drive = null, disk_used_percent = null, disk_total_bytes = null, disk_used_bytes = null, disk_free_bytes = null;
   let dObj = diskObj;
   if (dObj && !Array.isArray(dObj) && typeof dObj === 'object' &&
@@ -133,7 +129,6 @@ function normalize(raw) {
   if (disk_used_percent == null && disk_used_bytes != null && disk_total_bytes && disk_total_bytes > 0) disk_used_percent = disk_used_bytes / disk_total_bytes * 100;
   if (disk_used_percent != null) disk_used_percent = Math.max(0, Math.min(100, Math.round(disk_used_percent * 10) / 10));
 
-  // Uptime
   let uptime_seconds = pickNum(
     sys.uptime_seconds, sys.uptimeSeconds, sys.uptime,
     root.uptime_seconds, root.uptimeSeconds, root.uptime, root.boot_seconds
