@@ -1,26 +1,41 @@
 # SoloHost Official — sandbox; no docker.sock until Operator consents and Stop→Start
+
 services:
   agent:
     image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.57
     pull_policy: missing
+
     labels:
       pi.ui.primary: "true"
+
     ports:
       - "127.0.0.1:18780:8080"
+
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+
       - NODE_HOST=host.docker.internal
       - HORIZON_PORT=31401
       - CORE_HTTP_PORT=11626
+
+      # Docker is optional and OFF by default.
       - DOCKER_PROBE=0
       - AUTO_DOCKER_SOCK=0
+
+      # Monitoring interval
       - TELEMETRY_SEC=60
+
+      # Timezone
       - TZ=Asia/Ho_Chi_Minh
-      # [2.6.57] Host metrics — ẩn khỏi UI, dùng default.
-      - HOST_METRICS_URL=${HOST_METRICS_URL:-http://host.docker.internal:18790/v1/status}
+
+      # Real Windows Host Metrics source.
+      # Internal setting — intentionally hidden from SoloHost UI.
+      - HOST_METRICS_URL=http://host.docker.internal:18790/v1/status
+
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
+
     restart: unless-stopped
