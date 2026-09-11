@@ -12,6 +12,7 @@
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
  * - Resource-tuned: readHistory cache + rollup RAM cache + index cache
+ * - [2.6.57-fix] safe getTelemetry dedupe + sock cache + no detail cache pollution
  */
 const http = require('http');
 const https = require('https');
@@ -392,6 +393,8 @@ function pushChatTurn(role, text) {
 
 let cache = null;
 let cacheAt = 0;
+// [2.6.57-fix] dedupe concurrent telemetry fetches to prevent stampede + I/O storm
+let _pendingTelemetry = null;
 
 const tgUserBuckets = Object.create(null);
 function tgUserRateLimit(userKey, max, windowMs) {
@@ -540,9 +543,17 @@ function horizonFooter(t) {
     '🔓 For best accuracy, enable Optional Docker in SoloHost UI on this PC.'
   ].join('\n');
 }
+// [2.6.57-fix] cache fs.existsSync to keep page loads fast (10s TTL)
+const _sockCache = { v: null, at: 0 };
 function hasDockerSock(t) {
   if (t && (t.docker_sock === true || t.docker_probe === true)) return true;
-  try { return fs.existsSync('/var/run/docker.sock'); } catch (e) { return false; }
+  const now = Date.now();
+  if (_sockCache.v !== null && (now - _sockCache.at) < 10000) return _sockCache.v;
+  let v = false;
+  try { v = fs.existsSync('/var/run/docker.sock'); } catch (e) { v = false; }
+  _sockCache.v = v;
+  _sockCache.at = now;
+  return v;
 }
 /* END HORIZON FOOTER ================================================== */
 
@@ -880,9 +891,18 @@ async function collectTelemetry() {
   } catch (e) { try { fs.writeFileSync(LATEST_F, JSON.stringify(t)); } catch (e2) {} }
   return t;
 }
+// [2.6.57-fix] dedupe: never spawn two collectTelemetry() concurrently.
 function getTelemetry() {
   if (cache && Date.now() - cacheAt < TELEMETRY_SEC * 1000 + 5000) return Promise.resolve(cache);
-  return collectTelemetry();
+  if (_pendingTelemetry) return _pendingTelemetry;
+  _pendingTelemetry = collectTelemetry().then(function (t) {
+    _pendingTelemetry = null;
+    return t;
+  }, function (e) {
+    _pendingTelemetry = null;
+    throw e;
+  });
+  return _pendingTelemetry;
 }
 
 /* HISTORY ============================================================== */
@@ -2225,9 +2245,12 @@ function applyDockerConsentFiles() {
   let tag = 'v2.6.57';
   try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
   const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
+  // [2.6.57-fix] pull_policy: missing prevents infinite image pull loops when
+  // image tag already exists locally, and avoids re-pulling on every restart.
   const composeBody = [
     '# Generated after Operator consent in Pi Node Telegram Controller',
     'services:', '  agent:', '    image: ' + img,
+    '    pull_policy: missing',
     '    labels:', '      pi.ui.primary: "true"',
     '    ports:', '      - "127.0.0.1:18780:8080"',
     '    environment:',
@@ -3530,9 +3553,8 @@ function setSecHeaders(res, mode) {
   }
 }
 
-/* --- Index transform: remove legacy "Optional Docker probe..." lines,
-       inject new Horizon-only note + placer script when docker.sock is OFF.
-       Cached for 3s to avoid repeated regex on rapid UI refreshes. --- */
+/* --- Index transform: strip leftover Docker-probe lines.
+       Live-status note lives in public/index.html (#pn-horizon-note). --- */
 const _indexCache = { html: null, sockOn: null, at: 0 };
 function applyIndexTransform(html, sockOn) {
   const now = Date.now();
@@ -3540,61 +3562,13 @@ function applyIndexTransform(html, sockOn) {
     return _indexCache.html;
   }
   let out = String(html || '');
-
-  // 1) Strip all legacy "Optional Docker probe..." lines (any position)
   out = out.replace(/Optional Docker\s*probe[^<\n]{0,260}/gi, '');
-  // 2) Strip any previous yellow banner we injected
   out = out.replace(/<div[^>]*id=["']pn-horizon-notice["'][\s\S]*?<\/div>/gi, '');
   out = out.replace(/Horizon-only mode[^<\n]{0,320}/gi, '');
-
   if (sockOn) {
-    _indexCache.html = out;
-    _indexCache.sockOn = sockOn;
-    _indexCache.at = now;
-    return out;
+    out = out.replace(/<p[^>]*id=["']pn-horizon-note["'][\s\S]*?<\/p>/gi, '');
+    out = out.replace(/<div[^>]*id=["']pn-horizon-note["'][\s\S]*?<\/div>/gi, '');
   }
-
-  // 3) Inject new notice + placer script (moves it under the last "Peers" line)
-  const notice =
-    '<div id="pn-horizon-note" style="margin-top:6px;font:inherit;opacity:.92;line-height:1.45">' +
-      '\u2139\ufe0f Data may be delayed or differ from Pi Desktop. ' +
-      '<a href="/docker" style="color:#4aa3ff;text-decoration:underline;cursor:pointer">' +
-      '\ud83d\udd13 Turn ON Docker for better accuracy. Optional Docker\u2026</a>' +
-    '</div>';
-
-  const placer = [
-    '<script>',
-    '(function(){',
-      'function p(){',
-        'try{',
-          'var n=document.getElementById("pn-horizon-note");',
-          'if(!n)return;',
-          'var all=document.querySelectorAll("body *");',
-          'var t=null;',
-          'for(var i=0;i<all.length;i++){',
-            'var e=all[i];',
-            'if(e.children.length>2)continue;',
-            'var x=(e.textContent||"").trim();',
-            'if(!x||x.length>90)continue;',
-            'if(/^Peers?\\b/i.test(x)||/\\bIN\\s*\\d+\\s*\\/\\s*OUT\\s*\\d+/i.test(x)){t=e;}',
-          '}',
-          'if(t&&t.parentNode){',
-            'if(n.previousSibling!==t)t.parentNode.insertBefore(n,t.nextSibling);',
-          '}',
-        '}catch(e){}',
-      '}',
-      'p();',
-      'setTimeout(p,300);',
-      'setTimeout(p,1200);',
-      'setTimeout(p,3000);',
-      'try{new MutationObserver(p).observe(document.body,{childList:true,subtree:true});}catch(e){}',
-    '})();',
-    '</script>'
-  ].join('');
-
-  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, notice + placer + '</body>');
-  else out = out + notice + placer;
-
   _indexCache.html = out;
   _indexCache.sockOn = sockOn;
   _indexCache.at = now;
@@ -3612,11 +3586,17 @@ const srv = http.createServer(async (req, res) => {
       try {
         const detailed = u.indexOf('detailed') >= 0;
         let tel;
+        // [2.6.57-fix] Do not cache raw getStatus response - it lacks normalized
+        // fields (health, ports, peer rules). Cache pollution broke UI data.
         if (u.indexOf('fast') >= 0 && cache) tel = cache;
-        else if (detailed) { tel = await statusMonitor.getStatus(true, { detailed: true, docker: true }); cache = tel; cacheAt = Date.now(); }
+        else if (detailed) { tel = await statusMonitor.getStatus(true, { detailed: true, docker: true }); }
         else tel = cache || await getTelemetry();
         res.end(JSON.stringify(tel || {}));
-      } catch (e) { log('api/status error: ' + (e && e.message), 'error'); res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: 'internal_error' })); }
+      } catch (e) {
+        log('api/status error: ' + (e && e.message), 'error');
+        if (cache) { res.end(JSON.stringify(cache)); }
+        else { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: 'internal_error' })); }
+      }
       return;
     }
     if (u === '/api/health') {
@@ -3843,6 +3823,9 @@ const srv = http.createServer(async (req, res) => {
       ok('lang_detect_vi', l1 === 'Vietnamese', l1);
       const l2 = detectUserLang('Hello, how is my node?');
       ok('lang_detect_en', l2 === 'English', l2);
+      // [2.6.57-fix] new checks
+      ok('telemetry_dedupe_flag', typeof _pendingTelemetry !== 'undefined', 'ok');
+      ok('sock_cache_present', typeof _sockCache === 'object' && _sockCache.v === null, 'ok');
       const all = checks.every(c => c.pass);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: all, version: VERSION, checks }));
