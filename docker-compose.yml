@@ -21,6 +21,7 @@ services:
       - CORE_HTTP_PORT=11626
 
       # Docker is optional and OFF by default.
+      # User consent in SoloHost UI has HIGHER priority than this env var.
       - DOCKER_PROBE=0
       - AUTO_DOCKER_SOCK=0
 
@@ -33,7 +34,25 @@ services:
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
-      # Never mount ./public over /app/public (empty host dir hides index.html).
+
+      # Live source overrides — no rebuild needed for code updates.
+      # These overlay the /app/* files baked into the image.
+      - ./app.js:/app/app.js:ro
+      - ./docker-probe.js:/app/docker-probe.js:ro
+      - ./status-monitor.js:/app/status-monitor.js:ro
+      - ./telemetry-lite.js:/app/telemetry-lite.js:ro
+      - ./host-metrics.js:/app/host-metrics.js:ro
+
+      # NOTE:
+      # index.html is loaded by app.js from one of these paths (in order):
+      #   /app/public/index.html          (baked into image, or ./public mount)
+      #   /solohost-config/public/index.html  (from ./:/solohost-config mount)
+      #   /data/public/index.html
+      # So dropping index.html into <app>/public/ on Windows works WITHOUT
+      # mounting ./public over /app/public (which could hide files).
+      #
+      # If you choose to also mount ./public:/app/public:rw, make sure the
+      # host folder is NOT empty, otherwise the image's index.html is hidden.
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
