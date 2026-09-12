@@ -422,6 +422,11 @@ class PiNodeStatusMonitor {
       const st = String(primary.core_state || primary.sync || '');
       if (/synced/i.test(st) && !/not\s*synced/i.test(st)) primary.sync = 'Synced';
       else if (/catching/i.test(st)) primary.sync = 'Catching up';
+    } else if (primary.docker_sock && /running|up/i.test(String(primary.docker || primary.container_health || ''))) {
+      const ageSock = primary.ledger_age != null ? Number(primary.ledger_age) : null;
+      if (ageSock != null && ageSock <= 35) primary.sync = 'Synced';
+      else if (ageSock != null && ageSock <= 120) primary.sync = 'Syncing';
+      else if (/catch|behind/i.test(String(primary.sync || ''))) primary.sync = 'Catching up';
     } else if (hz.ok) {
       try { applyHorizonSyncLabel(primary); }
       catch (e) { if (primary.sync && /synced/i.test(String(primary.sync))) primary.sync = 'Horizon live'; }

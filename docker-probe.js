@@ -8,10 +8,6 @@ const dataFrame = require('./data-frame');
  * - docker exec into candidate containers → Core /info, Horizon, node-status
  *
  * Safe when socket is absent: all methods return null quickly.
- *
- * [2.6.59-fix] dockerAllowed() now prioritizes user preference (SoloHost UI)
- * OVER DOCKER_PROBE env. This lets the UI consent be honored even when
- * docker-compose.yml still has DOCKER_PROBE=0 (the sandbox default).
  */
 
 const http = require('http');
@@ -30,56 +26,27 @@ function readUserPref() {
   } catch (e) { return null; }
 }
 
+function sockPresent() {
+  try { return fs.existsSync(SOCK); } catch (e) { return false; }
+}
 function dockerAllowed() {
-  // [2.6.59-fix] User preference from SoloHost UI has HIGHER priority than env.
   const pref = readUserPref();
-
-  // 1) Explicit user opt-IN wins → only require the socket to be reachable.
-  if (pref && pref.enabled === true && pref.consent === true) {
-    try { return fs.existsSync(SOCK); } catch (e) { return false; }
-  }
-
-  // 2) Explicit user opt-OUT wins over env=1 (respect the "Disable" button).
-  if (pref && pref.enabled === false && pref.consent === false) {
-    return false;
-  }
-
-  // 3) Fall back to env behavior.
+  if (pref && pref.enabled === false && ENABLED !== '1' && ENABLED !== 'true' && ENABLED !== 'on') return false;
+  // Socket already mounted (Stop→Start after consent) → read Core via exec.
+  if (sockPresent()) return true;
   if (ENABLED === '0' || ENABLED === 'false' || ENABLED === 'off') return false;
-  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on') {
-    try { return fs.existsSync(SOCK); } catch (e) { return false; }
-  }
-  if (ENABLED === 'auto') {
-    try { return fs.existsSync(SOCK); } catch (e) { return false; }
-  }
+  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on' || ENABLED === 'auto') return sockPresent();
+  if (pref && pref.enabled === true) return sockPresent();
   return false;
 }
 
-/** Structured debug snapshot — explains WHY docker is allowed/blocked. */
-function dockerAllowedInfo() {
-  const pref = readUserPref();
-  let sockExists = false;
-  let sockReadable = false;
-  try { sockExists = fs.existsSync(SOCK); } catch (e) {}
-  try { if (sockExists) fs.accessSync(SOCK, fs.constants.R_OK); sockReadable = sockExists; } catch (e) { sockReadable = false; }
-  return {
-    sock: SOCK,
-    sock_exists: sockExists,
-    sock_readable: sockReadable,
-    env_docker_probe: process.env.DOCKER_PROBE != null ? String(process.env.DOCKER_PROBE) : null,
-    env_enabled_normalized: ENABLED,
-    user_pref: pref || null,
-    allowed: dockerAllowed()
-  };
-}
-
-function dockerApi(p, timeoutMs) {
+function dockerApi(path, timeoutMs) {
   timeoutMs = timeoutMs || 2500;
   return new Promise(function (resolve, reject) {
     if (!dockerAllowed()) return reject(new Error('docker disabled'));
     const req = http.request({
       socketPath: SOCK,
-      path: p,
+      path: path,
       method: 'GET',
       timeout: timeoutMs
     }, function (res) {
@@ -93,6 +60,34 @@ function dockerApi(p, timeoutMs) {
     });
     req.on('error', reject);
     req.on('timeout', function () { try { req.destroy(); } catch (e) {} reject(new Error('timeout')); });
+    req.end();
+  });
+}
+
+function dockerApiPost(path, body, timeoutMs) {
+  timeoutMs = timeoutMs || 8000;
+  return new Promise(function (resolve, reject) {
+    if (!dockerAllowed()) return reject(new Error('docker disabled'));
+    const data = typeof body === 'string' ? body : JSON.stringify(body || {});
+    const req = http.request({
+      socketPath: SOCK,
+      path: path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data)
+      },
+      timeout: timeoutMs
+    }, function (res) {
+      let b = '';
+      res.on('data', function (c) { b += c; });
+      res.on('end', function () {
+        resolve({ status: res.statusCode, body: b });
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', function () { try { req.destroy(); } catch (e) {} reject(new Error('timeout')); });
+    req.write(data);
     req.end();
   });
 }
@@ -120,6 +115,7 @@ function scoreContainer(c) {
 }
 
 async function listContainers() {
+  // Prefer API
   try {
     const list = await dockerApi('/containers/json?all=1');
     if (Array.isArray(list)) return list.map(function (c) {
@@ -134,6 +130,7 @@ async function listContainers() {
       };
     });
   } catch (e) {}
+  // CLI fallback
   try {
     const out = await runCmd('docker', ['ps', '-a', '--format', '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}']);
     return out.split('\n').filter(Boolean).map(function (line) {
@@ -147,7 +144,48 @@ async function listContainers() {
   }
 }
 
+function demuxDockerStream(raw) {
+  const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw || '', 'binary');
+  if (!buf.length) return '';
+  // Docker multiplex: 8-byte header [stream,0,0,0,size.be32] + payload
+  if (buf.length >= 8 && buf[1] === 0 && buf[2] === 0 && buf[3] === 0) {
+    let out = '';
+    let i = 0;
+    while (i + 8 <= buf.length) {
+      const size = buf.readUInt32BE(i + 4);
+      const chunk = buf.slice(i + 8, i + 8 + size);
+      out += chunk.toString('utf8');
+      i += 8 + size;
+      if (size === 0) break;
+    }
+    return out;
+  }
+  return buf.toString('utf8');
+}
+
+async function execInApi(container, cmdArr) {
+  try {
+    const created = await dockerApiPost('/containers/' + encodeURIComponent(container) + '/exec', {
+      AttachStdout: true,
+      AttachStderr: true,
+      Cmd: cmdArr
+    }, 4000);
+    if (!created || created.status >= 300) return null;
+    let id = null;
+    try { id = JSON.parse(created.body).Id; } catch (e) { return null; }
+    if (!id) return null;
+    const started = await dockerApiPost('/exec/' + id + '/start', { Detach: false, Tty: false }, 8000);
+    if (!started) return null;
+    const text = demuxDockerStream(started.body || '');
+    return text && String(text).trim() ? String(text) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function execIn(container, cmdArr) {
+  const viaApi = await execInApi(container, cmdArr);
+  if (viaApi) return viaApi;
   try {
     const args = ['exec', container].concat(cmdArr);
     const out = await runCmd('docker', args, 8000);
@@ -160,18 +198,24 @@ async function execIn(container, cmdArr) {
 async function execHttpLocal(container, urlPath, port) {
   const url = 'http://127.0.0.1:' + port + urlPath;
   let out = await execIn(container, ['curl', '-sS', '-m', '3', url]);
-  if (!out) out = await execIn(container, ['wget', '-qO-', url]);
+  if (!out) out = await execIn(container, ['wget', '-qO-', '-T', '3', url]);
+  if (!out) {
+    out = await execIn(container, ['python3', '-c',
+      'import urllib.request; print(urllib.request.urlopen("' + url + '", timeout=3).read().decode())']);
+  }
+  if (!out) {
+    out = await execIn(container, ['python', '-c',
+      'import urllib.request; print(urllib.request.urlopen("' + url + '", timeout=3).read().decode())']);
+  }
   return out;
 }
 
+/**
+ * Full docker-enriched snapshot
+ */
 async function probeDocker() {
-  const info = dockerAllowedInfo();
   if (!dockerAllowed()) {
-    return {
-      available: false,
-      reason: 'docker_not_allowed',
-      debug: info
-    };
+    return { available: false, reason: 'no docker sock/cli or DOCKER_PROBE=0' };
   }
 
   const result = {
@@ -182,8 +226,7 @@ async function probeDocker() {
     docker: null,
     core_from_exec: null,
     horizon_from_exec: null,
-    peers_from_exec: null,
-    debug: info
+    peers_from_exec: null
   };
 
   try {
@@ -191,7 +234,6 @@ async function probeDocker() {
     result.docker_sock = true;
   } catch (e) {
     result.docker_sock = false;
-    result.sock_error = String(e && e.message);
   }
 
   let containers = [];
@@ -222,21 +264,23 @@ async function probeDocker() {
 
   result.pi_container = pick.name;
   result.docker = /Up|running/i.test(String(pick.status || pick.state || '')) ? 'RUNNING' : 'STOPPED';
+  const execTarget = pick.id || pick.name;
 
-  const corePorts = [11626, 11826, 11625];
+  // Exec Core /info on common ports inside container (Docker API exec, not CLI)
+  const corePorts = [11626, 11826, 11625, 31400];
   for (let i = 0; i < corePorts.length; i++) {
-    const body = await execHttpLocal(pick.name, '/info', corePorts[i]);
+    const body = await execHttpLocal(execTarget, '/info', corePorts[i]);
     if (body) {
       try {
         const j = JSON.parse(body);
-        const info2 = j.info || j;
+        const info = j.info || j;
         result.core_from_exec = {
           source: 'docker-exec-core',
           core_verified: true,
           core_port: corePorts[i],
-          core_state: info2.state != null ? String(info2.state) : null,
-          ledger: info2.ledger && info2.ledger.num != null ? Number(info2.ledger.num) : null,
-          ledger_age: info2.ledger && info2.ledger.age != null ? Number(info2.ledger.age) : null,
+          core_state: info.state != null ? String(info.state) : null,
+          ledger: info.ledger && info.ledger.num != null ? Number(info.ledger.num) : null,
+          ledger_age: info.ledger && info.ledger.age != null ? Number(info.ledger.age) : null,
           sync: null
         };
         const st = result.core_from_exec.core_state || '';
@@ -248,8 +292,9 @@ async function probeDocker() {
     }
   }
 
+  // Exec peers
   if (result.core_from_exec && result.core_from_exec.core_port) {
-    const pb = await execHttpLocal(pick.name, '/peers', result.core_from_exec.core_port);
+    const pb = await execHttpLocal(execTarget, '/peers', result.core_from_exec.core_port);
     if (pb) {
       try {
         const pj = JSON.parse(pb);
@@ -265,7 +310,9 @@ async function probeDocker() {
     }
   }
 
-  const hzBody = await execHttpLocal(pick.name, '/', 8000);
+  // Exec Horizon root inside container (port 8000 typical)
+  let hzBody = await execHttpLocal(execTarget, '/', 8000);
+  if (!hzBody) hzBody = await execHttpLocal(execTarget, '/', 31401);
   if (hzBody) {
     try {
       const j = JSON.parse(hzBody);
@@ -284,6 +331,8 @@ async function probeDocker() {
     } catch (e) {}
   }
 
+
+  // Runtime extras (only if inspect/stats available — never invent 0)
   if (pick.id && result.docker_sock) {
     try {
       const ins = await dockerApi('/containers/' + pick.id + '/json', 2500);
@@ -347,7 +396,6 @@ async function probeDocker() {
 
 module.exports = {
   dockerAllowed: dockerAllowed,
-  dockerAllowedInfo: dockerAllowedInfo,
   probeDocker: probeDocker,
   listContainers: listContainers
 };
