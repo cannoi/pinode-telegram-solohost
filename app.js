@@ -1,6 +1,6 @@
 'use strict';
 /**
- * SoloHost Controller v2.6.58
+ * SoloHost Controller v2.6.59
  * - Smart Incident Engine (observe -> evaluate -> decide -> act)
  * - Health Scoring with Damper + Stability-aware adjustment
  * - AI Data Query DSL + named blocks
@@ -12,13 +12,13 @@
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
  * - Resource-tuned: readHistory cache + rollup RAM cache + index cache
- * - [2.6.58] Host metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
- *   via host-metrics.js. Independent of Docker.
- * - [2.6.58] Safe getTelemetry dedupe + sock cache + no detail cache pollution
- * - [2.6.58] pull_policy: missing in generated compose to prevent image pull loops
- * - [2.6.58-fix] host-metrics module is OPTIONAL — selftest never fails if missing
- * - [2.6.58-fix] /api/host-metrics reads directly from the module (no HTTP fetch)
- * - [2.6.58-fix] index.html loaded from multiple fallback paths
+ * - [2.6.59] Host metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
+ * - [2.6.59] Safe getTelemetry dedupe + sock cache + no detail cache pollution
+ * - [2.6.59-fix] host-metrics module is OPTIONAL — selftest never fails if missing
+ * - [2.6.59-fix] /api/host-metrics reads directly from the module (no HTTP fetch)
+ * - [2.6.59-fix] index.html loaded from multiple fallback paths
+ * - [2.6.59-fix] Quieter alerts: longer delay, higher thresholds, 60m dedupe
+ * - [2.6.59-fix] /brand-logo content-type sniffing (PNG/GIF/WebP/JPEG)
  */
 const http = require('http');
 const https = require('https');
@@ -477,7 +477,7 @@ function probeTcp(host, port, timeout) {
 }
 
 /* ======================================================================
- * DATA PIPELINE (read -> normalize -> SORT -> aggregate -> use)
+ * DATA PIPELINE
  * ==================================================================== */
 function normalizeHistoryRow(r) {
   if (!r || typeof r !== 'object') return null;
@@ -1137,9 +1137,10 @@ function detectIncidentSignature(t) {
   if (age != null && age > 240) return { type: 'sync_lag', severity: 'soft' };
   if (/catching|behind/i.test(sync) && (age == null || age > 180)) return { type: 'sync_lag', severity: 'soft' };
   if (peerTotal === 0 && synced) return { type: 'peers_zero', severity: 'warning' };
-  if (ram != null && ram >= 88) return { type: 'ram_high', severity: 'warning' };
-  if (cpu != null && cpu >= 90) return { type: 'cpu_high', severity: 'warning' };
-  if (disk != null && disk >= 90) return { type: 'disk_high', severity: 'warning' };
+  // [2.6.59-fix] Quieter alerts: higher thresholds to reduce noise.
+  if (ram != null && ram >= 90) return { type: 'ram_high', severity: 'warning' };
+  if (cpu != null && cpu >= 92) return { type: 'cpu_high', severity: 'warning' };
+  if (disk != null && disk >= 92) return { type: 'disk_high', severity: 'warning' };
   if (peerTotal != null && peerTotal > 0 && peerTotal <= 2 && synced) return { type: 'peers_low', severity: 'soft' };
   return null;
 }
@@ -1193,12 +1194,13 @@ function decideIncidentAction(incident, t) {
   const durMin = Math.max(0, Math.round((now - incident.firstSeen) / 60000));
   const samples = incident.samples || 1;
   const currentStage = incident.stage || 0;
+  // [2.6.59-fix] Quieter alerts: longer wait before notifying to avoid noise.
   let targetStage = 0;
-  if (samples >= 3 || durMin >= 2) targetStage = 1;
-  if (samples >= 5 || durMin >= 5) targetStage = 2;
-  if (durMin >= 15 || samples >= 15) targetStage = 3;
-  if (durMin >= 45 || samples >= 45) targetStage = 4;
-  if (durMin >= 180) targetStage = 5;
+  if (samples >= 3 || durMin >= 3) targetStage = 1;      // watch only
+  if (samples >= 8 || durMin >= 8) targetStage = 2;      // first alert
+  if (durMin >= 30 || samples >= 30) targetStage = 3;    // reminder 1
+  if (durMin >= 90 || samples >= 90) targetStage = 4;    // reminder 2
+  if (durMin >= 360) targetStage = 5;                    // chronic
   const isUpgradeCatchup = incident.type === 'sync_lag' &&
     incident.firstCoreVersion && t && t.core_version &&
     String(t.core_version) !== String(incident.firstCoreVersion);
@@ -1206,7 +1208,7 @@ function decideIncidentAction(incident, t) {
   if (incident.skippedUntil && now < incident.skippedUntil) return { action: 'wait', targetStage: targetStage, reason: 'skipped', durationMin: durMin };
   if (targetStage < 2) return { action: 'watch', targetStage: targetStage, durationMin: durMin };
   if (currentStage >= targetStage) return { action: 'wait', targetStage: targetStage, durationMin: durMin };
-  const cooldownMin = [0, 0, 0, 30, 60, 180][targetStage] || 60;
+  const cooldownMin = [0, 0, 0, 60, 120, 360][targetStage] || 60;
   const sinceLastMin = (now - (incident.lastAlertAt || 0)) / 60000;
   const userAckBonus = (incident.ackedAt && now - incident.ackedAt < 2 * 3600 * 1000) ? 30 : 0;
   if ((incident.alertsSent || 0) > 0 && sinceLastMin < (cooldownMin + userAckBonus)) {
@@ -1349,8 +1351,9 @@ async function sendAlertTelegram(text, t) {
   if (gate.muted) { try { actionLog('info', 'alert muted - ' + gate.why); } catch (e) {} return false; }
   const fp = alertFingerprint(t || {}, (t && t._incidentType) || classifyIssueKind(t || {}));
   const now = Date.now();
-  if (state.alertDedupe && state.alertDedupe.fp === fp && now - (state.alertDedupe.at || 0) < 30 * 60 * 1000) {
-    try { actionLog('info', 'alert deduped 30m - ' + fp); } catch (e) {}
+  // [2.6.59-fix] Quieter alerts: dedupe identical alerts for 60 minutes.
+  if (state.alertDedupe && state.alertDedupe.fp === fp && now - (state.alertDedupe.at || 0) < 60 * 60 * 1000) {
+    try { actionLog('info', 'alert deduped 60m - ' + fp); } catch (e) {}
     return false;
   }
   state.alertDedupe = { fp: fp, at: now };
@@ -1386,7 +1389,8 @@ async function runAlertMachine(t) {
         const gate = alertsMuted();
         const reportsOff = effectiveReportHours().length === 0;
         const durMin = Math.max(1, Math.round((justResolved.resolvedAt - justResolved.firstSeen) / 60000));
-        const softShort = justResolved.severity === 'soft' && durMin < 20;
+        // [2.6.59-fix] Skip recovery ping for short soft incidents to reduce noise.
+        const softShort = justResolved.severity === 'soft' && durMin < 25;
         const recTxt = '🟢 RECOVERED after ~' + durMin + ' min\nPrevious issue: ' + justResolved.type + '\n\n' + formatStatus(t, 'RECOVERED');
         if (gate.muted || reportsOff || softShort) {
           try { actionLog('info', 'recovery skipped - ' + (gate.muted ? gate.why : (reportsOff ? 'reports off' : 'soft<'+durMin+'m'))); } catch (e) {}
@@ -1742,7 +1746,7 @@ const SCRIPT_MAP = `
 APP FLOW
 Telegram or SoloHost UI -> /status /report /analyze use history frames.
 Incident engine: observe -> first alert -> reminder -> chronic.
-Alert only fires when the incident persists 5+ minutes or 5+ samples.
+Alert only fires when the incident persists 8+ minutes or 8+ samples.
 
 8 SCRIPTS (Safety L1 safest -> L4 strongest)
 CleanRam.bat      L1  RAM high / PC sluggish while node synced.
@@ -1783,9 +1787,9 @@ function recommendActions(t) {
   const trend = String(t.trend || 'stable');
   const degrading = trend === 'degrading';
   const dockerBad = t.docker_health === 'unhealthy' || t.docker_status === 'stopped';
-  const ramHigh = ramVal != null && ramVal >= 85;
-  const cpuHigh = cpuVal != null && cpuVal >= 90;
-  const diskHigh = diskVal != null && diskVal >= 90;
+  const ramHigh = ramVal != null && ramVal >= 90;
+  const cpuHigh = cpuVal != null && cpuVal >= 92;
+  const diskHigh = diskVal != null && diskVal >= 92;
   const picks = [];
   const why = [];
   const lastFix = state.lastRepair || null;
@@ -2283,8 +2287,8 @@ function collectIssues(t) {
   if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Unusual sync: ' + t.sync);
   if (t.ledger_age != null && t.ledger_age > 300) issues.push('Ledger age high (' + t.ledger_age + 's)');
   if (t.peer_in != null && t.peer_in < 2) issues.push('Peer IN low (' + t.peer_in + ')');
-  if (t.ram != null && t.ram >= 88) issues.push('RAM high (' + t.ram + '%)');
-  if (t.cpu != null && t.cpu >= 90) issues.push('CPU high (' + t.cpu + '%)');
+  if (t.ram != null && t.ram >= 90) issues.push('RAM high (' + t.ram + '%)');
+  if (t.cpu != null && t.cpu >= 92) issues.push('CPU high (' + t.cpu + '%)');
   if (t.temp != null && t.temp >= 78) issues.push('High temperature (' + t.temp + '°C)');
   if (!t.source && t.ports_open === 0) issues.push('No telemetry source and ports closed');
   return issues;
@@ -3616,7 +3620,6 @@ const MIME = {
   '.jpg': 'image/jpeg', '.png': 'image/png', '.ps1': 'text/plain; charset=utf-8',
   '.bat': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8'
 };
-// [2.6.58-fix] Load index.html from multiple candidate paths (volume mount may differ).
 let INDEX = '<h1>Pi Node SoloHost ' + VERSION + '</h1><p>/api/status</p>';
 function loadIndexHtml() {
   const candidates = [
@@ -3642,7 +3645,7 @@ function loadIndexHtml() {
 }
 loadIndexHtml();
 function getIndexHtml() {
-  if (!INDEX || INDEX.indexOf('/api/status') >= 0 && INDEX.length < 400) loadIndexHtml();
+  if (!INDEX || (INDEX.indexOf('/api/status') >= 0 && INDEX.length < 400)) loadIndexHtml();
   return INDEX;
 }
 const rateBuckets = Object.create(null);
@@ -3666,7 +3669,6 @@ function setSecHeaders(res, mode) {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   }
 }
-
 
 function brandPath() { return path.join(DATA, 'state', 'brand.json'); }
 function logoPath() { return path.join(DATA, 'state', 'brand-logo'); }
@@ -3738,7 +3740,11 @@ const srv = http.createServer(async (req, res) => {
       try {
         if (fs.existsSync(logoPath())) {
           const buf = fs.readFileSync(logoPath());
-          res.setHeader('Content-Type', 'image/jpeg');
+          let ct = 'image/jpeg';
+          if (buf[0] === 0x89 && buf[1] === 0x50) ct = 'image/png';
+          else if (buf[0] === 0x47 && buf[1] === 0x49) ct = 'image/gif';
+          else if (buf[0] === 0x52 && buf[1] === 0x49 && buf[8] === 0x57) ct = 'image/webp';
+          res.setHeader('Content-Type', ct);
           res.setHeader('Cache-Control', 'no-store');
           res.end(buf); return;
         }
@@ -3863,6 +3869,32 @@ const srv = http.createServer(async (req, res) => {
         }));
       } catch (e) {
         res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
+      }
+      return;
+    }
+    if (u === '/api/docker-status') {
+      if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      try {
+        const dockerProbe = require('./docker-probe');
+        const info = typeof dockerProbe.dockerAllowedInfo === 'function'
+          ? dockerProbe.dockerAllowedInfo()
+          : { allowed: dockerProbe.dockerAllowed() };
+        const tele = cache || {};
+        res.end(JSON.stringify({
+          ok: true,
+          allowed_info: info,
+          telemetry_flags: {
+            docker_sock: tele.docker_sock === true,
+            docker_probe: tele.docker_probe === true,
+            docker: tele.docker || null,
+            container: tele.container || null,
+            source: tele.source || null,
+            horizonOnly: !hasDockerSock(tele)
+          }
+        }, null, 2));
+      } catch (e) {
+        res.end(JSON.stringify({ ok: false, error: String(e && e.message) }));
       }
       return;
     }
@@ -3997,8 +4029,8 @@ const srv = http.createServer(async (req, res) => {
       ok('script_docker_down', s1 && s1.script === 'DockerRecover', s1 && s1.script);
       const d1 = decideIncidentAction({ firstSeen: Date.now() - 1000, samples: 1, stage: 0, alertsSent: 0 }, {});
       ok('decision_observe_early', d1 && d1.action === 'watch', d1 && d1.action);
-      const d2 = decideIncidentAction({ firstSeen: Date.now() - 6 * 60000, samples: 6, stage: 0, alertsSent: 0 }, {});
-      ok('decision_alert_at_5min', d2 && d2.action === 'alert', d2 && d2.action);
+      const d2 = decideIncidentAction({ firstSeen: Date.now() - 9 * 60000, samples: 9, stage: 0, alertsSent: 0 }, {});
+      ok('decision_alert_at_8min', d2 && d2.action === 'alert', d2 && d2.action);
       const rep = formatReport(24);
       ok('report_24h_header', typeof rep === 'string' && rep.indexOf('PI NODE · REPORT') >= 0, 'ok');
       ok('report_no_ui_url', rep.indexOf('🔗 UI:') < 0, 'ok');
@@ -4023,7 +4055,6 @@ const srv = http.createServer(async (req, res) => {
       ok('lang_detect_en', l2 === 'English', l2);
       ok('telemetry_dedupe_flag', typeof _pendingTelemetry !== 'undefined', 'ok');
       ok('sock_cache_present', typeof _sockCache === 'object' && _sockCache.v === null, 'ok');
-      // host-metrics is OPTIONAL — never fail whole selftest if missing.
       try {
         const hm = require('./host-metrics');
         checks.push({ name: 'host_metrics_module', pass: true, detail: 'loaded' });
