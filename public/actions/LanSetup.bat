@@ -80,8 +80,8 @@ echo.
 choice /C YN /N /M "Lock this SAME IP as static + firewall + Google DNS? [Y/N] "
 if errorlevel 2 goto GUIDE
 
-echo [1/5] Disable IPv6 on %IFACE%
-powershell.exe -NoProfile -Command "Disable-NetAdapterBinding -Name '%IFACE%' -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue"
+echo [1/5] Keep IPv6 enabled on %IFACE%
+rem IPv6 left unchanged on purpose.
 
 echo [2/5] Set STATIC to current IP %CURIP%  (not a different address)
 if "%GW%"=="" (

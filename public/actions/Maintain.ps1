@@ -47,7 +47,7 @@ if ($isAdmin) {
   }
 }
 
-WL "[4/10] Cache + Docker volume prune"
+WL "[4/10] Cache + Docker dangling images"
 if ($isAdmin) {
   $paths = @(
     "$env:LOCALAPPDATA\Microsoft\Windows\WER\ReportArchive",
@@ -58,7 +58,7 @@ if ($isAdmin) {
     if (Test-Path $p) { Get-ChildItem $p -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
   }
 }
-cmd /c "docker volume prune -f" >$null 2>&1
+cmd /c "docker image prune -f" >$null 2>&1
 
 WL "[5/10] Recycle Bin"
 if ($isAdmin) {

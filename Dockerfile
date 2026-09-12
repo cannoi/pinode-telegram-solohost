@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Install dependencies first (better Docker layer caching)
 COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund || npm install --no-audit --no-fund
+# No runtime npm dependencies — skip npm install to shrink build/attack surface.
 
 # Application source files — every require() target must be here.
 COPY package.json app.js loader.js auto-compose.js status-monitor.js \

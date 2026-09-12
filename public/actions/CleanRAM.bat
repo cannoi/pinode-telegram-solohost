@@ -39,9 +39,9 @@ echo ============================================================
 echo  CLEAN RAM
 echo ============================================================
 echo  WILL:
-echo   - Close Search, virtual keyboard, RuntimeBroker, remote assist
+echo   - Close Search, virtual keyboard, RuntimeBroker
 echo   - Close Chrome / Edge / OneDrive / Copilot extra frames
-echo   - Stop Spooler, DiagTrack, dmwappush, Windows Update, BITS, SysMain
+echo   - Stop print spooler only if idle (does NOT touch Windows Update)
 echo   - Clear user and Windows TEMP
 echo   - TRIM SSD (defrag /O)
 echo   - Flush DNS and restart Explorer
@@ -56,19 +56,12 @@ if errorlevel 2 exit /b 0
 echo [1/6] Close extra desktop apps
 for %%P in (
   SearchApp.exe SearchIndexer.exe TabTip.exe TextInputHost.exe
-  RuntimeBroker.exe remoting_host.exe remote_assistance_host.exe
+  RuntimeBroker.exe
   chrome.exe msedge.exe OneDrive.exe Copilot.exe ApplicationFrameHost.exe
 ) do taskkill /F /IM %%P >nul 2>&1
 
-echo [2/6] Stop extra services
+echo [2/6] Stop print spooler only
 net stop spooler >nul 2>&1
-sc config DiagTrack start= disabled >nul 2>&1
-net stop DiagTrack >nul 2>&1
-sc config dmwappushservice start= disabled >nul 2>&1
-net stop dmwappushservice >nul 2>&1
-net stop wuauserv >nul 2>&1
-net stop bits >nul 2>&1
-net stop SysMain >nul 2>&1
 
 echo [3/6] Clear TEMP
 del /s /f /q "%TEMP%\*.*" >nul 2>&1

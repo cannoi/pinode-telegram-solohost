@@ -252,6 +252,7 @@ const box=$('chatbox');
 const termsBox=$('termsBox');
 if(termsBox) termsBox.textContent=TERMS;
 
+function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;if(box){box.appendChild(d);box.scrollTop=box.scrollHeight;}}
 
 function setupTermsScroll(){
@@ -396,14 +397,14 @@ async function loadStatus(){
           <div class="gauge-center">
             <div class="gauge-score" style="color:${color}">${health} / 100</div>
             <div class="gauge-label">Node Health</div>
-            <div class="gauge-status">Status: <span style="color:${color}">${statusText}</span></div>
+            <div class="gauge-status">Status: <span style="color:${color}">${escHtml(statusText)}</span></div>
           </div>
         </div>
         <div class="status-col right">
-          <span class="val">${syncVal}</span>
-          <span class="val">${ledgerVal}</span>
-          <span class="val">${ageVal}</span>
-          <span class="val">${peersVal}</span>
+          <span class="val">${escHtml(syncVal)}</span>
+          <span class="val">${escHtml(ledgerVal)}</span>
+          <span class="val">${escHtml(ageVal)}</span>
+          <span class="val">${escHtml(peersVal)}</span>
         </div>
       </div>
     `;
@@ -537,7 +538,7 @@ async function loadAlerts(){
     if(!pan) return;
     if(!j.items||!j.items.length){pan.innerHTML='🔔 No action alerts.';return;}
     pan.innerHTML=j.items.map(function(it){
-      return '<div class="item">'+(it.ts||'').replace('T',' ').slice(0,16)+'\n'+(it.text||'')+(it.tip?'\n💡 '+it.tip:'')+(it.scripts?'\n🛠️ '+it.scripts:'')+'</div>';
+      return '<div class="item">'+escHtml((it.ts||'').replace('T',' ').slice(0,16))+'\n'+escHtml(it.text||'')+(it.tip?'\n💡 '+escHtml(it.tip):'')+(it.scripts?'\n🛠️ '+escHtml(it.scripts):'')+'</div>';
     }).join('');
   }catch(e){}
 }

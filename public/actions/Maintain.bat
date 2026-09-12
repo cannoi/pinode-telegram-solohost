@@ -67,9 +67,9 @@ net stop spooler >nul 2>&1
 echo [3/10] Clean TEMP
 powershell.exe -NoProfile -Command "Remove-Item $env:TEMP\* -Force -Recurse -ErrorAction SilentlyContinue; Remove-Item $env:SystemRoot\Temp\* -Force -Recurse -ErrorAction SilentlyContinue"
 
-echo [4/10] Cache + unused Docker volumes
+echo [4/10] Cache + Docker dangling images
 powershell.exe -NoProfile -Command "Remove-Item $env:LOCALAPPDATA\Microsoft\Windows\WER\ReportArchive\* -Force -Recurse -ErrorAction SilentlyContinue; Remove-Item C:\ProgramData\Microsoft\Windows\WER\ReportArchive\* -Force -Recurse -ErrorAction SilentlyContinue; Remove-Item $env:LOCALAPPDATA\D3DSCache\* -Force -Recurse -ErrorAction SilentlyContinue"
-docker volume prune -f >nul 2>&1
+docker image prune -f >nul 2>&1
 
 echo [5/10] Recycle Bin
 powershell.exe -NoProfile -Command "try{Clear-RecycleBin -Force -ErrorAction SilentlyContinue}catch{}"

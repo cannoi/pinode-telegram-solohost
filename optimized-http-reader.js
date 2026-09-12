@@ -207,9 +207,9 @@ class OptimizedHttpReader {
       }
     }
 
-    // Try in batches of 6 (parallelism limit)
+    // Try in batches of 12 (parallelism limit)
     for (let i = 0; i < candidates.length; i += 6) {
-      const batch = candidates.slice(i, i + 6);
+      const batch = candidates.slice(i, i + 12);
       try {
         const found = await this.raceFirst(
           batch.map((c) =>
@@ -321,7 +321,7 @@ class OptimizedHttpReader {
     }
 
     for (let i = 0; i < candidates.length; i += 6) {
-      const batch = candidates.slice(i, i + 6);
+      const batch = candidates.slice(i, i + 12);
       try {
         const found = await this.raceFirst(
           batch.map((c) =>

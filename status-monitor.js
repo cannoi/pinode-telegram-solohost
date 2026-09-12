@@ -163,41 +163,46 @@ class PiNodeStatusMonitor {
   async probeCoreHttp() {
     const hosts = this.nodeHosts;
     const ports = this.corePorts;
+    const pairs = [];
     for (let h = 0; h < hosts.length; h++) {
-      for (let p = 0; p < ports.length; p++) {
-        try {
-          const body = await httpGet('http://' + hosts[h] + ':' + ports[p] + '/info', 2000);
-          const j = JSON.parse(body);
-          const info = j.info || j;
-          if (!info || (info.state == null && !(info.ledger && info.ledger.num != null))) continue;
-          const o = {
-            ok: true,
-            source: 'Core',
-            core_verified: true,
-            core_host: hosts[h],
-            core_port: ports[p],
-            core_state: info.state != null ? String(info.state) : null,
-            ledger: info.ledger && info.ledger.num != null ? Number(info.ledger.num) : null,
-            ledger_age: info.ledger && info.ledger.age != null ? Number(info.ledger.age) : null,
-            sync_confidence: 'high'
-          };
-          const st = o.core_state || '';
-          if (/synced/i.test(st) && !/not\s*synced/i.test(st)) o.sync = 'Synced';
-          else if (/catching/i.test(st)) o.sync = 'Catching up';
-          else o.sync = st || 'Core OK';
-          try {
-            const pb = await httpGet('http://' + hosts[h] + ':' + ports[p] + '/peers', 1200);
-            const pj = JSON.parse(pb);
-            if (pj.authenticated_peers) {
-              const inn = pj.authenticated_peers.inbound;
-              const out = pj.authenticated_peers.outbound;
-              o.peer_in = Array.isArray(inn) ? inn.length : (inn ? Object.keys(inn).length : 0);
-              o.peer_out = Array.isArray(out) ? out.length : (out ? Object.keys(out).length : 0);
-            }
-          } catch (e) {}
-          return o;
-        } catch (e) {}
-      }
+      for (let p = 0; p < ports.length; p++) pairs.push({ host: hosts[h], port: ports[p] });
+    }
+    const self = this;
+    async function tryOne(pair) {
+      const body = await httpGet('http://' + pair.host + ':' + pair.port + '/info', 1600);
+      const j = JSON.parse(body);
+      const info = j.info || j;
+      if (!info || (info.state == null && !(info.ledger && info.ledger.num != null))) throw new Error('no core');
+      const o = {
+        ok: true, source: 'Core', core_verified: true,
+        core_host: pair.host, core_port: pair.port,
+        core_state: info.state != null ? String(info.state) : null,
+        ledger: info.ledger && info.ledger.num != null ? Number(info.ledger.num) : null,
+        ledger_age: info.ledger && info.ledger.age != null ? Number(info.ledger.age) : null,
+        sync_confidence: 'high'
+      };
+      const st = o.core_state || '';
+      if (/synced/i.test(st) && !/not\s*synced/i.test(st)) o.sync = 'Synced';
+      else if (/catching/i.test(st)) o.sync = 'Catching up';
+      else o.sync = st || 'Core OK';
+      try {
+        const pb = await httpGet('http://' + pair.host + ':' + pair.port + '/peers', 1000);
+        const pj = JSON.parse(pb);
+        if (pj.authenticated_peers) {
+          const inn = pj.authenticated_peers.inbound;
+          const out = pj.authenticated_peers.outbound;
+          o.peer_in = Array.isArray(inn) ? inn.length : (inn ? Object.keys(inn).length : 0);
+          o.peer_out = Array.isArray(out) ? out.length : (out ? Object.keys(out).length : 0);
+        }
+      } catch (e) {}
+      return o;
+    }
+    for (let i = 0; i < pairs.length; i += 10) {
+      const batch = pairs.slice(i, i + 10);
+      const settled = await Promise.all(batch.map(function (pair) {
+        return tryOne(pair).catch(function () { return null; });
+      }));
+      for (let k = 0; k < settled.length; k++) if (settled[k] && settled[k].ok) return settled[k];
     }
     return { ok: false };
   }
@@ -236,9 +241,8 @@ class PiNodeStatusMonitor {
     this.metrics.requests++;
 
     try {
-      await this.discovery.discover(false);
-      const d = this.discovery.discovered;
-      if (d && d.horizonHost && d.horizonPort) {
+      const d = this.discovery.discovered || {};
+      if (d.horizonHost && d.horizonPort) {
         this.optReader.setEndpoint(d.horizonHost, d.horizonPort);
       }
     } catch (e) {}

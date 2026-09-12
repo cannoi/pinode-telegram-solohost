@@ -11,12 +11,12 @@ const path = require('path');
 const { execFile } = require('child_process');
 const http = require('http');
 
-const ENABLED = String(process.env.AUTO_DOCKER_SOCK || '1').toLowerCase();
+const ENABLED = String(process.env.AUTO_DOCKER_SOCK || '0').toLowerCase();
 const CONFIG_DIR = process.env.SOLOHOST_CONFIG_DIR || '/solohost-config';
 const TARGET = path.join(CONFIG_DIR, 'docker-compose.yml');
 const DATA = process.env.DATA_DIR || '/data';
 const MARKER = path.join(DATA, 'state', 'auto-compose.json');
-const IMAGE = process.env.AUTO_COMPOSE_IMAGE || 'ghcr.io/cannoi/pinode-telegram-solohost:v2.6.21';
+const IMAGE = process.env.AUTO_COMPOSE_IMAGE || 'ghcr.io/cannoi/pinode-telegram-solohost:v2.6.60';
 const SOCK = process.env.DOCKER_SOCK || '/var/run/docker.sock';
 
 function log(msg) {
@@ -40,13 +40,17 @@ function composeWithSock() {
     '      - HORIZON_PORT=31401',
     '      - CORE_HTTP_PORT=11626',
     '      - DOCKER_PROBE=1',
-    '      - AUTO_DOCKER_SOCK=1',
+    '      - AUTO_DOCKER_SOCK=0',
     '      - TELEMETRY_SEC=60',
     '      - TZ=Asia/Ho_Chi_Minh',
     '    volumes:',
     '      - ./data:/data',
     '      - ./:/solohost-config:rw',
     '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+    '    security_opt:',
+    '      - no-new-privileges:true',
+    '    cap_drop:',
+    '      - ALL',
     '    restart: unless-stopped',
     ''
   ].join('\n');

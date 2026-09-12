@@ -168,9 +168,9 @@ class PiNodeDiscovery {
       urls.push({ host: primary, port: p });
     }
 
-    // Parallel batches of 6
+    // Parallel batches of 12
     for (let i = 0; i < urls.length; i += 6) {
-      const batch = urls.slice(i, i + 6);
+      const batch = urls.slice(i, i + 12);
       const found = await raceFirst(batch.map((u) => {
         return this.verifyHorizon(u.host, u.port).then(function (hz) {
           if (!hz) return null;
@@ -192,7 +192,7 @@ class PiNodeDiscovery {
       }
     }
     for (let i = 0; i < urls.length; i += 6) {
-      const batch = urls.slice(i, i + 6);
+      const batch = urls.slice(i, i + 12);
       const found = await raceFirst(batch.map((u) => {
         return this.verifyCore(u.host, u.port).then(function (ok) {
           if (!ok) return null;

@@ -18,21 +18,15 @@ Write-Output "Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') admin=$isAdmin con
 # Do NOT kill Pi Network / Docker / com.docker.* / vpnkit
 $kill = @(
   'chrome','msedge','SearchApp','SearchIndexer','TabTip','TextInputHost',
-  'RuntimeBroker','OneDrive','Copilot','ApplicationFrameHost',
-  'remoting_host','remote_assistance_host'
+  'RuntimeBroker','OneDrive','Copilot','ApplicationFrameHost'
 )
 foreach ($n in $kill) {
   Get-Process -Name $n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 if ($isAdmin) {
-  foreach ($svc in @('Spooler','DiagTrack','dmwappushservice','SysMain','wuauserv','BITS')) {
-    try {
-      if ($svc -in @('DiagTrack','dmwappushservice')) {
-        & sc.exe config $svc start= disabled 2>$null | Out-Null
-      }
-      Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-    } catch {}
+  foreach ($svc in @('Spooler')) {
+    try { Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue } catch {}
   }
 }
 

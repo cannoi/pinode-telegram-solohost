@@ -51,7 +51,7 @@ function dockerApi(path, timeoutMs) {
       timeout: timeoutMs
     }, function (res) {
       let b = '';
-      res.on('data', function (c) { b += c; });
+      res.on('data', function (c) { if (b.length < 262144) b += c; });
       res.on('end', function () {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           try { resolve(JSON.parse(b)); } catch (e) { resolve(b); }
@@ -80,7 +80,7 @@ function dockerApiPost(path, body, timeoutMs) {
       timeout: timeoutMs
     }, function (res) {
       let b = '';
-      res.on('data', function (c) { b += c; });
+      res.on('data', function (c) { if (b.length < 262144) b += c; });
       res.on('end', function () {
         resolve({ status: res.statusCode, body: b });
       });
@@ -213,9 +213,13 @@ async function execHttpLocal(container, urlPath, port) {
 /**
  * Full docker-enriched snapshot
  */
+const _probeCache = { at: 0, data: null, ttl: 10000 };
 async function probeDocker() {
   if (!dockerAllowed()) {
     return { available: false, reason: 'no docker sock/cli or DOCKER_PROBE=0' };
+  }
+  if (_probeCache.data && (Date.now() - _probeCache.at) < _probeCache.ttl) {
+    return _probeCache.data;
   }
 
   const result = {
@@ -391,6 +395,8 @@ async function probeDocker() {
     } catch (e) {}
   }
 
+  _probeCache.data = result;
+  _probeCache.at = Date.now();
   return result;
 }
 

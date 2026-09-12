@@ -75,7 +75,7 @@ HOST vs CONTAINER (strict):
                         -> Phase3 winsock reset (reboot required).
 - LanSetup.bat      L3  Lock CURRENT IP as static + firewall + Google DNS.
 - DockerRecover.bat L4  Mode S (soft) -> Mode Y (ordered WSL, kill Docker first).
-- Maintain.bat      L1->L4  Weekly cleanup. Safe volume prune -f.
+- Maintain.bat      L1->L4  Weekly cleanup. Image prune only — never volume prune.
 
 DECISION MATRIX (symptom -> script):
 - Slow PC / RAM>85% / Docker resource starve  -> CleanRam.bat     [L1]
@@ -241,7 +241,7 @@ const SCRIPT_DETAILS = {
   maintain: {
     icon: '🧰', file: 'Maintain.bat', level: '🟢 L1 → 🔴 L4', levelTxt: 'Scheduled',
     when: 'Weekly housekeeping (recommend Sun 03:00)',
-    does: 'Sync time (w32tm), clean TEMP/Recycle Bin, docker volume prune -f (safe), image prune, TRIM (if CPU<75%), SFC/DISM (Sun week 1 if free >= 15GB).',
+    does: 'Sync time (w32tm), clean TEMP/Recycle Bin, docker image prune (no volume prune), TRIM (if CPU<75%), SFC/DISM (Sun week 1 if free >= 15GB).',
     safety: 'Volume prune is the safe one (not -a). Container data preserved.'
   }
 };
@@ -377,6 +377,7 @@ function redactSecrets(s) {
   s = s.replace(/AIza[0-9A-Za-z_-]{20,}/g, '[GEMINI_KEY]');
   return s;
 }
+let _logBytes = 0;
 function log(msg, level) {
   level = level || 'info';
   const safe = redactSecrets(msg);
@@ -384,10 +385,14 @@ function log(msg, level) {
   console.log(line);
   try {
     fs.appendFileSync(LOG_F, line + '\n');
-    const st = fs.statSync(LOG_F);
-    if (st.size > 250000) {
-      const keep = fs.readFileSync(LOG_F, 'utf8').slice(-120000);
-      fs.writeFileSync(LOG_F, keep);
+    _logBytes += line.length + 1;
+    if (_logBytes > 250000) {
+      _logBytes = 0;
+      const st = fs.statSync(LOG_F);
+      if (st.size > 250000) {
+        const keep = fs.readFileSync(LOG_F, 'utf8').slice(-120000);
+        fs.writeFileSync(LOG_F, keep);
+      }
     }
   } catch (e) {}
   try { if (level === 'error' || level === 'warn') actionLog(level, safe); } catch (e) {}
@@ -740,7 +745,10 @@ function isBadSyncString(s) {
   return /catching|behind|slow|not synced|unsynced|error|fail|ingest lag/i.test(s)
     && !/synced|live|good|horizon ok/i.test(s);
 }
+const _stabCache = { at: 0, data: null };
 function computeSyncStability() {
+  const nowStab = Date.now();
+  if (_stabCache.data && nowStab - _stabCache.at < 60000) return _stabCache.data;
   const rows = getTimeWindow(3);
   if (!rows || rows.length < 3) return { samples: 0, flips: 0, flipRate: 0, badRatio: 0, longerBadRatio: 0, unstableShort: false, sustainedBad: false, label: 'unknown' };
   const recent = rows.slice(-HEALTH_CFG.stabShortWindow);
@@ -764,11 +772,13 @@ function computeSyncStability() {
   if (sustainedBad) label = 'sustained_bad';
   else if (unstableShort) label = 'unstable_short';
   else if (flipRate >= 0.10) label = 'some_flips';
-  return { samples: recent.length, flips: flips,
+  const stabOut = { samples: recent.length, flips: flips,
     flipRate: Math.round(flipRate * 100) / 100,
     badRatio: Math.round(badRatio * 100) / 100,
     longerBadRatio: Math.round(longerBadRatio * 100) / 100,
     unstableShort: unstableShort, sustainedBad: sustainedBad, label: label };
+  _stabCache.at = nowStab; _stabCache.data = stabOut;
+  return stabOut;
 }
 function applyStabilityAdjustment(rawHealth, stability) {
   if (!stability || stability.samples < 5) return rawHealth;
@@ -785,19 +795,24 @@ function applyStabilityAdjustment(rawHealth, stability) {
   }
   return Math.max(0, Math.min(100, adjusted));
 }
+const _trendCache = { at: 0, value: 'stable' };
 function computeHealthTrend(recentRows) {
-  if (!recentRows || recentRows.length < 4) return 'stable';
+  const nowTr = Date.now();
+  if (nowTr - _trendCache.at < 5 * 60 * 1000) return _trendCache.value;
+  if (!recentRows || recentRows.length < 4) { _trendCache.at = nowTr; _trendCache.value = 'stable'; return 'stable'; }
   const vals = recentRows.map(function (r) { return r && r.health; })
     .filter(function (x) { return x != null && isFinite(Number(x)); }).map(Number);
-  if (vals.length < 4) return 'stable';
+  if (vals.length < 4) { _trendCache.at = nowTr; _trendCache.value = 'stable'; return 'stable'; }
   const half = Math.floor(vals.length / 2);
   let olderSum = 0, newerSum = 0;
   for (let i = 0; i < half; i++) olderSum += vals[i];
   for (let i = vals.length - half; i < vals.length; i++) newerSum += vals[i];
   const delta = (newerSum / half) - (olderSum / half);
-  if (delta > HEALTH_CFG.trendThreshold) return 'improving';
-  if (delta < -HEALTH_CFG.trendThreshold) return 'degrading';
-  return 'stable';
+  let result = 'stable';
+  if (delta > HEALTH_CFG.trendThreshold) result = 'improving';
+  else if (delta < -HEALTH_CFG.trendThreshold) result = 'degrading';
+  _trendCache.at = nowTr; _trendCache.value = result;
+  return result;
 }
 function dampHealthScore(t, rawHealth) {
   t = t || {};
@@ -988,7 +1003,6 @@ function appendHistory(t) {
     fs.appendFileSync(f, JSON.stringify(row) + '\n');
     invalidateReadHistory();
     try { rollupHistory(row); } catch (e2) {}
-    pruneHistory();
   } catch (e) {}
 }
 function rollupHistory(row) {
@@ -1016,6 +1030,12 @@ function rollupHistory(row) {
   if (row.sync && /not synced|offline|fail|error/i.test(String(row.sync))) d.sync_fail++;
   if (_rollupState.daily.length > 370) _rollupState.daily = _rollupState.daily.slice(-370);
 
+  _rollupDirty = true;
+}
+let _rollupDirty = false;
+function flushRollups() {
+  if (!_rollupDirty) return;
+  _rollupDirty = false;
   try { fs.writeFileSync(HOURLY_F, JSON.stringify(_rollupState.hourly)); } catch (e) {}
   try { fs.writeFileSync(DAILY_F, JSON.stringify(_rollupState.daily)); } catch (e) {}
 }
@@ -2263,14 +2283,18 @@ function detectIntent(q) {
   if (/sell|finance|money|tight|bán|kẹt tiền|vender|argent/.test(s)) return 'FINANCE';
   return 'GENERAL';
 }
+let _chatCache = null;
 function loadChatHistory() {
+  if (_chatCache) return _chatCache;
   try {
     const j = JSON.parse(fs.readFileSync(path.join(DATA, 'chat_history.json'), 'utf8'));
-    return Array.isArray(j) ? j.slice(-24) : [];
-  } catch (e) { return []; }
+    _chatCache = Array.isArray(j) ? j.slice(-24) : [];
+  } catch (e) { _chatCache = []; }
+  return _chatCache;
 }
 function saveChatHistory(turns) {
-  try { fs.writeFileSync(path.join(DATA, 'chat_history.json'), JSON.stringify(turns.slice(-40))); } catch (e) {}
+  _chatCache = turns.slice(-40);
+  try { fs.writeFileSync(path.join(DATA, 'chat_history.json'), JSON.stringify(_chatCache)); } catch (e) {}
 }
 function pushChatPersistent(role, text) {
   const turns = loadChatHistory();
@@ -2349,7 +2373,10 @@ function applyDockerConsentFiles() {
   const result = { wrote_data: false, wrote_host: false, paths: [] };
   let tag = 'v2.6.60';
   try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
-  const img = process.env.AUTO_COMPOSE_IMAGE || ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
+  const _imgEnv = process.env.AUTO_COMPOSE_IMAGE || '';
+  const img = /^ghcr\.io\/cannoi\/pinode-telegram-solohost:[\w.-]+$/.test(_imgEnv)
+    ? _imgEnv
+    : ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
   const composeBody = [
     '# Generated after Operator consent in Pi Node Telegram Controller',
     'services:', '  agent:', '    image: ' + img,
@@ -2367,6 +2394,8 @@ function applyDockerConsentFiles() {
     '      - ./:/solohost-config:rw',
     '      - /var/run/docker.sock:/var/run/docker.sock:ro',
     '    extra_hosts:', '      - "host.docker.internal:host-gateway"',
+    '    security_opt:', '      - no-new-privileges:true',
+    '    cap_drop:', '      - ALL',
     '    restart: unless-stopped', ''
   ].join('\n');
   const readme = 'OPTIONAL DOCKER - Operator consent\n=================================\n\n1) Copy docker-compose.yml over the one in this SoloHost app folder.\n2) SoloHost -> Stop -> Start the app.\n3) Telegram: /docker  (should show Socket: YES when mount worked).\n\nThis is NOT default SoloHost permission. You opted in.\n';
@@ -3669,20 +3698,53 @@ function rateLimit(key, max, windowMs) {
   let b = rateBuckets[key];
   if (!b || now > b.reset) b = rateBuckets[key] = { n: 0, reset: now + windowMs };
   b.n++;
+  if (rateBuckets._n > 1024 || !rateBuckets._n) {
+    const keys = Object.keys(rateBuckets);
+    if (keys.length > 1024) {
+      for (let i = 0; i < keys.length; i++) {
+        if (keys[i] === '_n') continue;
+        if (!rateBuckets[keys[i]] || now > rateBuckets[keys[i]].reset) delete rateBuckets[keys[i]];
+      }
+    }
+    rateBuckets._n = 0;
+  } else rateBuckets._n = (rateBuckets._n || 0) + 1;
   return b.n <= max;
+}
+function isLoopbackIp(ip) {
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+function isDockerGatewayIp(ip) {
+  // Host browser via published port appears as the bridge gateway (.1), not another container.
+  return /^(::ffff:)?172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.1$/.test(ip);
 }
 function isLocalReq(req) {
   const ip = String(req.socket && req.socket.remoteAddress || '');
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('172.') || ip.startsWith('10.');
+  if (isLoopbackIp(ip) || isDockerGatewayIp(ip)) return true;
+  if (process.env.ALLOW_LAN_API === '1') {
+    if (ip.startsWith('172.') || ip.startsWith('10.') || ip.startsWith('192.168.')) return true;
+  }
+  return false;
 }
 function setSecHeaders(res, mode) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   if (mode === 'docker') {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+  } else if (mode === 'html') {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   }
+}
+function sanitizeBrandText(s) {
+  return String(s == null ? '' : s)
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 48);
 }
 
 
@@ -3690,7 +3752,7 @@ function brandPath() { return path.join(DATA, 'state', 'brand.json'); }
 function logoPath() { return path.join(DATA, 'state', 'brand-logo'); }
 function readBrand() {
   const def = { name: 'Pi Node Controller PRO', versionLabel: 'SoloHost · v' + String(VERSION || '').replace(/-solohost$/, '') };
-  try { return Object.assign(def, JSON.parse(fs.readFileSync(brandPath(), 'utf8'))); } catch (e) { return def; }
+  try { const j = safeParse(fs.readFileSync(brandPath(), 'utf8')) || {}; if (j.name) def.name = sanitizeBrandText(j.name) || def.name; if (j.versionLabel) def.versionLabel = sanitizeBrandText(j.versionLabel) || def.versionLabel; return def; } catch (e) { return def; }
 }
 function writeBrand(obj) {
   try {
@@ -3719,8 +3781,11 @@ function applyIndexTransform(html, sockOn) {
   return out;
 }
 
+const _detailedCache = { at: 0, data: null };
 const srv = http.createServer(async (req, res) => {
-  const u = (req.url || '/').split('?')[0];
+  const rawUrl = String(req.url || '/').replace(/^\/\//, '/');
+  let u = rawUrl.split('?')[0] || '/';
+  try { u = decodeURIComponent(u); } catch (e) {}
   setSecHeaders(res);
   try {
     if (u === '/healthz') { res.end('ok'); return; }
@@ -3728,14 +3793,16 @@ const srv = http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       if (req.method === 'GET') { res.end(JSON.stringify({ ok: true, brand: readBrand(), hasLogo: fs.existsSync(logoPath()) })); return; }
       if (req.method === 'POST') {
+        if (!isLocalReq(req)) { res.statusCode = 403; res.end(JSON.stringify({ ok: false, error: 'forbidden' })); return; }
+        if (!rateLimit('brand:' + (req.socket.remoteAddress || ''), 8, 60000)) { res.statusCode = 429; res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
         let body = '';
-        req.on('data', function (c) { body += c; if (body.length > 2000000) { req.destroy(); return; } });
+        req.on('data', function (c) { body += c; if (body.length > 1500000) { req.destroy(); return; } });
         req.on('end', function () {
           try {
             const j = safeParse(body) || {};
             const cur = readBrand();
-            if (j.name != null) cur.name = String(j.name).slice(0, 48);
-            if (j.versionLabel != null) cur.versionLabel = String(j.versionLabel).slice(0, 48);
+            if (j.name != null) cur.name = sanitizeBrandText(j.name) || cur.name;
+            if (j.versionLabel != null) cur.versionLabel = sanitizeBrandText(j.versionLabel) || cur.versionLabel;
             if (j.logoData && typeof j.logoData === 'string' && j.logoData.indexOf('data:image/') === 0) {
               const m = j.logoData.match(/^data:image\/(png|jpe?g|webp|gif);base64,(.+)$/i);
               if (m && m[2] && m[2].length < 1800000) {
@@ -3756,7 +3823,11 @@ const srv = http.createServer(async (req, res) => {
       try {
         if (fs.existsSync(logoPath())) {
           const buf = fs.readFileSync(logoPath());
-          res.setHeader('Content-Type', 'image/jpeg');
+          let mime = 'image/jpeg';
+          if (buf[0] === 0x89 && buf[1] === 0x50) mime = 'image/png';
+          else if (buf[0] === 0x47 && buf[1] === 0x49) mime = 'image/gif';
+          else if (buf[0] === 0x52 && buf[1] === 0x49 && buf[8] === 0x57) mime = 'image/webp';
+          res.setHeader('Content-Type', mime);
           res.setHeader('Cache-Control', 'no-store');
           res.end(buf); return;
         }
@@ -3775,7 +3846,14 @@ const srv = http.createServer(async (req, res) => {
         const detailed = u.indexOf('detailed') >= 0;
         let tel;
         if (u.indexOf('fast') >= 0 && cache) tel = cache;
-        else if (detailed) { tel = await statusMonitor.getStatus(true, { detailed: true, docker: true }); }
+        else if (detailed) {
+          if (!rateLimit('status-detailed:' + (req.socket.remoteAddress || ''), 10, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
+          if (_detailedCache.data && Date.now() - _detailedCache.at < 3000) tel = _detailedCache.data;
+          else {
+            tel = await statusMonitor.getStatus(true, { detailed: true, docker: true });
+            _detailedCache.data = tel; _detailedCache.at = Date.now();
+          }
+        }
         else tel = cache || await getTelemetry();
         res.end(JSON.stringify(tel || {}));
       } catch (e) {
@@ -3850,8 +3928,9 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
     if (u === '/api/report/window') {
+      if (!rateLimit('reportwin:' + (req.socket.remoteAddress || ''), 12, 60000)) { res.statusCode = 429; res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      const url = new URL(req.url, 'http://x');
+      const url = new URL(String(req.url || '/').replace(/^\/\//, '/'), 'http://localhost');
       const hours = Math.max(1, Math.min(168, parseInt(url.searchParams.get('hours') || '24', 10) || 24));
       const rows = getTimeWindow(hours);
       const first = rows[0], last = rows[rows.length - 1];
@@ -4060,7 +4139,8 @@ const srv = http.createServer(async (req, res) => {
     }
 
     if (u === '/api/chat' && (req.method === 'POST' || req.method === 'GET')) {
-      if (!rateLimit('chat:' + (req.socket.remoteAddress || ''), 12, 60000)) { res.statusCode = 429; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
+      if (!isLocalReq(req)) { res.statusCode = 403; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ok: false, error: 'forbidden' })); return; }
+      if (!rateLimit('chat:' + (req.socket.remoteAddress || ''), 8, 60000)) { res.statusCode = 429; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
       let body = '';
       if (req.method === 'POST') {
         body = await new Promise(resolve => {
@@ -4167,6 +4247,7 @@ const srv = http.createServer(async (req, res) => {
     }
     if (u === '/api/docker') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      if (!rateLimit('dockerapi:' + (req.socket.remoteAddress || ''), 20, 60000)) { res.statusCode = 429; res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
       if (req.method === 'GET') {
         let sock = false;
         try { sock = fs.existsSync('/var/run/docker.sock'); } catch (e) {}
@@ -4175,6 +4256,7 @@ const srv = http.createServer(async (req, res) => {
         return;
       }
       if (req.method === 'POST') {
+        if (!isLocalReq(req)) { res.statusCode = 403; res.end(JSON.stringify({ ok: false, error: 'forbidden' })); return; }
         let body = '';
         req.on('data', function (c) { body += c; if (body.length > 8000) { req.destroy(); return; } });
         req.on('end', function () {
@@ -4200,6 +4282,8 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
     if (u === '/api/discover') {
+      if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
+      if (!rateLimit('discover:' + (req.socket.remoteAddress || ''), 8, 60000)) { res.statusCode = 429; res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       try {
         const force = /force=1|fresh=1/.test(req.url || '');
@@ -4246,12 +4330,13 @@ const srv = http.createServer(async (req, res) => {
     }
     if (u === '/api/logs') {
       if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
+      if (!rateLimit('logs:' + (req.socket.remoteAddress || ''), 10, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       try { res.end(redactSecrets(fs.readFileSync(LOG_F, 'utf8').slice(-8000))); } catch (e) { res.end(''); }
       return;
     }
     if (u === '/' || u === '/index.html') {
-      setSecHeaders(res);
+      setSecHeaders(res, 'html');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       const tel = cache || {};
       const showNotice = !hasDockerSock(tel);
@@ -4260,18 +4345,20 @@ const srv = http.createServer(async (req, res) => {
     }
     if (u.startsWith('/scripts/')) {
       const name = path.basename(u);
-      const f = path.join(SCRIPTS, name);
-      if (fs.existsSync(f)) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename="' + name + '"');
-        res.end(fs.readFileSync(f));
-        return;
-      }
+      if (!/^[a-zA-Z0-9._-]{1,80}\.(sh|txt|yml|yaml)$/.test(name)) { res.statusCode = 404; res.end('not found'); return; }
+      const f = path.resolve(SCRIPTS, name);
+      if (!f.startsWith(path.resolve(SCRIPTS)) || !fs.existsSync(f)) { res.statusCode = 404; res.end('not found'); return; }
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="' + name + '"');
+      res.end(fs.readFileSync(f));
+      return;
     }
     const rel = path.normalize(u).replace(/^(\.\.[/\\])+/, '').replace(/^[/\\]+/, '');
-    if (rel.includes('..')) { res.statusCode = 400; res.end('bad_path'); return; }
-    const f = path.join(PUBLIC, rel);
-    if (!f.startsWith(PUBLIC)) { res.statusCode = 400; res.end('bad_path'); return; }
+    if (rel.includes('..') || rel.includes('\0')) { res.statusCode = 400; res.end('bad_path'); return; }
+    const ext0 = path.extname(rel).toLowerCase();
+    if (ext0 && !MIME[ext0]) { res.statusCode = 404; res.end('not found'); return; }
+    const f = path.resolve(PUBLIC, rel);
+    if (!f.startsWith(path.resolve(PUBLIC))) { res.statusCode = 400; res.end('bad_path'); return; }
     fs.readFile(f, (err, data) => {
       if (err) { res.statusCode = 404; return res.end('not found'); }
       const ext = path.extname(f).toLowerCase();
@@ -4287,6 +4374,19 @@ const srv = http.createServer(async (req, res) => {
     res.end('error');
   }
 });
+try {
+  srv.requestTimeout = 30000;
+  srv.headersTimeout = 10000;
+  srv.keepAliveTimeout = 5000;
+  srv.maxHeadersCount = 64;
+} catch (e) {}
+srv.on('error', function (err) { try { log('http listen error: ' + (err && err.message), 'error'); } catch (e2) {} });
+process.on('unhandledRejection', function (err) { try { log('unhandledRejection: ' + (err && err.message || err), 'error'); } catch (e) {} });
+process.on('uncaughtException', function (err) { try { log('uncaughtException: ' + (err && err.message || err), 'error'); } catch (e) {} });
+setInterval(flushRollups, 5 * 60 * 1000);
+setTimeout(pruneHistory, 30000);
+setInterval(pruneHistory, 3600 * 1000);
+try { process.on('SIGTERM', function () { try { flushRollups(); } catch (e) {} }); } catch (e) {}
 srv.listen(PORT, '0.0.0.0', () => {
   log('SoloHost Controller v' + VERSION + ' :' + PORT);
   try {
