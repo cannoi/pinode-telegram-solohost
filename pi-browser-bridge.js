@@ -1,13 +1,15 @@
 'use strict';
 /**
  * Pi Browser Bridge v2.6.61-POLL — HTTP polling qua Cloudflare relay
- * - Push status lên relay mỗi 5 giây (không đợi paired).
+ * - Tự đọc status từ /data/latest.json để push lên relay.
+ * - Không đợi paired — luôn push status mỗi 5 giây.
  * - Detect phone online qua endpoint /pull (phone_online).
- * - Không cần WebRTC, không cần lib native.
  */
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const fs = require('fs');
+const path = require('path');
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LEN = 8;
@@ -57,6 +59,20 @@ function httpRequest(urlStr, method, body, timeoutMs) {
   });
 }
 
+function readLatestStatus(label, version) {
+  try {
+    const latestPath = process.env.DATA_DIR
+      ? path.join(process.env.DATA_DIR, 'latest.json')
+      : '/data/latest.json';
+    const raw = fs.readFileSync(latestPath, 'utf8');
+    const j = JSON.parse(raw);
+    if (j && typeof j === 'object') {
+      return Object.assign({}, j, { ts: Date.now(), label: label, version: version });
+    }
+  } catch (e) {}
+  return null;
+}
+
 function createBridge(opts) {
   opts = opts || {};
   const relay = String(opts.relay || process.env.PI_BROWSER_RELAY || '')
@@ -89,14 +105,26 @@ function createBridge(opts) {
 
   async function pushStatus() {
     if (!relay || !code) return;
-    // Nếu chưa có heartbeat thật → gửi placeholder để relay biết host đang sống
-    const payload = lastHeartbeat || {
-      sync: 'Initializing',
-      status: 'waiting_for_phone',
-      label: label,
-      version: version,
-      ts: Date.now(),
-    };
+
+    // Ưu tiên: heartbeat trực tiếp từ app.js
+    let payload = lastHeartbeat;
+
+    // Fallback 1: đọc file /data/latest.json (do app.js ghi mỗi telemetry loop)
+    if (!payload) {
+      payload = readLatestStatus(label, version);
+    }
+
+    // Fallback 2: placeholder để relay biết host vẫn sống
+    if (!payload) {
+      payload = {
+        sync: 'Initializing',
+        status: 'waiting_for_phone',
+        label: label,
+        version: version,
+        ts: Date.now(),
+      };
+    }
+
     const r = await httpRequest(relay + '/pair/' + code + '/push', 'POST', payload, 6000);
     lastPushOk = !!(r && r.status === 200);
   }
@@ -122,7 +150,7 @@ function createBridge(opts) {
         status = 'expired';
         return;
       }
-      await pushStatus();     // ← luôn push (kể cả chưa paired)
+      await pushStatus();
       await checkPaired();
     }, 5000);
   }
@@ -141,7 +169,7 @@ function createBridge(opts) {
     pairExpiresAt = Date.now() + PAIR_TTL_MS;
     peerSeenAt = 0;
     lastPushOk = false;
-    await pushStatus();       // ← push NGAY khi tạo code
+    await pushStatus();
     startHeartbeatLoop();
     return snapshot();
   }
