@@ -246,7 +246,7 @@ const SCRIPT_DETAILS = {
   }
 };
 
-const VERSION = '2.6.62-solohost';
+const VERSION = '2.6.63-solohost';
 let createPiBrowserBridge;
 try { createPiBrowserBridge = require('./pi-browser-bridge').createBridge; } catch (e) { createPiBrowserBridge = null; }
 const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
@@ -2391,6 +2391,8 @@ function applyDockerConsentFiles() {
     '    environment:',
     '      - BOT_TOKEN=${BOT_TOKEN}', '      - CHAT_ID=${CHAT_ID}',
     '      - GEMINI_API_KEY=${GEMINI_API_KEY}',
+    '      - PI_BROWSER_RELAY=${PI_BROWSER_RELAY}',
+    '      - PI_BROWSER_LABEL=${PI_BROWSER_LABEL}',
     '      - NODE_HOST=host.docker.internal', '      - HORIZON_PORT=31401',
     '      - CORE_HTTP_PORT=11626', '      - DOCKER_PROBE=1',
     '      - AUTO_DOCKER_SOCK=0', '      - TELEMETRY_SEC=60',
@@ -4040,7 +4042,7 @@ const srv = http.createServer(async (req, res) => {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
       const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
-      ok('version', VERSION === '2.6.62-solohost', VERSION);
+      ok('version', VERSION === '2.6.63-solohost', VERSION);
       ok('telegram_loop_independent', true, 'separate loops');
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_datalive', true, 'Horizon removed');

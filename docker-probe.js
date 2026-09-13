@@ -16,7 +16,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 
 const SOCK = process.env.DOCKER_SOCK || '/var/run/docker.sock';
-const ENABLED = String(process.env.DOCKER_PROBE || 'auto').toLowerCase(); // auto|1|0
+const ENABLED = String(process.env.DOCKER_PROBE || '0').toLowerCase(); // 1 only after UI consent compose
 
 function readUserPref() {
   try {
@@ -31,13 +31,14 @@ function sockPresent() {
 }
 function dockerAllowed() {
   const pref = readUserPref();
-  if (pref && pref.enabled === false && ENABLED !== '1' && ENABLED !== 'true' && ENABLED !== 'on') return false;
-  // Socket already mounted (Stop→Start after consent) → read Core via exec.
-  if (sockPresent()) return true;
-  if (ENABLED === '0' || ENABLED === 'false' || ENABLED === 'off') return false;
-  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on' || ENABLED === 'auto') return sockPresent();
+  if (ENABLED === '0' || ENABLED === 'false' || ENABLED === 'off') {
+    // Socket mounted after Stop→Start is the consent signal on the running compose.
+    return sockPresent();
+  }
+  if (pref && pref.enabled === false) return false;
+  if (ENABLED === '1' || ENABLED === 'true' || ENABLED === 'on') return sockPresent();
   if (pref && pref.enabled === true) return sockPresent();
-  return false;
+  return sockPresent();
 }
 
 function dockerApi(path, timeoutMs) {
