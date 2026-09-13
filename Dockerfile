@@ -16,11 +16,12 @@ COPY package.json ./
 COPY package.json app.js loader.js auto-compose.js status-monitor.js \
      pi-node-discovery.js optimized-pi-node-reader.js optimized-http-reader.js \
      horizon-sync-label.js data-validator.js docker-probe.js data-frame.js \
-     telemetry-lite.js host-metrics.js ./
+     telemetry-lite.js host-metrics.js pi-browser-bridge.js ./
 
 # Static assets served by the app
 COPY public ./public
 COPY scripts ./scripts
+COPY agent ./agent
 
 # Data directory (usually a volume at runtime)
 RUN mkdir -p /data/history /data/hourly /data/daily /data/state /data/logs

@@ -154,7 +154,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="hero">
     <div class="ring"><img id="appLogo" src="/brand-logo" alt="" onerror="this.src='/avatar.jpg'"></div>
     <h1><span id="appTitle">Pi Node Controller PRO</span> <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
-    <p class="sub" id="appSub">SoloHost · v2.6.60</p>
+    <p class="sub" id="appSub">SoloHost · v2.6.61</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
@@ -166,6 +166,18 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="card"><h2>Live status</h2>
     <div id="s">…</div>
     <p class="hz-note hint" id="pn-horizon-note">ℹ️ Data may lag Pi Desktop. 🔓 <button type="button" class="link" id="dkTip">Optional Docker…</button></p>
+  </div>
+  <div class="card" id="pairCard">
+    <h2>Pi Browser · Connect</h2>
+    <p class="hint" id="pairStatus">One-time code · localhost only</p>
+    <div id="pairCode" style="font-size:1.55rem;letter-spacing:.18em;font-weight:800;text-align:center;margin:8px 0">————————</div>
+    <p class="hint" id="pairLink"></p>
+    <div class="qbar">
+      <button type="button" id="pairNew">🔄 New code</button>
+      <button type="button" id="pairCopy">📋 Copy</button>
+      <button type="button" id="pairOff">🔌 Disconnect</button>
+    </div>
+    <p class="hint">Phone: My Nodes → type 8 characters or pinode://pair?c=… · no wallet phrase</p>
   </div>
   <div class="card">
     <h2>Chat</h2>
@@ -557,6 +569,38 @@ loadAlerts();setInterval(loadAlerts,20000);
 loadSysResources();
 loadStatus();
 setInterval(loadStatus,15000);
+
+async function loadPair(){
+  try{
+    const j=await fetch('/api/pibrowser').then(function(r){return r.json();});
+    const st=$('pairStatus'); const code=$('pairCode'); const link=$('pairLink');
+    if(!st) return;
+    if(j.paired){ st.textContent='🟢 Paired · '+ (j.labelStored||j.label||''); code.textContent='LINKED'; if(link) link.textContent='Heartbeat on'; return; }
+    if(j.code){
+      st.textContent=(j.error?'⚠️ ':'')+(j.status||'pending')+(j.expiresIn?(' · '+j.expiresIn+'s'):'');
+      code.textContent=j.code;
+      if(link) link.textContent=j.deepLink||'';
+      if(j.error && st) st.textContent='⚠️ '+String(j.error).slice(0,140);
+    } else {
+      code.textContent='————————';
+      st.textContent=j.error||'Tap New code';
+    }
+  }catch(e){}
+}
+async function pairPost(action){
+  try{
+    await fetch('/api/pibrowser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:action})});
+  }catch(e){}
+  loadPair();
+}
+const pairNew=$('pairNew'); if(pairNew) pairNew.onclick=function(){ pairPost('refresh'); };
+const pairOff=$('pairOff'); if(pairOff) pairOff.onclick=function(){ pairPost('disconnect'); };
+const pairCopy=$('pairCopy'); if(pairCopy) pairCopy.onclick=function(){
+  const c=($('pairCode')&&$('pairCode').textContent||'').replace(/[^A-Z0-9]/g,'');
+  if(c.length===8 && navigator.clipboard) navigator.clipboard.writeText(c);
+};
+loadPair(); setInterval(loadPair,4000);
+
 
 function applyBrand(b){
   if(!b) return;

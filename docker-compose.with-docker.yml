@@ -1,7 +1,7 @@
 # OPTIONAL extension — user opts in after install (not for SoloHost package validation)
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.60
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.61
     labels:
       pi.ui.primary: "true"
     ports:
@@ -10,6 +10,8 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PI_BROWSER_BACKEND=${PI_BROWSER_BACKEND}
+      - PI_BROWSER_LABEL=${PI_BROWSER_LABEL}
       - NODE_HOST=host.docker.internal
       - HORIZON_PORT=31401
       - CORE_HTTP_PORT=11626
@@ -23,8 +25,4 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
     restart: unless-stopped

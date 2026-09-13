@@ -246,7 +246,9 @@ const SCRIPT_DETAILS = {
   }
 };
 
-const VERSION = '2.6.60-solohost';
+const VERSION = '2.6.61-solohost';
+let createPiBrowserBridge;
+try { createPiBrowserBridge = require('./pi-browser-bridge').createBridge; } catch (e) { createPiBrowserBridge = null; }
 const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
 const GITHUB_REPO_URL = 'https://github.com/' + GITHUB_REPO;
 const UPDATE_CHECK_INTERVAL_MS = 48 * 3600 * 1000;
@@ -262,6 +264,9 @@ const NODE_LABEL = (process.env.PI_CONTAINER || process.env.NODE_LABEL || '').tr
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 const ALERT_ON_START = String(process.env.ALERT_ON_START || 'true').toLowerCase() !== 'false';
 const TELEMETRY_SEC = Math.max(30, parseInt(process.env.TELEMETRY_SEC || '60', 10) || 60);
+const PI_BROWSER_BACKEND = String(process.env.PI_BROWSER_BACKEND || '').trim().replace(/\/+$/, '');
+const PI_BROWSER_LABEL = String(process.env.PI_BROWSER_LABEL || 'Home SoloHost').trim();
+const piBrowserBridge = createPiBrowserBridge ? createPiBrowserBridge({ backend: PI_BROWSER_BACKEND, label: PI_BROWSER_LABEL, dataDir: process.env.DATA_DIR || '/data', version: VERSION }) : null;
 const REPORT_HOURS = parseHours(process.env.REPORT_HOURS, [7, 18]);
 const FAIL_THRESHOLD = Math.max(2, parseInt(process.env.FAIL_THRESHOLD || '3', 10) || 3);
 const ALERT_COOLDOWN = Math.max(60, parseInt(process.env.ALERT_COOLDOWN_SEC || '180', 10) || 180);
@@ -2394,8 +2399,6 @@ function applyDockerConsentFiles() {
     '      - ./:/solohost-config:rw',
     '      - /var/run/docker.sock:/var/run/docker.sock:ro',
     '    extra_hosts:', '      - "host.docker.internal:host-gateway"',
-    '    security_opt:', '      - no-new-privileges:true',
-    '    cap_drop:', '      - ALL',
     '    restart: unless-stopped', ''
   ].join('\n');
   const readme = 'OPTIONAL DOCKER - Operator consent\n=================================\n\n1) Copy docker-compose.yml over the one in this SoloHost app folder.\n2) SoloHost -> Stop -> Start the app.\n3) Telegram: /docker  (should show Socket: YES when mount worked).\n\nThis is NOT default SoloHost permission. You opted in.\n';
@@ -3642,6 +3645,15 @@ async function telemetryLoop() {
     try {
       const t = await collectTelemetry();
       await runAlertMachine(t);
+      try {
+        if (piBrowserBridge && piBrowserBridge.snapshot().paired) {
+          await piBrowserBridge.heartbeat({
+            sync: t.sync, ledger: t.ledger, ledger_age: t.ledger_age,
+            health: t.health, peers: t.peers || t.peer_total,
+            source: t.source, version: VERSION
+          });
+        }
+      } catch (e3) {}
       const h = hourVN();
       const key = dayVN() + '-' + h;
       if (effectiveReportHours().indexOf(h) >= 0 && state.lastReportKey !== key) {
@@ -3789,6 +3801,36 @@ const srv = http.createServer(async (req, res) => {
   setSecHeaders(res);
   try {
     if (u === '/healthz') { res.end('ok'); return; }
+    if (u === '/api/pibrowser' || u === '/api/connect') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      if (!piBrowserBridge) { res.end(JSON.stringify({ ok: false, error: 'bridge_unavailable' })); return; }
+      if (req.method === 'GET') {
+        let snap = piBrowserBridge.snapshot();
+        if (!snap.paired && (!snap.code || snap.status === 'idle' || snap.status === 'expired')) {
+          try { snap = await piBrowserBridge.createPair(); } catch (e) { snap = piBrowserBridge.snapshot(); }
+        } else {
+          try { snap = await piBrowserBridge.pollPair(); } catch (e) {}
+        }
+        res.end(JSON.stringify(Object.assign({ ok: true }, snap))); return;
+      }
+      if (req.method === 'POST') {
+        if (!isLocalReq(req)) { res.statusCode = 403; res.end(JSON.stringify({ ok: false, error: 'forbidden' })); return; }
+        let body = '';
+        req.on('data', function (c) { body += c; if (body.length > 4000) { req.destroy(); return; } });
+        req.on('end', async function () {
+          try {
+            const j = safeParse(body) || {};
+            let snap;
+            if (j.action === 'disconnect') snap = await piBrowserBridge.disconnect();
+            else if (j.action === 'backend' && j.url) snap = piBrowserBridge.setBackend(j.url);
+            else snap = await piBrowserBridge.createPair();
+            res.end(JSON.stringify(Object.assign({ ok: true }, snap)));
+          } catch (e) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: 'bad_request' })); }
+        });
+        return;
+      }
+      res.statusCode = 405; res.end('{"ok":false}'); return;
+    }
     if (u === '/api/brand') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       if (req.method === 'GET') { res.end(JSON.stringify({ ok: true, brand: readBrand(), hasLogo: fs.existsSync(logoPath()) })); return; }
@@ -3997,7 +4039,7 @@ const srv = http.createServer(async (req, res) => {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
       const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
-      ok('version', VERSION === '2.6.60-solohost', VERSION);
+      ok('version', VERSION === '2.6.61-solohost', VERSION);
       ok('telegram_loop_independent', true, 'separate loops');
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_datalive', true, 'Horizon removed');

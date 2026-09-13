@@ -24,3 +24,16 @@ fields:
     type: password
     required: false
     help: Free key at Google AI Studio. Without it, chat uses local technician summary only.
+
+  - name: PI_BROWSER_BACKEND
+    label: Pi Browser app origin (optional)
+    type: text
+    required: false
+    help: HTTPS origin of the logged-in Pi app. No trailing slash. Example https://your-app.example.com
+
+  - name: PI_BROWSER_LABEL
+    label: This PC label
+    type: text
+    required: false
+    default: Home SoloHost
+    help: Name shown on Pi Browser My Nodes after pairing.
