@@ -1,5 +1,5 @@
 title: Pi Node Telegram Controller PRO
-description: Monitor Pi Node via Horizon + Core + ports. AI technician analysis needs Gemini API Key.
+description: Monitor Pi Node via Horizon + Core + ports. AI technician analysis needs Gemini API Key. Pi Browser pairing via Cloudflare Relay (no LAN/port-forward required).
 output_file: .env
 
 fixed_values:
@@ -25,15 +25,16 @@ fields:
     required: false
     help: Free key at Google AI Studio. Without it, chat uses local technician summary only.
 
-  - name: PI_BROWSER_BACKEND
-    label: Pi Browser app origin (optional)
+  - name: PI_BROWSER_RELAY
+    label: Pi Browser Relay URL (fixed by app author — do not change)
     type: text
-    required: false
-    help: HTTPS origin of the logged-in Pi app. No trailing slash. Example https://your-app.example.com
+    required: true
+    default: https://pinode-relay.huunghitran-datxanh.workers.dev
+    help: Cloudflare Worker signaling relay. Author-maintained. Used so Pi Browser on phone can pair via 8-char code without LAN, port-forward, or tunnel. No trailing slash.
 
   - name: PI_BROWSER_LABEL
     label: This PC label
     type: text
     required: false
     default: Home SoloHost
-    help: Name shown on Pi Browser My Nodes after pairing.
+    help: Name shown on Pi Browser "My Nodes" after pairing.
