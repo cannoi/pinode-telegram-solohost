@@ -1,6 +1,9 @@
 'use strict';
 /**
  * Pi Browser Bridge v2.6.61-POLL — HTTP polling qua Cloudflare relay
+ * - Push status lên relay mỗi 5 giây (không đợi paired).
+ * - Detect phone online qua endpoint /pull (phone_online).
+ * - Không cần WebRTC, không cần lib native.
  */
 const https = require('https');
 const http = require('http');
@@ -12,8 +15,9 @@ const PAIR_TTL_MS = 10 * 60 * 1000;
 
 function genCode() {
   let out = '';
-  for (let i = 0; i < CODE_LEN; i++)
+  for (let i = 0; i < CODE_LEN; i++) {
     out += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  }
   return out;
 }
 
@@ -28,7 +32,10 @@ function httpRequest(urlStr, method, body, timeoutMs) {
       port: u.port || (u.protocol === 'https:' ? 443 : 80),
       path: u.pathname + u.search,
       method: method || 'GET',
-      headers: { 'Accept': 'application/json', 'User-Agent': 'pinode-solohost-bridge/2.6.61' },
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'pinode-solohost-bridge/2.6.61',
+      },
       timeout: timeoutMs || 8000,
     };
     if (data) {
@@ -52,12 +59,13 @@ function httpRequest(urlStr, method, body, timeoutMs) {
 
 function createBridge(opts) {
   opts = opts || {};
-  const relay = String(opts.relay || process.env.PI_BROWSER_RELAY || '').trim().replace(/\/+$/, '');
+  const relay = String(opts.relay || process.env.PI_BROWSER_RELAY || '')
+    .trim().replace(/\/+$/, '');
   const label = String(opts.label || process.env.PI_BROWSER_LABEL || 'Home SoloHost').trim();
   const version = opts.version || '0.0.0';
 
   let code = null;
-  let status = 'idle';      // idle | waiting | paired | expired
+  let status = 'idle';        // idle | waiting | paired | expired
   let lastPushOk = false;
   let peerSeenAt = 0;
   let pairExpiresAt = 0;
@@ -67,16 +75,29 @@ function createBridge(opts) {
   function snapshot() {
     return {
       paired: status === 'paired',
-      code, status, relay, label, version,
-      lastHeartbeat, lastPushOk,
+      code,
+      status,
+      relay,
+      label,
+      version,
+      lastHeartbeat,
+      lastPushOk,
       expiresAt: pairExpiresAt ? new Date(pairExpiresAt).toISOString() : null,
       pairedAt: peerSeenAt ? new Date(peerSeenAt).toISOString() : null,
     };
   }
 
   async function pushStatus() {
-    if (!relay || !code || !lastHeartbeat) return;
-    const r = await httpRequest(relay + '/pair/' + code + '/push', 'POST', lastHeartbeat, 6000);
+    if (!relay || !code) return;
+    // Nếu chưa có heartbeat thật → gửi placeholder để relay biết host đang sống
+    const payload = lastHeartbeat || {
+      sync: 'Initializing',
+      status: 'waiting_for_phone',
+      label: label,
+      version: version,
+      ts: Date.now(),
+    };
+    const r = await httpRequest(relay + '/pair/' + code + '/push', 'POST', payload, 6000);
     lastPushOk = !!(r && r.status === 200);
   }
 
@@ -84,7 +105,10 @@ function createBridge(opts) {
     if (!relay || !code) return false;
     const r = await httpRequest(relay + '/pair/' + code + '/pull', 'GET', null, 5000);
     if (r && r.json && r.json.ok && r.json.phone_online) {
-      if (status !== 'paired') { status = 'paired'; peerSeenAt = Date.now(); }
+      if (status !== 'paired') {
+        status = 'paired';
+        peerSeenAt = Date.now();
+      }
       return true;
     }
     return false;
@@ -94,14 +118,20 @@ function createBridge(opts) {
     if (heartbeatTimer) return;
     heartbeatTimer = setInterval(async () => {
       if (status === 'idle' || !code) return;
-      if (Date.now() > pairExpiresAt && status === 'waiting') { status = 'expired'; return; }
-      if (lastHeartbeat) await pushStatus();
+      if (Date.now() > pairExpiresAt && status === 'waiting') {
+        status = 'expired';
+        return;
+      }
+      await pushStatus();     // ← luôn push (kể cả chưa paired)
       await checkPaired();
     }, 5000);
   }
 
   function stopHeartbeatLoop() {
-    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
   }
 
   async function createPair() {
@@ -111,8 +141,8 @@ function createBridge(opts) {
     pairExpiresAt = Date.now() + PAIR_TTL_MS;
     peerSeenAt = 0;
     lastPushOk = false;
+    await pushStatus();       // ← push NGAY khi tạo code
     startHeartbeatLoop();
-    if (lastHeartbeat) await pushStatus();
     return snapshot();
   }
 
@@ -125,15 +155,24 @@ function createBridge(opts) {
 
   async function disconnect() {
     stopHeartbeatLoop();
-    code = null; status = 'idle'; peerSeenAt = 0;
-    lastPushOk = false; lastHeartbeat = null;
+    code = null;
+    status = 'idle';
+    peerSeenAt = 0;
+    lastPushOk = false;
+    lastHeartbeat = null;
     return snapshot();
   }
 
-  async function setBackend() { return snapshot(); }
+  async function setBackend() {
+    return snapshot();
+  }
 
   async function heartbeat(data) {
-    lastHeartbeat = Object.assign({}, data || {}, { ts: Date.now(), label, version });
+    lastHeartbeat = Object.assign({}, data || {}, {
+      ts: Date.now(),
+      label: label,
+      version: version,
+    });
     if (status === 'idle') return true;
     await pushStatus();
     await checkPaired();
@@ -141,7 +180,12 @@ function createBridge(opts) {
   }
 
   return {
-    snapshot, createPair, pollPair, disconnect, setBackend, heartbeat,
+    snapshot,
+    createPair,
+    pollPair,
+    disconnect,
+    setBackend,
+    heartbeat,
     get paired() { return status === 'paired'; },
   };
 }
