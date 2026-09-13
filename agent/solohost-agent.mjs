@@ -11,7 +11,8 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { createBridge, normOrigin } = require('../pi-browser-bridge.js');
+const { createBridge } = require('../pi-browser-bridge.js');
+function normOrigin(s){ return String(s||'').trim().replace(/\/+$/, ''); }
 
 function arg(name, def) {
   const i = process.argv.indexOf('--' + name);
@@ -19,15 +20,11 @@ function arg(name, def) {
   return def;
 }
 
-const backend = normOrigin(arg('backend', process.env.PI_BROWSER_BACKEND || ''));
+const backend = normOrigin(arg('relay', arg('backend', process.env.PI_BROWSER_RELAY || process.env.PI_BROWSER_BACKEND || 'https://pinode-relay.huunghitran-datxanh.workers.dev')));
 const label = arg('label', process.env.PI_BROWSER_LABEL || 'Home SoloHost');
-if (!backend) {
-  console.error('Usage: node agent/solohost-agent.mjs --backend https://app-origin --label "Home SoloHost"');
-  process.exit(1);
-}
 
 const dataDir = process.env.DATA_DIR || path.join(process.cwd(), '.pnc-data');
-const bridge = createBridge({ backend: backend, label: label, dataDir: dataDir, stateFile: path.join(dataDir, 'agent-state.json') });
+const bridge = createBridge({ relay: backend, label: label, dataDir: dataDir, version: '2.6.62-solohost' });
 
 const PORT = parseInt(process.env.PAIR_PORT || '31480', 10);
 const page = function (snap) {

@@ -239,39 +239,53 @@ function buildHistoryBundle() {
 }
 
 // ============ BRIDGE ============
+const DEFAULT_RELAY = 'https://pinode-relay.huunghitran-datxanh.workers.dev';
+
 function createBridge(opts) {
   opts = opts || {};
-  const relay = String(opts.relay || process.env.PI_BROWSER_RELAY || '').trim().replace(/\/+$/, '');
+  const relay = String(opts.relay || process.env.PI_BROWSER_RELAY || DEFAULT_RELAY).trim().replace(/\/+$/, '');
   const label = String(opts.label || process.env.PI_BROWSER_LABEL || 'Home SoloHost').trim();
   const version = opts.version || '0.0.0';
 
   log('info', 'createBridge init', { relay, label, version });
 
-  if (!relay) {
-    log('error', 'PI_BROWSER_RELAY missing — bridge disabled');
-  }
-
   let code = null;
   let status = 'idle';
   let lastPushOk = false;
+  let lastError = null;
   let peerSeenAt = 0;
   let heartbeatTimer = null;
   let historyTimer = null;
   let lastHeartbeat = null;
 
   function snapshot() {
-    return { paired: status === 'paired', code, status, relay, label, version, lastHeartbeat, lastPushOk,
-      pairedAt: peerSeenAt ? new Date(peerSeenAt).toISOString() : null };
+    return {
+      paired: status === 'paired',
+      code, status, relay, label, version, lastHeartbeat, lastPushOk,
+      pairedAt: peerSeenAt ? new Date(peerSeenAt).toISOString() : null,
+      deepLink: code ? ('pinode://pair?c=' + code) : null,
+      error: lastError
+    };
   }
 
   async function pushStatus() {
-    if (!relay || !code) return;
+    if (!relay || !code) {
+      lastError = relay ? null : 'PI_BROWSER_RELAY missing';
+      return false;
+    }
     let payload = lastHeartbeat || readLatestStatus(label, version) || {
       sync: 'Initializing', status: 'waiting_for_phone', label, version, ts: Date.now(),
     };
-    const r = await httpRequest(relay + '/pair/' + code + '/push', 'POST', payload, 6000);
-    lastPushOk = !!(r && r.status === 200);
-    if (!lastPushOk) log('warn', 'push status failed', { code });
+    const r = await httpRequest(relay + '/pair/' + code + '/push', 'POST', payload, 8000);
+    lastPushOk = !!(r && r.status === 200 && !(r.json && r.json.ok === false));
+    if (lastPushOk) {
+      lastError = null;
+      await httpRequest(relay + '/pair/' + code + '/heartbeat', 'POST', { label, version, ts: Date.now() }, 5000);
+    } else {
+      lastError = 'relay push failed (' + ((r && r.status) || 'no response') + ')';
+      log('warn', 'push status failed', { code, status: r && r.status });
+    }
+    return lastPushOk;
   }
 
   async function pushHistory() {

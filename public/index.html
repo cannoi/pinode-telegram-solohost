@@ -154,7 +154,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="hero">
     <div class="ring"><img id="appLogo" src="/brand-logo" alt="" onerror="this.src='/avatar.jpg'"></div>
     <h1><span id="appTitle">Pi Node Controller PRO</span> <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
-    <p class="sub" id="appSub">SoloHost · v2.6.61</p>
+    <p class="sub" id="appSub">SoloHost · v2.6.62</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
@@ -427,7 +427,18 @@ async function loadStatus(){
     const note=$('pn-horizon-note');
     if(note){
       const sock=t.docker_sock===true||t.docker_probe===true||t.hasDockerSock===true;
-      note.hidden=!!sock;
+      if(sock){
+        note.hidden=true;
+        try{ sessionStorage.removeItem('dkAcceptedMsg'); }catch(e){}
+      } else if(sessionStorage.getItem('dkAcceptedMsg')==='1'){
+        note.hidden=false;
+        note.innerHTML='✅ Terms accepted. docker-compose.yml updated.<br>SoloHost: press <b style="color:#ffd24a">Stop</b>, then <b style="color:#5dff9a">Start</b> the app again.';
+      } else {
+        note.hidden=false;
+        if(!note.querySelector('#dkTip')){
+          note.innerHTML='ℹ️ Data may lag Pi Desktop. 🔓 <button type="button" class="link" id="dkTip">Optional Docker…</button>';
+        }
+      }
     }
   }catch(e){ const sEl=$('s'); if(sEl) sEl.textContent='Status error'; }
 }
@@ -479,9 +490,13 @@ on($('dkConfirm'),'click',async function(){
     const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
     const j=await r.json();
     if(!j.ok){ if(box) box.lastChild.textContent=j.error||'Failed';return; }
-    if(box) box.lastChild.textContent=j.wrote_host
-      ? 'Terms accepted. docker-compose.yml updated.\nSoloHost: press Stop, then Start the app again.'
-      : (j.hint||'Saved. SoloHost: Stop → Start if compose updated.');
+    try{ sessionStorage.setItem('dkAcceptedMsg','1'); }catch(e){}
+    const note=$('pn-horizon-note');
+    if(note){
+      note.hidden=false;
+      note.innerHTML='✅ Terms accepted. docker-compose.yml updated.<br>SoloHost: press <b style="color:#ffd24a">Stop</b>, then <b style="color:#5dff9a">Start</b> the app again.';
+    }
+    if(box) box.lastChild.textContent='Terms accepted. Press Stop, then Start.';
   }catch(e){ if(box) box.lastChild.textContent='Network error'; }
 });
 on($('dkAgree'),'change',function(){

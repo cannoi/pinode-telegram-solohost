@@ -3,7 +3,7 @@
 
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.61
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.62
     pull_policy: missing
 
     labels:
@@ -38,8 +38,6 @@ services:
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
-      # HTTP polling bridge for Pi Browser
-      - ./pi-browser-bridge.js:/app/pi-browser-bridge.js:ro
       # Never mount ./public over /app/public
       # An empty host directory would hide index.html.
 

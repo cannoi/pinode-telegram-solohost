@@ -246,7 +246,7 @@ const SCRIPT_DETAILS = {
   }
 };
 
-const VERSION = '2.6.61-solohost';
+const VERSION = '2.6.62-solohost';
 let createPiBrowserBridge;
 try { createPiBrowserBridge = require('./pi-browser-bridge').createBridge; } catch (e) { createPiBrowserBridge = null; }
 const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
@@ -264,9 +264,9 @@ const NODE_LABEL = (process.env.PI_CONTAINER || process.env.NODE_LABEL || '').tr
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 const ALERT_ON_START = String(process.env.ALERT_ON_START || 'true').toLowerCase() !== 'false';
 const TELEMETRY_SEC = Math.max(30, parseInt(process.env.TELEMETRY_SEC || '60', 10) || 60);
-const PI_BROWSER_BACKEND = String(process.env.PI_BROWSER_BACKEND || '').trim().replace(/\/+$/, '');
+const PI_BROWSER_RELAY = String(process.env.PI_BROWSER_RELAY || 'https://pinode-relay.huunghitran-datxanh.workers.dev').trim().replace(/\/+$/, '');
 const PI_BROWSER_LABEL = String(process.env.PI_BROWSER_LABEL || 'Home SoloHost').trim();
-const piBrowserBridge = createPiBrowserBridge ? createPiBrowserBridge({ backend: PI_BROWSER_BACKEND, label: PI_BROWSER_LABEL, dataDir: process.env.DATA_DIR || '/data', version: VERSION }) : null;
+const piBrowserBridge = createPiBrowserBridge ? createPiBrowserBridge({ relay: PI_BROWSER_RELAY, label: PI_BROWSER_LABEL, dataDir: process.env.DATA_DIR || '/data', version: VERSION }) : null;
 const REPORT_HOURS = parseHours(process.env.REPORT_HOURS, [7, 18]);
 const FAIL_THRESHOLD = Math.max(2, parseInt(process.env.FAIL_THRESHOLD || '3', 10) || 3);
 const ALERT_COOLDOWN = Math.max(60, parseInt(process.env.ALERT_COOLDOWN_SEC || '180', 10) || 180);
@@ -3823,6 +3823,7 @@ const srv = http.createServer(async (req, res) => {
             let snap;
             if (j.action === 'disconnect') snap = await piBrowserBridge.disconnect();
             else if (j.action === 'backend' && j.url) snap = piBrowserBridge.setBackend(j.url);
+            else if (j.action === 'refresh' && typeof piBrowserBridge.newCode === 'function') snap = await piBrowserBridge.newCode();
             else snap = await piBrowserBridge.createPair();
             res.end(JSON.stringify(Object.assign({ ok: true }, snap)));
           } catch (e) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: 'bad_request' })); }
@@ -4039,7 +4040,7 @@ const srv = http.createServer(async (req, res) => {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
       const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
-      ok('version', VERSION === '2.6.61-solohost', VERSION);
+      ok('version', VERSION === '2.6.62-solohost', VERSION);
       ok('telegram_loop_independent', true, 'separate loops');
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_datalive', true, 'Horizon removed');
