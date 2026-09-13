@@ -1,9 +1,9 @@
 'use strict';
 /**
- * Pi Browser Bridge v2.6.61-POLL — HTTP polling qua Cloudflare relay
- * - Tự đọc status từ /data/latest.json để push lên relay.
- * - Không đợi paired — luôn push status mỗi 5 giây.
- * - Detect phone online qua endpoint /pull (phone_online).
+ * Pi Browser Bridge v2.6.61-POLL-PERSIST
+ * - Persist code vào /data/state/pi-browser-code.json
+ * - Restart SoloHost → tự đọc lại code cũ, không tạo mới
+ * - Chỉ tạo code mới khi user bấm "Đổi mã" (forceNew=true)
  */
 const https = require('https');
 const http = require('http');
@@ -14,6 +14,7 @@ const path = require('path');
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LEN = 8;
 const PAIR_TTL_MS = 10 * 60 * 1000;
+const PERSIST_TTL_MS = 365 * 24 * 3600 * 1000; // 1 năm
 
 function genCode() {
   let out = '';
@@ -73,6 +74,34 @@ function readLatestStatus(label, version) {
   return null;
 }
 
+function persistPath() {
+  const base = process.env.DATA_DIR || '/data';
+  return path.join(base, 'state', 'pi-browser-code.json');
+}
+
+function loadPersisted() {
+  try {
+    const raw = fs.readFileSync(persistPath(), 'utf8');
+    const j = JSON.parse(raw);
+    if (j && j.code && /^[A-Z0-9]{8}$/.test(j.code)) {
+      if (Date.now() - (j.at || 0) < PERSIST_TTL_MS) return j;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function savePersisted(code) {
+  try {
+    const p = persistPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify({ code, at: Date.now() }));
+  } catch (e) {}
+}
+
+function clearPersisted() {
+  try { fs.unlinkSync(persistPath()); } catch (e) {}
+}
+
 function createBridge(opts) {
   opts = opts || {};
   const relay = String(opts.relay || process.env.PI_BROWSER_RELAY || '')
@@ -81,7 +110,7 @@ function createBridge(opts) {
   const version = opts.version || '0.0.0';
 
   let code = null;
-  let status = 'idle';        // idle | waiting | paired | expired
+  let status = 'idle';
   let lastPushOk = false;
   let peerSeenAt = 0;
   let pairExpiresAt = 0;
@@ -105,16 +134,8 @@ function createBridge(opts) {
 
   async function pushStatus() {
     if (!relay || !code) return;
-
-    // Ưu tiên: heartbeat trực tiếp từ app.js
     let payload = lastHeartbeat;
-
-    // Fallback 1: đọc file /data/latest.json (do app.js ghi mỗi telemetry loop)
-    if (!payload) {
-      payload = readLatestStatus(label, version);
-    }
-
-    // Fallback 2: placeholder để relay biết host vẫn sống
+    if (!payload) payload = readLatestStatus(label, version);
     if (!payload) {
       payload = {
         sync: 'Initializing',
@@ -124,7 +145,6 @@ function createBridge(opts) {
         ts: Date.now(),
       };
     }
-
     const r = await httpRequest(relay + '/pair/' + code + '/push', 'POST', payload, 6000);
     lastPushOk = !!(r && r.status === 200);
   }
@@ -147,8 +167,8 @@ function createBridge(opts) {
     heartbeatTimer = setInterval(async () => {
       if (status === 'idle' || !code) return;
       if (Date.now() > pairExpiresAt && status === 'waiting') {
-        status = 'expired';
-        return;
+        // Không expired khi đã persist — chỉ expired session tạm
+        if (!loadPersisted()) status = 'expired';
       }
       await pushStatus();
       await checkPaired();
@@ -162,11 +182,10 @@ function createBridge(opts) {
     }
   }
 
-  async function createPair() {
-    stopHeartbeatLoop();
-    code = genCode();
+  async function useCode(c) {
+    code = c;
     status = 'waiting';
-    pairExpiresAt = Date.now() + PAIR_TTL_MS;
+    pairExpiresAt = Date.now() + PERSIST_TTL_MS;
     peerSeenAt = 0;
     lastPushOk = false;
     await pushStatus();
@@ -174,15 +193,43 @@ function createBridge(opts) {
     return snapshot();
   }
 
+  async function createPair(forceNew) {
+    stopHeartbeatLoop();
+
+    // Nếu không force new → thử dùng code đã persist
+    if (!forceNew) {
+      const persisted = loadPersisted();
+      if (persisted) {
+        return useCode(persisted.code);
+      }
+    }
+
+    // Force new hoặc chưa có persist → tạo code mới
+    const newCode = genCode();
+    savePersisted(newCode);
+    return useCode(newCode);
+  }
+
+  async function newCode() {
+    // Tạo code hoàn toàn mới, xoá persist cũ
+    clearPersisted();
+    return createPair(true);
+  }
+
   async function pollPair() {
-    if (status === 'idle') return createPair();
-    if (Date.now() > pairExpiresAt && status === 'waiting') status = 'expired';
+    if (status === 'idle') {
+      const persisted = loadPersisted();
+      if (persisted) return useCode(persisted.code);
+      return createPair(false);
+    }
     await checkPaired();
     return snapshot();
   }
 
   async function disconnect() {
     stopHeartbeatLoop();
+    // KHÔNG xoá persist — chỉ ngắt kết nối tạm
+    // Code vẫn còn để lần sau tự kết nối lại
     code = null;
     status = 'idle';
     peerSeenAt = 0;
@@ -191,9 +238,7 @@ function createBridge(opts) {
     return snapshot();
   }
 
-  async function setBackend() {
-    return snapshot();
-  }
+  async function setBackend() { return snapshot(); }
 
   async function heartbeat(data) {
     lastHeartbeat = Object.assign({}, data || {}, {
@@ -210,6 +255,7 @@ function createBridge(opts) {
   return {
     snapshot,
     createPair,
+    newCode,
     pollPair,
     disconnect,
     setBackend,
