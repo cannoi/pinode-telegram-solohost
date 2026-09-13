@@ -1,4 +1,5 @@
 # SoloHost Official — sandbox; no docker.sock until Operator consents and Stop→Start
+# Pi Browser bridge: HTTP polling via Cloudflare Worker
 
 services:
   agent:
@@ -15,8 +16,10 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - CHAT_ID=${CHAT_ID}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - PI_BROWSER_BACKEND=${PI_BROWSER_BACKEND}
-      - PI_BROWSER_LABEL=${PI_BROWSER_LABEL}
+
+      # Pi Browser HTTP polling relay
+      - PI_BROWSER_RELAY=https://pinode-relay.huunghitran-datxanh.workers.dev
+      - PI_BROWSER_LABEL=Home SoloHost
 
       - NODE_HOST=host.docker.internal
       - HORIZON_PORT=31401
@@ -35,7 +38,12 @@ services:
     volumes:
       - ./data:/data
       - ./:/solohost-config:rw
-      # Never mount ./public over /app/public (empty host dir hides index.html).
+
+      # Use the new HTTP-polling bridge without rebuilding the image.
+      - ./pi-browser-bridge.js:/app/pi-browser-bridge.js:ro
+
+      # Never mount ./public over /app/public
+      # (an empty host dir would hide index.html).
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
