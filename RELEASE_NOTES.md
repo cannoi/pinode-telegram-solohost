@@ -15,13 +15,13 @@ Upgrade existing GitHub app: cannoi/pinode-telegram-solohost
   "overall": 93,
   "verdict": "PASS",
   "findings": [
-    "The application structure contains a comprehensive set of modules for Pi Node monitoring, Telegram bot integration, host metrics, and SoloHost packaging.",
-    "Docker and GitHub Actions workflow configurations are correctly set up following the SoloHost developer contract v0.",
-    "Health and readiness mechanisms are present and proper port binding (PORT=8080) is observed across the project files.",
-    "No hardcoded secrets were detected in the source code or configurations.",
-    "All necessary documentation files, helper scripts, and batch files for maintenance are included."
+    "Comprehensive file manifest covering all required SoloHost deployment artifacts, scripts, and runtime modules.",
+    "Includes robust configuration files (`docker-compose.yml`, `config_options.yml`) aligned with the SoloHost developer contract v0.",
+    "Well-structured static frontend assets and helper scripts under `public/actions/` for maintenance routines.",
+    "Proper separation of agent logic (`agent/solohost-agent.mjs`) and application source (`app.js`).",
+    "No hardcoded secrets or privileged host mounts detected in the compose configuration."
   ],
-  "reply": "The project `pinode-telegram-solohost` has been reviewed. All required SoloHost configuration files, Docker setup, and application modules are correctly structured and secure. Verdict: PASS."
+  "reply": "The project structure for `pinode-telegram-solohost` has been reviewed. All configuration files, Docker artifacts, and deployment scripts comply with the SoloHost developer contract. The project is ready for release."
 }
 
 ## Install

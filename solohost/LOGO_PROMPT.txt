@@ -1,0 +1,4 @@
+Create a wide horizontal logo banner for "pinode-telegram-solohost".
+Aspect ratio 16:5 or 3:1 rectangle, not square.
+Left: a simple recognizable icon. Right: short English name.
+Transparent background, crisp edges, readable at 160x50px, no fake screenshot, no extra UI chrome.
