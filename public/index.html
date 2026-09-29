@@ -12,28 +12,62 @@ background-image:linear-gradient(180deg,rgba(10,18,30,.32),rgba(8,12,18,.46)),va
 background-position:center top;background-size:cover;background-repeat:no-repeat;background-attachment:fixed;
 padding:14px;display:flex;justify-content:center;
 transition:padding-top .25s ease}
+/* Reserve space for fixed SYSTEM RESOURCES bar so logo is not hidden */
 body.has-sysres{padding-top:64px}
+
+/* ============================================================
+ * SYSTEM RESOURCES bar — compact single row, centered, floating
+ * Auto-hidden when host metrics unavailable.
+ * ============================================================ */
 .sysres-bar{
   position:fixed;top:8px;left:50%;transform:translateX(-50%);
-  z-index:60;width:calc(100% - 28px);max-width:480px;
-  display:flex;align-items:center;justify-content:center;gap:5px;
-  padding:5px 8px;border-radius:12px;background:rgba(255,255,255,.14);
-  -webkit-backdrop-filter:blur(22px) saturate(160%);backdrop-filter:blur(22px) saturate(160%);
+  z-index:60;
+  width:calc(100% - 28px);
+  max-width:480px;
+  display:flex;align-items:center;justify-content:center;
+  gap:5px;
+  padding:5px 8px;
+  border-radius:12px;
+  background:rgba(255,255,255,.14);
+  -webkit-backdrop-filter:blur(22px) saturate(160%);
+  backdrop-filter:blur(22px) saturate(160%);
   border:1px solid rgba(255,255,255,.42);
   box-shadow:0 8px 28px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.22);
-  color:#fff;font-size:.7rem;font-weight:600;
+  color:#fff;font-size:.7rem;font-weight:600;letter-spacing:.15px;
+  animation:sysresIn .25s ease;
 }
 .sysres-bar[hidden]{display:none!important}
-.sysres-item{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:4px;padding:3px 6px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);white-space:nowrap;overflow:hidden}
-.sysres-value{font-weight:700;font-size:.66rem;overflow:hidden;text-overflow:ellipsis}
+@keyframes sysresIn{from{opacity:0;transform:translateX(-50%) translateY(-6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.sysres-title{
+  color:var(--m);font-weight:700;text-transform:uppercase;
+  font-size:.58rem;letter-spacing:.6px;flex-shrink:0;padding-right:2px;
+}
+.sysres-item{
+  flex:1 1 0;min-width:0;
+  display:flex;align-items:center;justify-content:center;
+  gap:4px;
+  padding:3px 6px;
+  border-radius:6px;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+  white-space:nowrap;overflow:hidden;
+  transition:background .2s,border-color .2s;
+}
+.sysres-item:hover{background:rgba(255,255,255,.11)}
+.sysres-icon{font-size:.85rem;line-height:1;flex-shrink:0}
+.sysres-label{color:var(--m);font-weight:600;font-size:.6rem;flex-shrink:0}
+.sysres-value{font-weight:700;font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sysres-item.warn{border-color:rgba(255,193,7,.55);background:rgba(255,193,7,.10)}
+.sysres-item.warn .sysres-value{color:#ffc107}
+.sysres-item.crit{border-color:rgba(232,17,35,.65);background:rgba(232,17,35,.14)}
+.sysres-item.crit .sysres-value{color:#ff5a5a}
+
 .w{width:100%;max-width:480px}
-.hero{text-align:center;margin-bottom:10px;position:relative}
-.settings-btn{position:absolute;top:0;right:0;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);
-color:#fff;border-radius:50%;width:32px;height:32px;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.settings-btn:hover{background:rgba(255,255,255,.35)}
+.hero{text-align:center;margin-bottom:10px}
 .ring{width:72px;height:72px;margin:0 auto 8px;border-radius:50%;padding:2px;background:linear-gradient(135deg,#4cc2ff,#0078d7)}
 .ring img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
 h1{font-size:1.12rem;font-weight:700;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.45)}
+#appTitle,#appSub,#appLogo{cursor:pointer}
 .sub{font-size:.75rem;color:var(--m)}
 .card{background:var(--p);border:1px solid var(--bd);border-radius:6px;padding:12px;margin-bottom:10px;
 backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
@@ -41,128 +75,624 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .card h2{font-size:.65rem;color:var(--m);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.16);font-size:.85rem}
 .k{color:var(--m)}.val{font-weight:700}
-/* Modal styles */
-.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
-.modal[hidden]{display:none!important}
-.modal-content{background:#222a38;border:1px solid rgba(255,255,255,.3);border-radius:12px;padding:20px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
-.modal-content h3{margin-bottom:14px;font-size:1rem;color:#fff}
-.form-group{margin-bottom:12px}
-.form-group label{display:block;font-size:.75rem;color:var(--m);margin-bottom:4px}
-.form-group input{width:100%;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.3);color:#fff;font-size:.85rem}
-.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
-.btn{padding:6px 14px;border-radius:6px;border:none;font-weight:600;cursor:pointer}
-.btn-primary{background:#0078d7;color:#fff}
-.btn-secondary{background:rgba(255,255,255,.2);color:#fff}
-.paf-made-by{text-align:center;font-size:0.7rem;color:rgba(255,255,255,0.5);margin:16px 0 8px}
+.status-layout{display:flex;align-items:center;justify-content:space-between;padding:4px 0}
+.status-col{display:flex;flex-direction:column;gap:10px;font-size:.85rem;min-width:70px}
+.status-col.left{text-align:left}
+.status-col.right{text-align:right}
+.gauge-wrap{position:relative;width:210px;height:120px;display:flex;flex-direction:column;align-items:center;margin:0 auto}
+.gauge-svg{width:100%;height:100%;overflow:visible}
+.gauge-center{position:absolute;top:42px;left:0;right:0;text-align:center;display:flex;flex-direction:column;align-items:center;line-height:1.2}
+.gauge-score{font-size:1.4rem;font-weight:800;letter-spacing:.5px}
+.gauge-label{font-size:.75rem;font-weight:700;color:#fff;margin-top:2px}
+.gauge-status{font-size:.72rem;color:#fff;margin-top:1px}
+.gauge-status span{font-weight:700}
+#chatbox{height:200px;overflow-y:auto;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.28);border-radius:4px;padding:8px;margin-bottom:8px;font-size:.8rem}
+.msg{margin:6px 0;padding:7px 9px;border-radius:4px;max-width:96%;white-space:pre-wrap}
+.msg.user{background:rgba(0,120,215,.28);margin-left:auto;text-align:right}
+.msg.bot{background:rgba(255,255,255,.14)}
+.hint{font-size:.72rem;color:var(--m);margin-top:4px}
+.hz-note{font-size:.68rem;color:var(--m);margin-top:8px;line-height:1.4;text-align:left}
+.hz-note[hidden]{display:none}
+.bar{display:flex;gap:6px}
+.bar input{flex:1;padding:10px;border-radius:4px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14);color:var(--t);outline:none}
+.bar input:focus{border-color:#4cc2ff;box-shadow:0 0 0 2px rgba(76,194,255,.25)}
+.bar button{padding:10px 14px;border-radius:4px;border:0;background:linear-gradient(180deg,#4cc2ff,#0078d7);color:#fff;font-weight:700;cursor:pointer}
+.qbar{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 8px}
+.qbar button{padding:6px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:var(--t);font-size:.68rem;font-weight:650;cursor:pointer;backdrop-filter:blur(12px)}
+.qbar button:hover{background:rgba(76,194,255,.28);border-color:#4cc2ff}
+.bgbar{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:8px 0 2px}
+.bgbar button,.bgbar label{padding:5px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font-size:.64rem;font-weight:650;cursor:pointer}
+.bgbar button.on{background:rgba(0,120,215,.45);border-color:#4cc2ff}
+.bellwrap{position:relative;display:inline-block;margin-left:8px;vertical-align:middle}
+.bell{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:4px 8px;cursor:pointer;font-size:.85rem}
+.badge{position:absolute;top:-6px;right:-6px;background:#e81123;color:#fff;border-radius:8px;font-size:.6rem;min-width:16px;text-align:center;padding:1px 4px;display:none}
+.panel{display:none;text-align:left;background:rgba(20,28,40,.72);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:8px;margin:8px auto 0;max-width:480px;max-height:220px;overflow:auto;font-size:.75rem;backdrop-filter:blur(18px)}
+.panel.on{display:block}
+.panel .item{border-bottom:1px dashed rgba(255,255,255,.2);padding:6px 0;white-space:pre-wrap}
+.foot{text-align:center;font-size:.62rem;color:#c9d3e0;margin-top:6px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+.link{color:#9ad8ff;cursor:pointer;text-decoration:underline;background:none;border:0;font:inherit;padding:0}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:70;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px)}
+.modal.on{display:flex}
+.modal .box{background:rgba(20,28,40,.55);border:1px solid rgba(255,255,255,.35);border-radius:6px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column;backdrop-filter:blur(24px)}
+.modal h3{padding:12px 14px;font-size:.95rem;border-bottom:1px solid rgba(255,255,255,.2)}
+.terms{padding:12px 14px;overflow-y:auto;flex:1;font-size:.78rem;line-height:1.45;white-space:pre-wrap;color:#eef3f8}
+.modal .footbar{padding:10px 14px;border-top:1px solid rgba(255,255,255,.2);display:flex;flex-direction:column;gap:8px}
+.modal label{font-size:.75rem;color:var(--m);display:flex;gap:8px;align-items:flex-start}
+.btn{padding:10px;border-radius:4px;border:0;font-weight:700;cursor:pointer}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-ok{background:var(--win);color:#fff}
+.btn-no{background:rgba(255,255,255,.18);color:#fff}
+/* Settings modal (reuses .modal/.box/.terms/.footbar) */
+.sf{display:block;margin:0 0 9px;font-size:.72rem;color:var(--m)}
+.sf b{display:block;font-weight:650;margin-bottom:3px;color:#eef3f8}
+.sf input,.sf select{width:100%;padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.14);color:var(--t);outline:none;font:inherit;font-size:.8rem}
+.sf input:focus,.sf select:focus{border-color:#4cc2ff;box-shadow:0 0 0 2px rgba(76,194,255,.25)}
+.sf select option{color:#111}
+.sf small{display:block;margin-top:2px;opacity:.8;font-size:.64rem}
+.sf .err{color:#ff9aa2}
+.sgrp{font-size:.7rem;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--m);margin:10px 0 6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.18)}
+.sgrp:first-child{border-top:0;margin-top:0;padding-top:0}
+.srow{display:flex;gap:6px;flex-wrap:wrap}
+#setMsg{font-size:.72rem;min-height:1em;white-space:pre-wrap}
 </style>
 <style>.paf-made-by{position:fixed;right:8px;bottom:8px;width:min(72px,12vw);max-width:12vw;height:auto;object-fit:contain;opacity:.5;background:transparent;padding:0;border:0;box-shadow:none;filter:none;pointer-events:none;z-index:30}</style></head>
 <body>
-<div class="sysres-bar" id="sysresBar" hidden>
-  <span class="sysres-title">Host</span>
-  <div class="sysres-item"><span class="sysres-label">CPU</span><span class="sysres-value" id="sysresCpu">--%</span></div>
-  <div class="sysres-item"><span class="sysres-label">RAM</span><span class="sysres-value" id="sysresRam">--%</span></div>
-  <div class="sysres-item"><span class="sysres-label">Disk</span><span class="sysres-value" id="sysresDisk">--%</span></div>
+
+<!-- ============================================================
+     SYSTEM RESOURCES — compact, centered, floating.
+     Auto-hides when host metrics unavailable.
+     ============================================================ -->
+<div id="sysresBar" class="sysres-bar" hidden aria-label="System Resources">
+  <span class="sysres-title">SYS:</span>
+  <div class="sysres-item" id="sysresRamRow">
+    <span class="sysres-icon">💾</span>
+    <span class="sysres-label">RAM</span>
+    <span class="sysres-value" id="sysresRam">—</span>
+  </div>
+  <div class="sysres-item" id="sysresCpuRow">
+    <span class="sysres-icon">📊</span>
+    <span class="sysres-label">CPU</span>
+    <span class="sysres-value" id="sysresCpu">—</span>
+  </div>
+  <div class="sysres-item" id="sysresDiskRow">
+    <span class="sysres-icon">💿</span>
+    <span class="sysres-label">Disk</span>
+    <span class="sysres-value" id="sysresDisk">—</span>
+  </div>
 </div>
 
+<input type="file" id="logoFile" accept="image/*" hidden>
 <div class="w">
   <div class="hero">
-    <button class="settings-btn" id="openSettingsBtn" title="Settings">⚙</button>
-    <div class="ring"><img src="/avatar.jpg" alt="Logo" id="appLogo"></div>
-    <h1 id="appTitle">Pi Node Controller PRO</h1>
-    <p class="sub" id="appSub">SoloHost Edition</p>
-  </div>
-
-  <div class="card">
-    <h2>Node Status</h2>
-    <div class="row"><span class="k">Sync State</span><span class="val" id="syncState">Loading...</span></div>
-    <div class="row"><span class="k">Ledger</span><span class="val" id="ledgerVal">--</span></div>
-    <div class="row"><span class="k">Peers</span><span class="val" id="peersVal">--</span></div>
-  </div>
-
-  <div class="card">
-    <h2>Quick Chat & Logs</h2>
-    <div id="chatBox" style="max-height:160px;overflow-y:auto;font-size:.8rem;margin-bottom:8px;padding:4px"></div>
-    <div style="display:flex;gap:6px">
-      <input type="text" id="chatInput" placeholder="Ask or type command..." style="flex:1;padding:6px;border-radius:4px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.2);color:#fff">
-      <button id="sendBtn" class="btn btn-primary">Send</button>
+    <div class="ring"><img id="appLogo" src="/brand-logo" alt="" onerror="this.src='/avatar.jpg'"></div>
+    <h1><span id="appTitle">Pi Node Controller PRO</span> <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
+    <p class="sub" id="appSub">SoloHost · v2.6.66</p>
+    <div class="bgbar">
+      <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
+      <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
+      <button type="button" data-bg="pi" id="bgPi">🟣 Pi</button>
+      <label>📤 Wallpaper<input type="file" id="bgFile" accept="image/*" hidden></label>
+      <button type="button" id="setOpen">⚙️ Settings</button>
     </div>
   </div>
-
-  
+  <div class="panel" id="alertPanel"></div>
+  <div class="card"><h2>Live status</h2>
+    <div id="s">…</div>
+    <p class="hz-note hint" id="pn-horizon-note">ℹ️ Data may lag Pi Desktop. Horizon + ports are enough for daily checks.</p>
+  </div>
+  <div class="card" id="pairCard">
+    <h2>Pi Browser · Connect</h2>
+    <p class="hint" id="pairStatus">One-time code · localhost only</p>
+    <div id="pairCode" style="font-size:1.55rem;letter-spacing:.18em;font-weight:800;text-align:center;margin:8px 0">————————</div>
+    <p class="hint" id="pairLink"></p>
+    <div class="qbar">
+      <button type="button" id="pairNew">🔄 New code</button>
+      <button type="button" id="pairCopy">📋 Copy</button>
+      <button type="button" id="pairOff">🔌 Disconnect</button>
+    </div>
+    <p class="hint">Phone: My Nodes → type 8 characters or pinode://pair?c=… · no wallet phrase</p>
+  </div>
+  <div class="card">
+    <h2>Chat</h2>
+    <div class="qbar" id="abar">
+      <button type="button" data-dl="/actions/CleanRAM.bat">🧹 CleanRAM</button>
+      <button type="button" data-dl="/actions/DnsFlush.bat">🌐 DnsFlush</button>
+      <button type="button" data-dl="/actions/Firewall.bat">🧱 Firewall</button>
+      <button type="button" data-dl="/actions/NetRepair.bat">🔧 NetRepair</button>
+      <button type="button" data-dl="/actions/LanSetup.bat">📌 LanSetup</button>
+      <button type="button" data-dl="/actions/Maintain.bat">🗓️ Maintain</button>
+    </div>
+    <div id="chatbox"></div>
+    <div class="qbar" id="qbar">
+      <button type="button" data-cmd="/help">❓ HELP</button>
+      <button type="button" data-cmd="/status">📊 STATUS</button>
+      <button type="button" data-cmd="/report">📈 REPORT</button>
+      <button type="button" data-cmd="/peers">👥 PEERS</button>
+      <button type="button" data-cmd="/diagnostic">🩺 DIAG</button>
+      <button type="button" data-cmd="/analyze">💬 ANALYZE</button>
+      <button type="button" data-cmd="/logs">📋 LOGS</button>
+      <button type="button" data-cmd="/donate">💛 DONATE</button>
+    </div>
+    <div class="bar">
+      <input id="inp" type="text" placeholder="Message…" autocomplete="off" maxlength="2000">
+      <button id="send" type="button">Send</button>
+    </div>
+  </div>
+  <p class="foot">Telegram for remote status · Horizon monitor</p>
 </div>
 
-<!-- Settings Modal -->
-<div class="modal" id="settingsModal" hidden>
-  <div class="modal-content">
-    <h3>Node & AI Settings</h3>
-    <div class="form-group">
-      <label>AI Token / Key (Gemini/OpenAI)</label>
-      <input type="password" id="aiTokenInput" placeholder="Enter AI API Key...">
+<div class="modal" id="setModal" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+  <div class="box">
+    <h3 id="setTitle">⚙️ Settings</h3>
+    <div class="terms" id="setBody" style="white-space:normal">
+      <div class="sgrp">Telegram</div>
+      <label class="sf"><b>Telegram Bot Token</b><input type="password" id="f_BOT_TOKEN" autocomplete="off" spellcheck="false" placeholder="123456:ABC…"><small id="h_BOT_TOKEN"></small></label>
+      <label class="sf"><b>Telegram Chat ID</b><input type="text" id="f_CHAT_ID" inputmode="numeric" autocomplete="off" placeholder="123456789"><small id="h_CHAT_ID"></small></label>
+      <div class="sgrp">AI</div>
+      <label class="sf"><b>Gemini API Key</b><input type="password" id="f_GEMINI_API_KEY" autocomplete="off" spellcheck="false" placeholder="AIza…"><small id="h_GEMINI_API_KEY"></small></label>
+      <div class="sgrp">Pi Browser</div>
+      <label class="sf"><b>Relay URL</b><input type="text" id="f_PI_BROWSER_RELAY" autocomplete="off" spellcheck="false"><small id="h_PI_BROWSER_RELAY">Restart required</small></label>
+      <label class="sf"><b>This PC label</b><input type="text" id="f_PI_BROWSER_LABEL" maxlength="48"><small id="h_PI_BROWSER_LABEL">Restart required</small></label>
+      <div class="sgrp">Node &amp; monitoring</div>
+      <label class="sf"><b>Node host</b><input type="text" id="f_NODE_HOST" autocomplete="off"><small id="h_NODE_HOST">Restart required</small></label>
+      <div class="srow">
+        <label class="sf" style="flex:1;min-width:120px"><b>Horizon port</b><input type="text" id="f_HORIZON_PORT" inputmode="numeric"><small id="h_HORIZON_PORT">Restart required</small></label>
+        <label class="sf" style="flex:1;min-width:120px"><b>Telemetry (sec)</b><input type="text" id="f_TELEMETRY_SEC" inputmode="numeric"><small id="h_TELEMETRY_SEC">Restart required</small></label>
+      </div>
+      <label class="sf"><b>Message on start</b><select id="f_ALERT_ON_START"><option value="true">On</option><option value="false">Off</option></select><small id="h_ALERT_ON_START">Restart required</small></label>
+      <p class="hint">Secrets are stored only in this app's data folder and are never shown again (only the last 4 characters). Leave a secret field empty to keep the current value.</p>
     </div>
-    <div class="form-group">
-      <label>Telegram Bot Token</label>
-      <input type="password" id="tgTokenInput" placeholder="123456789:ABCdef...">
-    </div>
-    <div class="form-group">
-      <label>Telegram Chat ID</label>
-      <input type="text" id="tgChatIdInput" placeholder="e.g. 12345678">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" id="closeSettingsBtn">Cancel</button>
-      <button class="btn btn-primary" id="saveSettingsBtn">Save Settings</button>
+    <div class="footbar">
+      <div id="setMsg"></div>
+      <div class="srow">
+        <button type="button" class="btn btn-no" id="setTestTg">Test Telegram</button>
+        <button type="button" class="btn btn-no" id="setTestAi">Test Gemini</button>
+        <button type="button" class="btn btn-no" id="setRestart" hidden>🔄 Restart app</button>
+      </div>
+      <div class="srow">
+        <button type="button" class="btn btn-ok" id="setSave" style="flex:1">Save</button>
+        <button type="button" class="btn btn-no" id="setClose" style="flex:1">Close</button>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-async function loadStatus() {
-  try {
-    const res = await fetch('/api/status');
-    const data = await res.json();
-    document.getElementById('syncState').innerText = data.sync || 'Online';
-    document.getElementById('ledgerVal').innerText = data.ledger || '--';
-    document.getElementById('peersVal').innerText = data.peers || '--';
-  } catch(e) {}
+
+function $(id){ return document.getElementById(id); }
+function on(el, ev, fn){ if (el) el.addEventListener(ev, fn); }
+
+const box=$('chatbox');
+
+function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;if(box){box.appendChild(d);box.scrollTop=box.scrollHeight;}}
+
+/* ============================================================
+ * SYSTEM RESOURCES bar
+ * Reads t.system from /api/status. Auto-hides if unavailable.
+ * ============================================================ */
+function _fmtGB(b){ return b != null && isFinite(Number(b)) ? (Number(b)/1073741824).toFixed(1) : null; }
+function _fmtGB0(b){ return b != null && isFinite(Number(b)) ? (Number(b)/1073741824).toFixed(0) : null; }
+
+function _updateSysresRow(rowId, valueId, opts){
+  const row = $(rowId); const el = $(valueId);
+  if(!row || !el) return;
+  if(opts.text == null){ el.textContent = '—'; row.classList.remove('warn','crit'); return; }
+  el.textContent = opts.text;
+  row.classList.toggle('warn', !!(opts.warn));
+  row.classList.toggle('crit', !!(opts.crit));
 }
 
-async function loadSettings() {
-  try {
-    const res = await fetch('/api/settings');
-    const data = await res.json();
-    if(data) {
-      document.getElementById('aiTokenInput').value = data.aiToken || '';
-      document.getElementById('tgTokenInput').value = data.tgToken || '';
-      document.getElementById('tgChatIdInput').value = data.tgChatId || '';
-    }
-  } catch(e){}
-}
+function _applySysres(sys){
+  const bar = $('sysresBar');
+  if(!bar) return;
+  const avail = !!(sys && sys.available);
+  bar.hidden = !avail;
+  if(document.body) document.body.classList.toggle('has-sysres', avail);
+  if(!avail) return;
 
-document.getElementById('openSettingsBtn').onclick = () => {
-  loadSettings();
-  document.getElementById('settingsModal').hidden = false;
-};
-document.getElementById('closeSettingsBtn').onclick = () => {
-  document.getElementById('settingsModal').hidden = true;
-};
-document.getElementById('saveSettingsBtn').onclick = async () => {
-  const aiToken = document.getElementById('aiTokenInput').value;
-  const tgToken = document.getElementById('tgTokenInput').value;
-  const tgChatId = document.getElementById('tgChatIdInput').value;
-  try {
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ aiToken, tgToken, tgChatId })
-    });
-    alert('Settings saved successfully!');
-    document.getElementById('settingsModal').hidden = true;
-  } catch(e) {
-    alert('Failed to save settings.');
+  // RAM
+  let ramText = null, ramWarn = false, ramCrit = false;
+  if(sys.memory_percent != null){
+    const pct = Number(sys.memory_percent);
+    const usedGB = _fmtGB(sys.memory_used_bytes);
+    const totGB = _fmtGB(sys.memory_total_bytes);
+    ramText = (usedGB != null && totGB != null)
+      ? (usedGB + ' / ' + totGB + ' GB')
+      : (pct + '%');
+    ramWarn = pct >= 85 && pct < 92;
+    ramCrit = pct >= 92;
   }
-};
+  _updateSysresRow('sysresRamRow','sysresRam',{ text: ramText, warn: ramWarn, crit: ramCrit });
 
-setInterval(loadStatus, 5000);
+  // CPU
+  let cpuText = null, cpuWarn = false, cpuCrit = false;
+  if(sys.cpu_percent != null){
+    const pct = Number(sys.cpu_percent);
+    const cores = sys.cpu_cores != null ? Number(sys.cpu_cores) : (sys.host_info && sys.host_info.cpu_count);
+    cpuText = cores ? (pct + '% / ' + cores + ' cores') : (pct + '%');
+    cpuWarn = pct >= 85 && pct < 95;
+    cpuCrit = pct >= 95;
+  }
+  _updateSysresRow('sysresCpuRow','sysresCpu',{ text: cpuText, warn: cpuWarn, crit: cpuCrit });
+
+  // Disk
+  let diskText = null, diskWarn = false, diskCrit = false;
+  if(sys.disk_percent != null){
+    const pct = Number(sys.disk_percent);
+    const used = _fmtGB0(sys.disk_used_bytes);
+    const tot  = _fmtGB0(sys.disk_total_bytes);
+    diskText = (used != null && tot != null) ? (used + ' / ' + tot + ' GB') : (pct + '%');
+    diskWarn = pct >= 88 && pct < 95;
+    diskCrit = pct >= 95;
+  }
+  _updateSysresRow('sysresDiskRow','sysresDisk',{ text: diskText, warn: diskWarn, crit: diskCrit });
+}
+
+async function loadSysResources(){
+  try{
+    const t = await fetch('/api/status').then(r=>r.json());
+    _applySysres(t && t.system);
+  }catch(e){
+    const bar = $('sysresBar');
+    if(bar) bar.hidden = true;
+    if(document.body) document.body.classList.remove('has-sysres');
+  }
+}
+
+/* ============================================================
+ * Live status (gauge)
+ * ============================================================ */
+async function loadStatus(){
+  try{
+    const t=await fetch('/api/status').then(r=>r.json());
+    let syncVal = t.sync ?? '—';
+    const verified = t.core_verified===true;
+    if(verified){
+      const ageN = t.ledger_age!=null ? Number(t.ledger_age) : null;
+      if(/catching|not\s*synced/i.test(String(syncVal)) || (ageN!=null && ageN>180)) syncVal = 'Catching up';
+      else if(/horizon live|horizon ok|synced|good/i.test(String(syncVal)) || (ageN!=null && ageN<=35)) syncVal = 'Synced';
+    }
+    const ledgerVal = t.ledger!=null ? Number(t.ledger).toLocaleString('en-US') : '—';
+    const ageVal = t.ledger_age!=null ? t.ledger_age+'s' : '—';
+    const peersVal = t.peers!=null ? String(t.peers) : ((t.peer_in!=null||t.peer_out!=null)?String((t.peer_in??0)+(t.peer_out??0)):'—');
+
+    const rawH = t.core_health!=null ? t.core_health : t.health;
+    const health = rawH!=null ? Math.min(100, Math.max(0, Number(rawH))) : 0;
+
+    let color = '#16c60c';
+    let statusText = 'Excellent';
+    if(health < 50){ color='#e81123'; statusText='Poor'; }
+    else if(health < 75){ color='#ffc107'; statusText='Fair'; }
+    else if(health < 90){ color='#a3e635'; statusText='Good'; }
+
+    const maxArc = 257.61;
+    const offset = maxArc * (1 - (health / 100));
+
+    const sEl = $('s');
+    if(!sEl) return;
+    sEl.innerHTML = `
+      <div class="status-layout">
+        <div class="status-col left">
+          <span class="k">Sync</span>
+          <span class="k">Ledger</span>
+          <span class="k">Age</span>
+          <span class="k">Peers</span>
+        </div>
+        <div class="gauge-wrap">
+          <svg viewBox="0 0 200 120" class="gauge-svg">
+            <path d="M 18 95 A 82 82 0 0 1 182 95" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="14" stroke-linecap="round"/>
+            <path d="M 18 95 A 82 82 0 0 1 182 95" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round" stroke-dasharray="257.61" stroke-dashoffset="${offset}" style="transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.5s ease;"/>
+            <text x="18" y="114" fill="#d7deea" font-size="11" font-weight="600" text-anchor="middle">0</text>
+            <text x="182" y="114" fill="#d7deea" font-size="11" font-weight="600" text-anchor="middle">100</text>
+          </svg>
+          <div class="gauge-center">
+            <div class="gauge-score" style="color:${color}">${health} / 100</div>
+            <div class="gauge-label">Node Health</div>
+            <div class="gauge-status">Status: <span style="color:${color}">${escHtml(statusText)}</span></div>
+          </div>
+        </div>
+        <div class="status-col right">
+          <span class="val">${escHtml(syncVal)}</span>
+          <span class="val">${escHtml(ledgerVal)}</span>
+          <span class="val">${escHtml(ageVal)}</span>
+          <span class="val">${escHtml(peersVal)}</span>
+        </div>
+      </div>
+    `;
+
+    // Refresh SYSTEM RESOURCES bar in same fetch (no extra HTTP)
+    _applySysres(t && t.system);
+
+    const note=$('pn-horizon-note');
+    if(note){
+      note.hidden=false;
+    }
+  }catch(e){ const sEl=$('s'); if(sEl) sEl.textContent='Status error'; }
+}
+
+async function send(){
+  const inp=$('inp');let msg=(inp.value||'').trim();if(!msg)return;
+  if(msg.length>2000)msg=msg.slice(0,2000);
+  inp.value='';
+  add('user',msg);add('bot','…');
+  try{
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    const j=await r.json();
+    if(box) box.lastChild.textContent=j.reply||j.error||'No reply';
+    if(j.images&&j.images.length){
+      const wrap=document.createElement('div');
+      wrap.className='msg bot';
+      wrap.style.textAlign='center';
+      j.images.forEach(function(src){
+        const im=document.createElement('img');
+        im.src=src; im.alt='QR'; im.style.maxWidth='46%'; im.style.margin='4px'; im.style.borderRadius='8px';
+        wrap.appendChild(im);
+      });
+      if(box){ box.appendChild(wrap); box.scrollTop=box.scrollHeight; }
+    }
+  }catch(e){ if(box) box.lastChild.textContent='Chat error'; }
+}
+
+
+const ACT={
+ '/actions/CleanRAM.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/CleanRam.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
+ '/actions/DnsFlush.bat':'🌐 DnsFlush\nWhat: Refresh Windows DNS cache.\nWhen: Peers drop while ports stay open.',
+ '/actions/Firewall.bat':'🧱 Firewall\nWhat: Open TCP 31401-31410 on Windows Firewall.\nWhen: Local Pi ports stay closed.',
+ '/actions/NetRepair.bat':'🔧 NetRepair\nWhat: Repair internet while keeping the current LAN IP.\nWhen: Horizon or internet is down for a long time.',
+ '/actions/LanSetup.bat':'📌 LanSetup\nWhat: Lock the current LAN IP as static + open Pi ports.\nWhen: First setup on this PC.',
+ '/actions/Maintain.bat':'🗓️ Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
+};
+on($('abar'),'click',function(e){
+  const b=e.target.closest('button[data-dl]'); if(!b)return;
+  const href=b.getAttribute('data-dl');
+  add('bot', (ACT[href]||'Download repair BAT')+'\n\nSaving: '+href);
+  const a=document.createElement('a'); a.href=href; a.download=''; document.body.appendChild(a); a.click(); a.remove();
+});
+on($('qbar'),'click',function(e){
+  const b=e.target.closest('button[data-cmd]');
+  if(!b)return;
+  const inp=$('inp');
+  if(inp) inp.value=b.getAttribute('data-cmd');
+  send();
+});
+on($('send'),'click',send);
+on($('inp'),'keydown',function(e){if(e.key==='Enter')send();});
+
+const BG={cave:'url("/bg-cave.jpg")',classic:'url("/bg-classic.jpg")',pi:'url("/bg-pi.jpg")'};
+function applyBg(kind, custom){
+  const root=document.documentElement;
+  if(kind==='custom' && custom){ root.style.setProperty('--bg-image','url("'+custom+'")'); }
+  else { root.style.setProperty('--bg-image', BG[kind]||BG.cave); kind = BG[kind]?kind:'cave'; }
+  document.querySelectorAll('.bgbar button').forEach(function(b){b.classList.toggle('on', b.getAttribute('data-bg')===kind);});
+  try{ localStorage.setItem('pinode_bg', JSON.stringify({kind:kind, custom: kind==='custom'?custom:''})); }catch(e){}
+}
+try{
+  const saved=JSON.parse(localStorage.getItem('pinode_bg')||'{}');
+  applyBg(saved.kind||'cave', saved.custom||'');
+}catch(e){ applyBg('cave'); }
+on($('bgCave'),'click',function(){applyBg('cave');});
+on($('bgClassic'),'click',function(){applyBg('classic');});
+on($('bgPi'),'click',function(){applyBg('pi');});
+on($('bgFile'),'change',function(){
+  const f=this.files&&this.files[0]; if(!f)return;
+  if(f.size>2500000){ add('bot','🌄 Wallpaper too large (max 2.5 MB).'); return; }
+  const r=new FileReader();
+  r.onload=function(){applyBg('custom', r.result);};
+  r.readAsDataURL(f);
+});
+
+async function loadAlerts(){
+  try{
+    const j=await fetch('/api/alerts').then(r=>r.json());
+    const n=j.unread||0;
+    const badge=$('badge');
+    if(badge){ badge.textContent=n; badge.style.display=n?'inline-block':'none'; }
+    const pan=$('alertPanel');
+    if(!pan) return;
+    if(!j.items||!j.items.length){pan.innerHTML='🔔 No action alerts.';return;}
+    pan.innerHTML=j.items.map(function(it){
+      return '<div class="item">'+escHtml((it.ts||'').replace('T',' ').slice(0,16))+'\n'+escHtml(it.text||'')+(it.tip?'\n💡 '+escHtml(it.tip):'')+(it.scripts?'\n🛠️ '+escHtml(it.scripts):'')+'</div>';
+    }).join('');
+  }catch(e){}
+}
+on($('bell'),'click',async function(){
+  const pan=$('alertPanel');
+  if(!pan) return;
+  pan.classList.toggle('on');
+  if(pan.classList.contains('on')){
+    try{ await fetch('/api/alerts',{method:'POST'}); }catch(e){}
+    const badge=$('badge'); if(badge) badge.style.display='none';
+    loadAlerts();
+  }
+});
+loadAlerts();setInterval(loadAlerts,20000);
+
+loadSysResources();
 loadStatus();
+setInterval(loadStatus,15000);
+
+async function loadPair(){
+  try{
+    const j=await fetch('/api/pibrowser').then(function(r){return r.json();});
+    const st=$('pairStatus'); const code=$('pairCode'); const link=$('pairLink');
+    if(!st) return;
+    if(j.paired){ st.textContent='🟢 Paired · '+ (j.labelStored||j.label||''); code.textContent='LINKED'; if(link) link.textContent='Heartbeat on'; return; }
+    if(j.code){
+      st.textContent=(j.error?'⚠️ ':'')+(j.status||'pending')+(j.expiresIn?(' · '+j.expiresIn+'s'):'');
+      code.textContent=j.code;
+      if(link) link.textContent=j.deepLink||'';
+      if(j.error && st) st.textContent='⚠️ '+String(j.error).slice(0,140);
+    } else {
+      code.textContent='————————';
+      st.textContent=j.error||'Tap New code';
+    }
+  }catch(e){}
+}
+async function pairPost(action){
+  try{
+    await fetch('/api/pibrowser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:action})});
+  }catch(e){}
+  loadPair();
+}
+const pairNew=$('pairNew'); if(pairNew) pairNew.onclick=function(){ pairPost('refresh'); };
+const pairOff=$('pairOff'); if(pairOff) pairOff.onclick=function(){ pairPost('disconnect'); };
+const pairCopy=$('pairCopy'); if(pairCopy) pairCopy.onclick=function(){
+  const c=($('pairCode')&&$('pairCode').textContent||'').replace(/[^A-Z0-9]/g,'');
+  if(c.length===8 && navigator.clipboard) navigator.clipboard.writeText(c);
+};
+loadPair(); setInterval(loadPair,4000);
+
+
+function applyBrand(b){
+  if(!b) return;
+  const title=document.getElementById('appTitle');
+  const sub=document.getElementById('appSub');
+  const logo=document.getElementById('appLogo');
+  if(title && b.name) title.textContent=b.name;
+  if(sub && b.versionLabel) sub.textContent=b.versionLabel;
+  if(logo){
+    logo.src=(b.hasLogo===false) ? '/avatar.jpg' : ('/brand-logo?t='+Date.now());
+    logo.onerror=function(){ this.onerror=null; this.src='/avatar.jpg'; };
+  }
+  document.title=(b.name||'Pi Node Controller PRO');
+}
+async function loadBrand(){
+  try{
+    const j=await fetch('/api/brand').then(function(r){return r.json();});
+    if(j && j.brand){ j.brand.hasLogo=j.hasLogo; applyBrand(j.brand); }
+  }catch(e){}
+}
+async function saveBrand(patch){
+  try{
+    const j=await fetch('/api/brand',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)}).then(function(r){return r.json();});
+    if(j && j.ok && j.brand){ j.brand.hasLogo=j.hasLogo; applyBrand(j.brand); }
+    else alert('Save failed');
+  }catch(e){ alert('Save brand failed'); }
+}
+function editField(el, key){
+  if(!el) return;
+  el.contentEditable='true';
+  el.focus();
+  const range=document.createRange();
+  range.selectNodeContents(el);
+  const sel=window.getSelection();
+  sel.removeAllRanges(); sel.addRange(range);
+  function commit(){
+    el.contentEditable='false';
+    el.removeEventListener('blur', commit);
+    el.removeEventListener('keydown', onKey);
+    const val=String(el.textContent||'').replace(/\s+/g,' ').trim().slice(0,48);
+    if(!val){ loadBrand(); return; }
+    const patch={}; patch[key]=val; saveBrand(patch);
+  }
+  function onKey(e){ if(e.key==='Enter'){ e.preventDefault(); el.blur(); } if(e.key==='Escape'){ loadBrand(); el.blur(); } }
+  el.addEventListener('blur', commit);
+  el.addEventListener('keydown', onKey);
+}
+function bindActivate(el, fn){
+  if(!el) return;
+  el.addEventListener('dblclick', function(e){ e.preventDefault(); fn(); });
+  let timer=null;
+  el.addEventListener('touchstart', function(){ timer=setTimeout(fn, 550); }, {passive:true});
+  el.addEventListener('touchend', function(){ if(timer) clearTimeout(timer); });
+  el.addEventListener('mousedown', function(){ timer=setTimeout(fn, 550); });
+  el.addEventListener('mouseup', function(){ if(timer) clearTimeout(timer); });
+}
+(function(){
+  const title=document.getElementById('appTitle');
+  const sub=document.getElementById('appSub');
+  const logo=document.getElementById('appLogo');
+  const file=document.getElementById('logoFile');
+  bindActivate(title, function(){ editField(title,'name'); });
+  bindActivate(sub, function(){ editField(sub,'versionLabel'); });
+  bindActivate(logo, function(){ if(file) file.click(); });
+  if(file) file.onchange=function(){
+    const f=this.files&&this.files[0]; if(!f) return;
+    if(f.size>1500000){ alert('Logo max 1.5 MB'); return; }
+    const r=new FileReader();
+    r.onload=function(){ saveBrand({logoData:r.result}); };
+    r.readAsDataURL(f);
+    this.value='';
+  };
+})();
+loadBrand();
+
+
+/* ===== Settings (Telegram / AI / node config) ===== */
+(function(){
+  var KEYS=['BOT_TOKEN','CHAT_ID','GEMINI_API_KEY','PI_BROWSER_RELAY','PI_BROWSER_LABEL','NODE_HOST','HORIZON_PORT','TELEMETRY_SEC','ALERT_ON_START'];
+  var SECRET={BOT_TOKEN:1,GEMINI_API_KEY:1};
+  var LIVE={BOT_TOKEN:1,CHAT_ID:1,GEMINI_API_KEY:1};
+  var modal=$('setModal'), msg=$('setMsg'), lastView=null;
+  if(!modal) return;
+  function say(t,bad){ msg.textContent=t||''; msg.style.color=bad?'#ff9aa2':'#9be7a6'; }
+  function api(path,method,body){
+    return fetch(path,{method:method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}).then(function(r){return r.json().catch(function(){return {ok:false,error:'bad_response'};});});
+  }
+  function fill(v){
+    lastView=v;
+    KEYS.forEach(function(k){
+      var el=$('f_'+k), h=$('h_'+k); if(!el) return;
+      if(SECRET[k]){ el.value=''; el.placeholder=v.secretsSet[k]?('Saved: '+v.secretsSet[k]+' (leave empty to keep)'):'Not set'; }
+      else el.value=v.fields[k]==null?'':v.fields[k];
+      if(h){ var src=v.source[k]; h.textContent=(LIVE[k]?'Applied immediately':'Restart required')+' · source: '+src; h.className=''; }
+    });
+    $('setRestart').hidden=true;
+  }
+  function load(){
+    say('Loading…');
+    return api('/api/settings','GET').then(function(v){
+      if(v && v.ok){ fill(v); say(''); } else say('Cannot load settings (local access only).',true);
+    }).catch(function(){ say('Cannot load settings.',true); });
+  }
+  function open(){ modal.classList.add('on'); load(); }
+  function close(){ modal.classList.remove('on'); KEYS.forEach(function(k){ if(SECRET[k]) $('f_'+k).value=''; }); }
+  function collect(){
+    var set={};
+    KEYS.forEach(function(k){
+      var el=$('f_'+k); if(!el) return; var val=String(el.value||'').trim();
+      if(SECRET[k]){ if(val) set[k]=val; return; }
+      if(lastView && String(lastView.fields[k]==null?'':lastView.fields[k])===val) return;
+      set[k]=val;
+    });
+    return set;
+  }
+  function save(){
+    var set=collect();
+    if(!Object.keys(set).length){ say('Nothing to save.'); return; }
+    $('setSave').disabled=true; say('Saving…');
+    api('/api/settings','POST',{set:set}).then(function(v){
+      $('setSave').disabled=false;
+      if(v && v.ok){
+        fill(v);
+        if(v.restartNeeded && v.restartNeeded.length){ $('setRestart').hidden=false; say('Saved. Restart the app to apply: '+v.restartNeeded.join(', ')); }
+        else say('Saved and applied.');
+      } else if(v && v.errors){
+        Object.keys(v.errors).forEach(function(k){ var h=$('h_'+k); if(h){ h.textContent='⚠ '+v.errors[k]; h.className='err'; } });
+        say('Please fix the highlighted fields.',true);
+      } else say('Save failed ('+((v&&v.error)||'error')+').',true);
+    }).catch(function(){ $('setSave').disabled=false; say('Save failed.',true); });
+  }
+  function test(target){
+    say('Testing '+target+'… (save first if you just typed a new value)');
+    api('/api/settings/test','POST',{target:target}).then(function(v){
+      if(v && v.ok) say('✅ '+target+' OK'+(v.detail?(' · '+v.detail):'')); else say('❌ '+target+': '+((v&&v.error)||'failed'),true);
+    }).catch(function(){ say('Test failed.',true); });
+  }
+  on($('setOpen'),'click',open);
+  on($('setClose'),'click',close);
+  on($('setSave'),'click',save);
+  on($('setTestTg'),'click',function(){ test('telegram'); });
+  on($('setTestAi'),'click',function(){ test('gemini'); });
+  on($('setRestart'),'click',function(){
+    if(!confirm('Restart the app now? It comes back in a few seconds.')) return;
+    api('/api/settings/restart','POST',{}).then(function(){ say('Restarting… reload this page in ~10 seconds.'); }).catch(function(){ say('Restarting…'); });
+  });
+  on(modal,'click',function(e){ if(e.target===modal) close(); });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape' && modal.classList.contains('on')) close(); });
+})();
 </script>
 <img class="paf-made-by" src="/made-by.png" alt="Made with App Builder — Pi SoloHost"></body>
 </html>

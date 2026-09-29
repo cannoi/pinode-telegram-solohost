@@ -1,10 +1,11 @@
 {
   "name": "pinode-telegram-solohost",
-  "version": "2.6.65",
+  "version": "2.6.66",
   "description": "SoloHost Pi Node Telegram Controller PRO",
   "main": "loader.js",
   "private": true,
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "test": "node -e \"require('http').get('http://127.0.0.1:' + (process.env.PORT || 8080) + '/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""
   }
 }

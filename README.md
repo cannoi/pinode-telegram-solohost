@@ -4,7 +4,7 @@ A Telegram + local assistant that watches your **Pi Node** 24/7 from **Pi Deskto
 
 You get a clear picture of node health without sitting at the machine all day. The default install stays inside SoloHost sandbox rules: **no Docker socket**, read-only style monitoring over HTTP and ports.
 
-**Image:** `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.65`
+**Image:** `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.66`
 
 ---
 
@@ -44,7 +44,7 @@ All sources feed the same places: `/status`, `/report`, `/diagnostic`, `/peers`,
 
 ## Install (SoloHost)
 
-1. Publish / pull image `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.65`.
+1. Publish / pull image `ghcr.io/cannoi/pinode-telegram-solohost:v2.6.66`.
 2. Install the two SoloHost files (`docker-compose.yml` + `config_options.yml`).
 3. Set **BOT_TOKEN** and **CHAT_ID**. Optional: **GEMINI_API_KEY**.
 4. Start the app. Telegram should show the command menu.
@@ -133,3 +133,10 @@ Wallpaper picker: Cave (default), Classic, user upload (local). Win10 acrylic gl
 
 ## v2.6.65 SoloHost compliance
 Removed every Docker-socket / Docker-control path: no `docker` Telegram commands, no `docker_sock` telemetry, no NodeReset / DockerRecover scripts, no `/solohost-config` read-write mount, no code loaded from `/data`. Monitoring is Horizon + Core HTTP + TCP ports only.
+
+## v2.6.66 Settings (main UI)
+Button **Settings** on the main page edits: Telegram Bot Token, Chat ID, Gemini API Key, Pi Browser relay/label, Node host, Horizon port, Telemetry seconds, start message.
+- Saved to `/data/state/settings.json` (mode 600). Priority: Settings > `.env`/compose > default.
+- Bot Token, Chat ID, Gemini Key apply immediately. The others apply after **Restart app**.
+- Secrets are never sent back to the browser (only the last 4 characters). Empty secret field = keep current.
+- API is local-only, JSON-only, same-origin only, rate-limited.

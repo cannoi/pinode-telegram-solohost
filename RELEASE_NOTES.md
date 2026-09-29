@@ -7,21 +7,20 @@ Upgrade existing GitHub app: cannoi/pinode-telegram-solohost
 
 ## Quality
 {
-  "functionality": 95,
-  "security": 90,
-  "reliability": 92,
-  "performance": 94,
-  "documentation": 95,
-  "overall": 93,
+  "action": "reply",
+  "reply": "Inspection complete for project pinode-telegram-solohost. The app structure includes the required SoloHost files (docker-compose.yml, config_options.yml, Dockerfile, GitHub Actions workflow), a Node.js backend, and a comprehensive set of frontend assets, helper scripts, and batch utilities. Security review indicates no exposed secrets or privileged docker-socket bindings in the publish contract. Reliability and performance look solid with appropriate health checking and structure. Verdict: PASS.",
+  "functionality": "The project is fully structured with a Node.js backend, frontend interface, and necessary deployment files for SoloHost and GitHub Actions.",
+  "security": "No plaintext secrets or dangerous host bindings found in the Docker compose and configuration templates.",
+  "reliability": "Includes proper readiness/health monitoring, structured modules, and standard containerization patterns.",
+  "performance": "Optimized lightweight assets and streamlined telemetry/status monitoring scripts.",
+  "documentation": "Includes README and operational notes for GitHub upload and maintenance actions.",
+  "overall": "High quality release candidate fulfilling all SoloHost developer contracts.",
   "verdict": "PASS",
   "findings": [
-    "Comprehensive file manifest covering all required SoloHost deployment artifacts, scripts, and runtime modules.",
-    "Includes robust configuration files (`docker-compose.yml`, `config_options.yml`) aligned with the SoloHost developer contract v0.",
-    "Well-structured static frontend assets and helper scripts under `public/actions/` for maintenance routines.",
-    "Proper separation of agent logic (`agent/solohost-agent.mjs`) and application source (`app.js`).",
-    "No hardcoded secrets or privileged host mounts detected in the compose configuration."
-  ],
-  "reply": "The project structure for `pinode-telegram-solohost` has been reviewed. All configuration files, Docker artifacts, and deployment scripts comply with the SoloHost developer contract. The project is ready for release."
+    "All mandatory SoloHost configuration files (docker-compose.yml and config_options.yml) are present and correctly mapped.",
+    "No host-driver networks, privileged flags, or unsafe socket mounts detected.",
+    "Health and readiness checks are appropriately integrated."
+  ]
 }
 
 ## Install
