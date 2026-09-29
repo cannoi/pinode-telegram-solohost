@@ -4,7 +4,6 @@ const dataFrame = require('./data-frame');
 /**
  * SoloHost-allowed multi-source Pi Node status
  * Primary (always): Horizon root + Core HTTP + TCP ports + state files + HOST METRICS
- * Optional: Docker sock/exec when DOCKER_PROBE=1 and socket mounted by user
  *
  * [2.6.58] Host Metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
  * via host-metrics.js. Fallback require paths let the operator drop the module
@@ -19,21 +18,11 @@ const path = require('path');
 const OptimizedPiNodeReader = require('./optimized-pi-node-reader');
 const OptimizedHttpReader = require('./optimized-http-reader');
 const PiNodeDiscovery = require('./pi-node-discovery');
-const dockerProbe = require('./docker-probe');
 
-// [2.6.58-fix] DEFENSIVE require with multiple candidate paths.
-// Lets the operator drop host-metrics.js into the mounted app folder
-// (/solohost-config) without rebuilding the image.
+// host-metrics is loaded ONLY from the image (no code from mounts or /data).
 let hostMetrics = null;
 let _hostMetricsSource = null;
-const _hostMetricsCandidates = (function () {
-  const list = ['./host-metrics'];
-  try { list.push('/solohost-config/host-metrics.js'); } catch (e) {}
-  try { list.push('/solohost-config/host-metrics'); } catch (e) {}
-  try { list.push(path.join(process.env.DATA_DIR || '/data', 'host-metrics.js')); } catch (e) {}
-  try { list.push('/data/host-metrics.js'); } catch (e) {}
-  return list;
-})();
+const _hostMetricsCandidates = ['./host-metrics'];
 for (let _i = 0; _i < _hostMetricsCandidates.length; _i++) {
   try {
     const mod = require(_hostMetricsCandidates[_i]);
@@ -258,25 +247,11 @@ class PiNodeStatusMonitor {
       })
     ];
 
-    let wantDocker = false;
-    try {
-      wantDocker = dockerProbe.dockerAllowed();
-    } catch (e) {
-      const dockerOn = String(process.env.DOCKER_PROBE || '0').toLowerCase();
-      wantDocker = dockerOn === '1' || dockerOn === 'true' || dockerOn === 'on' || dockerOn === 'auto';
-    }
-    if (wantDocker) {
-      tasks.push(dockerProbe.probeDocker().catch(function (e) {
-        return { available: false, error: e.message };
-      }));
-    }
-
     const results = await Promise.all(tasks);
     const hz = results[0];
     const core = results[1];
     const netw = results[2];
     const host = results[3] || { available: false };
-    const dock = wantDocker ? (results[4] || { available: false }) : { available: false, skipped: true };
 
     const files = this.readFileSource();
 
@@ -291,8 +266,7 @@ class PiNodeStatusMonitor {
         horizon: !!hz.ok,
         core: !!core.ok,
         files: !!files.ok,
-        network: !!netw.ok,
-        docker: !!(dock.available && (dock.docker_sock || dock.core_from_exec))
+        network: !!netw.ok
       },
       source_latency: {},
       verification: {}
@@ -336,7 +310,7 @@ class PiNodeStatusMonitor {
     primary.network_probe = netw.ports;
 
     // [2.6.58] HOST SYSTEM METRICS from Node OS (os.cpus / os.totalmem / fs.statfsSync).
-    // Independent of Docker. Never overwrite with container metrics.
+    // Node OS metrics only. No container metrics (no Docker access).
     primary.sources.host_metrics = !!(host && host.available);
     if (host && host.available) {
       primary.system = {
@@ -374,63 +348,10 @@ class PiNodeStatusMonitor {
       };
     }
 
-    if (dock && dock.available) {
-      primary.docker_probe = true;
-      primary.docker_sock = !!dock.docker_sock;
-      if (dock.docker) primary.docker = dock.docker;
-      if (dock.pi_container) primary.container = dock.pi_container;
-      if (dock.core_from_exec) {
-        const ce = dock.core_from_exec;
-        primary.core_verified = true;
-        primary.core_state = ce.core_state || primary.core_state;
-        primary.sync = ce.sync || primary.sync;
-        primary.sync_confidence = 'high';
-        if (ce.ledger != null) primary.ledger = ce.ledger;
-        if (ce.ledger_age != null) primary.ledger_age = ce.ledger_age;
-        primary.source = 'DockerExec+' + (hz.ok ? 'Horizon' : 'Core');
-        primary.sources.docker = true;
-      }
-      if (dock.peers_from_exec) {
-        if (dock.peers_from_exec.peer_in != null) primary.peer_in = dock.peers_from_exec.peer_in;
-        if (dock.peers_from_exec.peer_out != null) primary.peer_out = dock.peers_from_exec.peer_out;
-      }
-      if (dock.horizon_from_exec) {
-        const hzE = dock.horizon_from_exec;
-        if (primary.ledger == null && hzE.ledger != null) primary.ledger = hzE.ledger;
-        if (hzE.core_version && !primary.core_version) primary.core_version = hzE.core_version;
-        if (hzE.horizon_version && !primary.horizon_version) primary.horizon_version = hzE.horizon_version;
-        if (hzE.protocol != null && primary.protocol == null) primary.protocol = hzE.protocol;
-        if (hzE.network && !primary.network) primary.network = hzE.network;
-        primary.sources.docker_horizon = true;
-      }
-      if (dock.container_health) primary.container_health = dock.container_health;
-      if (dock.container_cpu != null) primary.container_cpu = dock.container_cpu;
-      if (dock.container_ram_limit_mb != null) primary.container_ram_limit_mb = dock.container_ram_limit_mb;
-      if (dock.container_ram_mb != null) primary.container_ram_mb = dock.container_ram_mb;
-      if (dock.container_cpu_docker != null) primary.container_cpu_docker = dock.container_cpu_docker;
-      if (dock.container_cpu_cores != null) primary.container_cpu_cores = dock.container_cpu_cores;
-      if (dock.container_cpus != null) primary.container_cpus = dock.container_cpus;
-      if (dock.container_ram != null) primary.container_ram = dock.container_ram;
-      if (dock.blkio) primary.blkio = dock.blkio;
-      if (dock.net_io) primary.net_io = dock.net_io;
-      if (dock.restart_count != null) primary.restart_count = dock.restart_count;
-      if (dock.oom) primary.oom = true;
-      if (dock.pid) primary.pid = dock.pid;
-      if (Array.isArray(dock.containers) && dock.containers.length) primary.docker_containers = dock.containers.length;
-    } else {
-      primary.docker_probe = false;
-      primary.docker_sock = false;
-    }
-
     if (primary.core_verified) {
       const st = String(primary.core_state || primary.sync || '');
       if (/synced/i.test(st) && !/not\s*synced/i.test(st)) primary.sync = 'Synced';
       else if (/catching/i.test(st)) primary.sync = 'Catching up';
-    } else if (primary.docker_sock && /running|up/i.test(String(primary.docker || primary.container_health || ''))) {
-      const ageSock = primary.ledger_age != null ? Number(primary.ledger_age) : null;
-      if (ageSock != null && ageSock <= 35) primary.sync = 'Synced';
-      else if (ageSock != null && ageSock <= 120) primary.sync = 'Syncing';
-      else if (/catch|behind/i.test(String(primary.sync || ''))) primary.sync = 'Catching up';
     } else if (hz.ok) {
       try { applyHorizonSyncLabel(primary); }
       catch (e) { if (primary.sync && /synced/i.test(String(primary.sync))) primary.sync = 'Horizon live'; }

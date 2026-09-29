@@ -117,7 +117,7 @@ echo ============================================================
 echo  1. Confirm public WAN IP on ping.eu matches modem WAN page.
 echo  2. Static Lease: bind this PC MAC to %CURIP%
 echo  3. Virtual Server / NAT: TCP 31401-31410 -^> %CURIP%
-echo  4. Open Docker Desktop, then Pi Node Doctor - Check Now.
+echo  4. Open Pi Desktop, then check the SoloHost status page.
 echo ============================================================
 pause
 exit /b 0

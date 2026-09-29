@@ -2,7 +2,6 @@
 /**
  * Host Metrics Reader (v2.6.58 — Node OS)
  *
- * Nguồn dữ liệu (native, không HTTP, không DataLive, không docker.sock):
  *   - CPU  : os.cpus() delta (idle vs total) → usage_percent
  *            os.loadavg() cung cấp thêm load[1m,5m,15m] (bonus)
  *   - RAM  : os.totalmem() / os.freemem()

@@ -47,7 +47,7 @@ if ($isAdmin) {
   }
 }
 
-WL "[4/10] Cache + Docker dangling images"
+WL "[4/10] Windows cache"
 if ($isAdmin) {
   $paths = @(
     "$env:LOCALAPPDATA\Microsoft\Windows\WER\ReportArchive",
@@ -58,7 +58,6 @@ if ($isAdmin) {
     if (Test-Path $p) { Get-ChildItem $p -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
   }
 }
-cmd /c "docker image prune -f" >$null 2>&1
 
 WL "[5/10] Recycle Bin"
 if ($isAdmin) {
@@ -66,8 +65,7 @@ if ($isAdmin) {
   cmd /c "rd /s /q $env:SystemDrive\`$Recycle.Bin" >$null 2>&1
 }
 
-WL "[6/10] Docker image prune (not -a)"
-cmd /c "docker image prune -f" >$null 2>&1
+WL "[6/10] (reserved)"
 
 WL "[7/10] Flush DNS"
 cmd /c "ipconfig /flushdns" >$null 2>&1
@@ -84,11 +82,7 @@ if ($isAdmin) {
   }
 }
 
-WL "[9/10] Docker priority + TRIM"
-try {
-  Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue | ForEach-Object { $_.PriorityClass = 'AboveNormal' }
-} catch {}
-try { cmd /c "wmic process where name=`"Docker Desktop.exe`" CALL setpriority `"above normal`"" >$null 2>&1 } catch {}
+WL "[9/10] TRIM"
 $cpu = 100
 try { $cpu = [int]((Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average) } catch {}
 if ($isAdmin -and $cpu -lt 75) {
@@ -107,14 +101,13 @@ if ($isAdmin -and $day -le 7 -and $dow -eq 0 -and $freeGB -ge 15) {
   WL "Monthly SFC/DISM done"
 } else { WL "Monthly skip day=$day dow=$dow free=$freeGB" }
 
-$dockerStatus = if (Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue) { 'RUNNING' } else { 'STOPPED' }
 $piStatus = if (Get-Process 'Pi Network' -ErrorAction SilentlyContinue) { 'RUNNING' } else { 'STOPPED' }
-WL "Done Docker=$dockerStatus Pi=$piStatus Monthly=$monthlyStatus"
+WL "Done Pi=$piStatus Monthly=$monthlyStatus"
 
 if (Test-Path $sendTele) {
   try {
     $ts = Get-Date -Format 'dd/MM/yyyy HH:mm:ss'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sendTele -DockerStatus $dockerStatus -PiStatus $piStatus -MonthlyStatus $monthlyStatus -TimeStr $ts
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sendTele -PiStatus $piStatus -MonthlyStatus $monthlyStatus -TimeStr $ts
   } catch { WL "send_tele: $($_.Exception.Message)" }
 }
 

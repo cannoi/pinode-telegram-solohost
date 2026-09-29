@@ -46,7 +46,7 @@ echo   - Clear user and Windows TEMP
 echo   - TRIM SSD (defrag /O)
 echo   - Flush DNS and restart Explorer
 echo  WILL NOT:
-echo   - Stop Pi Network / Docker / Pi container
+echo   - Stop Pi Network / Pi Node
 echo   - Change LAN IP
 echo ============================================================
 choice /C YN /N /M "Run CleanRam now? [Y/N] "
@@ -81,7 +81,7 @@ if /I not "%~1"=="/scheduled" if /I not "%~1"=="/quiet" if /I not "%PINODE_CONTR
 )
 
 echo.
-echo [RESULT] CleanRam finished. Pi Node and Docker were not stopped.
+echo [RESULT] CleanRam finished. Pi Node was not stopped.
 echo          LAN IP was not changed.
 if /I not "%~1"=="/scheduled" if /I not "%~1"=="/quiet" pause
 exit /b 0

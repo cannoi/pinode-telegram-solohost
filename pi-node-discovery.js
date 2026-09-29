@@ -3,7 +3,6 @@
 /**
  * SoloHost-safe adaptive discovery (runs INSIDE Controller container)
  * - Finds Horizon + Core independently (does not stop when only Horizon works)
- * - No docker.sock / machine-specific container names
  * - Sticky + multi-host + port pairs + sweep
  */
 

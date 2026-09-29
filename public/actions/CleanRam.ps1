@@ -1,4 +1,4 @@
-# Pi Node CleanRam - keep Pi Network / Docker running
+# Pi Node CleanRam - keep Pi Network running
 param()
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
@@ -15,7 +15,7 @@ try {
 Write-Output "==== Pi Node CleanRam ===="
 Write-Output "Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') admin=$isAdmin controller=$fromController"
 
-# Do NOT kill Pi Network / Docker / com.docker.* / vpnkit
+# Do NOT kill Pi Network
 $kill = @(
   'chrome','msedge','SearchApp','SearchIndexer','TabTip','TextInputHost',
   'RuntimeBroker','OneDrive','Copilot','ApplicationFrameHost'
@@ -49,5 +49,5 @@ if (-not $fromController) {
   Start-Process explorer.exe
 }
 
-Write-Output "[OK] CleanRam completed. Pi Node/Docker left running."
+Write-Output "[OK] CleanRam completed. Pi Node left running."
 exit 0

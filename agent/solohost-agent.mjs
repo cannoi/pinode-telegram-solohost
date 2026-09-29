@@ -24,7 +24,7 @@ const backend = normOrigin(arg('relay', arg('backend', process.env.PI_BROWSER_RE
 const label = arg('label', process.env.PI_BROWSER_LABEL || 'Home SoloHost');
 
 const dataDir = process.env.DATA_DIR || path.join(process.cwd(), '.pnc-data');
-const bridge = createBridge({ relay: backend, label: label, dataDir: dataDir, version: '2.6.62-solohost' });
+const bridge = createBridge({ relay: backend, label: label, dataDir: dataDir, version: '2.6.65-solohost' });
 
 const PORT = parseInt(process.env.PAIR_PORT || '31480', 10);
 const page = function (snap) {
@@ -72,7 +72,7 @@ const srv = http.createServer(async (req, res) => {
   res.end(page(s));
 });
 
-srv.listen(PORT, '127.0.0.1', async () => {
+srv.listen(PORT, '0.0.0.0', async () => {
   console.log('Connect UI http://127.0.0.1:' + PORT);
   console.log('Backend ' + backend);
   try { await bridge.createPair(); } catch (e) { console.error(e.message); }

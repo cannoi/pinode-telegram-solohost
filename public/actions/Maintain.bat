@@ -42,8 +42,7 @@ echo ============================================================
 echo  WEEKLY MAINTENANCE
 echo ============================================================
 echo  WILL: time sync, close extra apps, clean temp/cache,
-echo         unused docker volume/image prune, recycle bin,
-echo         flush DNS, anti-sleep, Docker priority, TRIM if CPU low,
+echo         recycle bin, flush DNS, anti-sleep, TRIM if CPU low,
 echo         monthly SFC/DISM only first Sunday if disk free ^>= 15GB.
 echo  WILL NOT: change LAN IP, stop Pi Node container, reboot,
 echo            send Telegram from a hardcoded token.
@@ -67,16 +66,14 @@ net stop spooler >nul 2>&1
 echo [3/10] Clean TEMP
 powershell.exe -NoProfile -Command "Remove-Item $env:TEMP\* -Force -Recurse -ErrorAction SilentlyContinue; Remove-Item $env:SystemRoot\Temp\* -Force -Recurse -ErrorAction SilentlyContinue"
 
-echo [4/10] Cache + Docker dangling images
+echo [4/10] Windows cache
 powershell.exe -NoProfile -Command "Remove-Item $env:LOCALAPPDATA\Microsoft\Windows\WER\ReportArchive\* -Force -Recurse -ErrorAction SilentlyContinue; Remove-Item C:\ProgramData\Microsoft\Windows\WER\ReportArchive\* -Force -Recurse -ErrorAction SilentlyContinue; Remove-Item $env:LOCALAPPDATA\D3DSCache\* -Force -Recurse -ErrorAction SilentlyContinue"
-docker image prune -f >nul 2>&1
 
 echo [5/10] Recycle Bin
 powershell.exe -NoProfile -Command "try{Clear-RecycleBin -Force -ErrorAction SilentlyContinue}catch{}"
 rd /s /q %SystemDrive%\$Recycle.Bin >nul 2>&1
 
-echo [6/10] Unused Docker images only (not prune -a)
-docker image prune -f >nul 2>&1
+echo [6/10] (reserved)
 
 echo [7/10] Flush DNS
 ipconfig /flushdns >nul 2>&1
@@ -92,9 +89,7 @@ powercfg /change disk-timeout-ac 0 >nul 2>&1
 powercfg /change standby-timeout-ac 0 >nul 2>&1
 powercfg /change hibernate-timeout-ac 0 >nul 2>&1
 
-echo [9/10] Docker priority + TRIM if CPU low
-wmic process where name="Docker Desktop.exe" CALL setpriority "above normal" >nul 2>&1
-powershell.exe -NoProfile -Command "try{(Get-Process 'Docker Desktop' -EA SilentlyContinue)|ForEach-Object{$_.PriorityClass='AboveNormal'}}catch{}"
+echo [9/10] TRIM if CPU low
 set "CPU_USAGE=100"
 for /f "skip=1 tokens=2 delims==" %%A in ('wmic cpu get LoadPercentage /value 2^>nul') do set "CPU_USAGE=%%A"
 if "%CPU_USAGE%"=="" (
@@ -127,18 +122,16 @@ if %DAY% LEQ 7 if "%DOW%"=="0" if %FreeGB% GEQ 15 (
   sfc /scannow >nul 2>&1
 )
 
-tasklist /FI "IMAGENAME eq Docker Desktop.exe" 2>nul | find /I "Docker Desktop.exe" >nul
-if %errorLevel%==0 (set "DOCKER_STATUS=RUNNING") else (set "DOCKER_STATUS=STOPPED")
 tasklist /FI "IMAGENAME eq Pi Network.exe" 2>nul | find /I "Pi Network.exe" >nul
 if %errorLevel%==0 (set "PI_STATUS=RUNNING") else (set "PI_STATUS=STOPPED")
 
 echo.
 echo [RESULT] Maintenance finished.
-echo          Docker=%DOCKER_STATUS%  Pi Desktop=%PI_STATUS%  Monthly=%MONTHLY_STATUS%
+echo          Pi Desktop=%PI_STATUS%  Monthly=%MONTHLY_STATUS%
 echo          LAN IP unchanged. Log: %LOG_FILE%
 if exist "%~dp0send_tele.ps1" (
   echo Optional send_tele.ps1 found - calling WITHOUT embedding any token in this BAT.
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0send_tele.ps1" -DockerStatus "%DOCKER_STATUS%" -PiStatus "%PI_STATUS%" -MonthlyStatus "%MONTHLY_STATUS%" -TimeStr "%date% %time%"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0send_tele.ps1" -PiStatus "%PI_STATUS%" -MonthlyStatus "%MONTHLY_STATUS%" -TimeStr "%date% %time%"
 )
 
 if /I "%~1"=="/scheduled" exit /b 0

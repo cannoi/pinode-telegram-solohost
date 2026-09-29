@@ -1,7 +1,6 @@
 'use strict';
 
 /**
- * OPTIMIZED HTTP Reader - Fixed for accurate Pi Node status without docker.sock
  * 
  * KEY IMPROVEMENTS:
  * 1. Core HTTP /info is PRIMARY (never falls back unless Core truly unreachable)

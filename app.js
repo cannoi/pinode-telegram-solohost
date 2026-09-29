@@ -8,13 +8,12 @@
  * - Natural Language Command Parser (multi-language)
  * - Auto Telegram Menu Sync on boot
  * - Update checker (48h) via GitHub repo cannoi/pinode-telegram-solohost
- * - Horizon-only notice: shown under Peers line, hidden when docker.sock ON
  * - Unified data pipeline: read -> normalize -> sort -> aggregate -> use
  * - Night/off mute covers all notifications
  * - Resource-tuned: readHistory cache + rollup RAM cache + index cache
  * - [2.6.58] Host metrics come from Node OS (os.cpus / os.totalmem / fs.statfsSync)
- *   via host-metrics.js. Independent of Docker.
- * - [2.6.58] Safe getTelemetry dedupe + sock cache + no detail cache pollution
+ *   via host-metrics.js.
+ * - [2.6.58] Safe getTelemetry dedupe + no detail cache pollution
  * - [2.6.58] pull_policy: missing in generated compose to prevent image pull loops
  * - [2.6.58-fix] host-metrics module is OPTIONAL — selftest never fails if missing
  * - [2.6.58-fix] /api/host-metrics reads directly from the module (no HTTP fetch)
@@ -35,12 +34,11 @@ Purpose: 24/7 Pi Node monitoring via Telegram + local SoloHost UI.
 HEALTH: stability-aware damper (EMA + dead-band + confidence).
 INCIDENT: 10 classes, stage machine 0-5.
 AI DATA: named blocks + flexible DSL queries (metric/window/agg/filter).
-DIAGNOSTIC: 7-step flow + 8 SoloHost scripts, 4 safety levels.
+DIAGNOSTIC: 7-step flow + SoloHost scripts, 4 safety levels.
 NATURAL LANGUAGE: report schedule, alerts on/off/night, mute N hours, stop reports.
 UPDATE CHECK: every 48h from github.com/cannoi/pinode-telegram-solohost.
 NIGHT MUTE: applies to alerts, reminders, recovery, scheduled reports, update notices.
 HOST METRICS: Node OS CPU/RAM/Disk/Uptime (os.cpus / os.totalmem / fs.statfsSync).
-DOCKER METRICS: container CPU/RAM/health only when docker.sock ON (separate from Host).
 STYLE: static system messages English; AI replies match user's language.
 GITHUB: https://github.com/cannoi/pinode-telegram-solohost — read README and issues when unsure about this app.
 `.trim();
@@ -48,45 +46,37 @@ GITHUB: https://github.com/cannoi/pinode-telegram-solohost — read README and i
 const PI_NODE_DIAGNOSTIC_PROMPT = `
 === PI NODE AI DIAGNOSTIC & OPERATIONAL CONSULTANT (v3.0 PRO SoloHost) ===
 ROLE: Senior Pi Node Operations & Diagnostics Consultant inside the app.
-Analyze Pi Node / Docker Desktop / WSL2 / Windows state, diagnose issues,
-then recommend the EXACT script from the 8 SoloHost operation scripts.
+Analyze Pi Node / Windows state (Horizon, Core HTTP and TCP ports only), diagnose issues,
+then recommend the EXACT script from the 6 SoloHost operation scripts.
 Never break the sync chain, never change LAN IP, never lose blockchain data.
 
 GOLDEN GUARDRAILS (NEVER violate):
 1. NEVER suggest LAN IP change / ipconfig /release /renew / netsh int ip reset.
-2. NEVER suggest "wsl --shutdown" while Docker Desktop is running.
-3. NEVER suggest docker volume prune -a or docker system prune --volumes.
-4. NEVER conclude "Port Closed = Firewall fault". If the container is stopped,
+2. NEVER conclude "Port Closed = Firewall fault". If the container is stopped,
    Port Closed is normal (listener not running). Not a firewall problem.
-5. NEVER recommend heavy intervention during natural "Catching up" or
+3. NEVER recommend heavy intervention during natural "Catching up" or
    "Downloading ledger" under 6 hours.
 
-HOST vs CONTAINER (strict):
+METRICS (strict):
 - system.cpu/ram/disk are Node OS metrics (source: node_os).
-- container_cpu/container_ram are Docker container metrics (source: docker).
-- Never present container metrics as host metrics, or vice versa.
+- SoloHost has NO Docker access: container CPU/RAM/state are unavailable. Never invent them.
 
-8 SCRIPTS (safety L1 safest -> L4 strongest):
-- CleanRam.bat      L1  Free RAM/TEMP/TRIM/DNS. Does NOT touch Docker/Pi.
+6 SCRIPTS (safety L1 safest -> L3 strongest):
+- CleanRam.bat      L1  Free RAM/TEMP/TRIM/DNS. Does NOT touch Pi Node.
 - DnsFlush.bat      L1  ipconfig /flushdns + registerdns. NIC/IP unchanged.
 - Firewall.bat      L2  Rebuild TCP 31401-31410 In+Out + local listener test.
-- NodeReset.bat     L2  Restart Pi container only (60s grace). No data loss.
 - NetRepair.bat     L3  Phase1 DNS/ARP/FW -> Phase2 adapter restart keep IP
                         -> Phase3 winsock reset (reboot required).
 - LanSetup.bat      L3  Lock CURRENT IP as static + firewall + Google DNS.
-- DockerRecover.bat L4  Mode S (soft) -> Mode Y (ordered WSL, kill Docker first).
-- Maintain.bat      L1->L4  Weekly cleanup. Image prune only — never volume prune.
+- Maintain.bat      L1->L3  Weekly cleanup (temp, DNS time sync, TRIM).
 
 DECISION MATRIX (symptom -> script):
-- Slow PC / RAM>85% / Docker resource starve  -> CleanRam.bat     [L1]
+- Slow PC / RAM>85%                            -> CleanRam.bat     [L1]
 - Peers -> 0 but ports OPEN + ledger advancing -> DnsFlush.bat     [L1]
-- Ports CLOSED + Container RUNNING             -> Firewall.bat     [L2]
-- Ports CLOSED + Container STOPPED             -> NodeReset.bat    [L2]
+- Ports CLOSED (locally)                       -> Firewall.bat     [L2]
 - Local port OPEN but Internet CLOSED          -> Router NAT/CGNAT (no script)
-- Container stuck, block frozen > 30 min       -> NodeReset.bat    [L2]
 - No internet (ping 8.8.8.8 fails)             -> NetRepair.bat    [L3]
 - IP changed, port-forward broken              -> LanSetup.bat     [L3]
-- Docker Engine not ready / WSL2 stuck         -> DockerRecover   [L4 soft]
 - Weekly housekeeping                          -> Maintain.bat    [Sun 03:00]
 
 7-STEP DIAGNOSTIC FLOW (always in order):
@@ -120,7 +110,7 @@ const PI_NODE_DEEP_KNOWLEDGE = `
 3) HEALTH SCORE
 - Range 0-100. Smoothed by stability-aware damper.
 - 85-100 = healthy. 65-84 = watch. 40-64 = degraded. <40 = critical.
-- Confidence: high (docker.sock+Core), medium (Core or Horizon+Ports), low (Horizon only).
+- Confidence: high (Core+Horizon), medium (Core or Horizon+Ports), low (Horizon only).
 - Frozen when no source (never drifts to 0 during outages).
 - Sustained bad sync keeps the score low; brief noise does not.
 
@@ -136,20 +126,16 @@ const PI_NODE_DEEP_KNOWLEDGE = `
 - CLOSED with container RUNNING = firewall issue -> Firewall.bat.
 - Local OPEN but Internet CLOSED = Router NAT / CGNAT (no local script fixes).
 
-6) 8 SCRIPTS WITH SAFETY LEVELS
+6) 6 SCRIPTS WITH SAFETY LEVELS
 L1: CleanRam.bat (RAM>85%, PC slow, node synced)
 L1: DnsFlush.bat (peers=0, ports OPEN, ledger moves)
 L2: Firewall.bat (ports CLOSED, container RUNNING)
-L2: NodeReset.bat (container stuck, block frozen >30 min)
 L3: NetRepair.bat (no internet, 3-phase, keeps IP)
 L3: LanSetup.bat (first setup OR IP changed)
-L4: DockerRecover.bat (Docker not ready, WSL stuck - soft first)
 SCH: Maintain.bat (Sun 03:00, weekly cleanup)
 
 7) GOLDEN RULES (never violate)
 - NEVER change LAN IP (breaks port forwarding).
-- NEVER run "wsl --shutdown" while Docker Desktop is running.
-- NEVER run "docker volume prune -a" (loses blockchain data).
 - NEVER say "Port Closed = Firewall" without checking container state.
 - NEVER intervene during natural "Catching up" < 6 hours.
 
@@ -158,33 +144,25 @@ SCH: Maintain.bat (Sun 03:00, weekly cleanup)
 - Sync "Catching up" 5-30 min after Pi Node update -> normal.
 - Ledger age 30-120s -> network blip, wait.
 - Horizon "ingest lag" -> Core ahead, Horizon catching up.
-- Docker "exited" with restart policy -> check if auto-restarting.
 
 9) WHEN TO ESCALATE
-- Sync stuck > 6 hours: NodeReset
-- Ports closed > 30 min with container running: Firewall
+- Ports closed > 30 min: Firewall
 - No internet at all > 5 min: NetRepair
-- Docker Engine down > 5 min: DockerRecover (soft)
 - Repeated incidents (>3 in 24h): /report for pattern
 
 10) PERFORMANCE EXPECTATIONS
 - Pi Node ledger: ~5-10s per block (Testnet), ~5s (Mainnet).
 - Peers: 8-20 typical, 3-7 acceptable, 0-2 concerning after bootstrap.
-- Container RAM: 1-2 GB typical, 3+ GB on testnet2 during catch-up.
-- Container CPU: 10-60% typical (single core), >90% sustained = problem.
 
-11) DOCKER OPTIONAL
-- docker.sock gives Core version + real container state.
-- Without it, app uses Horizon + TCP ports probe (still works).
-- Operator must opt-in via SoloHost UI. Telegram cannot raise privileges.
+11) DATA SOURCES
+- Horizon HTTP, Core HTTP and TCP ports 31401-31403 only.
+- SoloHost has no Docker access and never asks for it. Telegram cannot raise privileges.
 - Horizon-only accuracy note: Horizon ingest can lag behind Core state,
-  so ledger/sync numbers may differ from Pi Node Desktop. Enable Optional
-  Docker for exact Core state + real container metrics.
+  so ledger/sync numbers may differ from Pi Node Desktop.
 
 12) HOST METRICS (Node OS)
 - CPU/RAM/Disk/Uptime come from Node's own os module + fs.statfsSync.
-- Independent of docker.sock. Works when Docker is OFF.
-- Source label: node_os. Never confuse with container metrics.
+- Source label: node_os.
 - Note: values reflect the container's kernel/namespace view, not the
   Windows host directly. CPU cores and uptime match the host kernel.
 
@@ -199,7 +177,7 @@ const SCRIPT_DETAILS = {
   cleanram: {
     icon: '🧹', file: 'CleanRam.bat', level: '🟢 L1', levelTxt: 'Very safe',
     when: 'RAM > 85% or PC sluggish while node is still synced',
-    does: 'Close background apps (Search, RuntimeBroker), clear TEMP, TRIM SSD, flush DNS, restart Explorer. Does NOT touch Docker or Pi Node.',
+    does: 'Close background apps (Search, RuntimeBroker), clear TEMP, TRIM SSD, flush DNS, restart Explorer. Does NOT touch Pi Node.',
     safety: 'No sync interruption. No IP change. Pi Node stays running.'
   },
   dnsflush: {
@@ -210,15 +188,9 @@ const SCRIPT_DETAILS = {
   },
   firewall: {
     icon: '🧱', file: 'Firewall.bat', level: '🟡 L2', levelTxt: 'Node intervention',
-    when: 'Local ports 31401-31403 CLOSED while container is RUNNING',
+    when: 'Local ports 31401-31403 CLOSED while the PC is online',
     does: 'Rebuild Windows Firewall TCP 31401-31410 Inbound+Outbound rules, then run a local listener test on 31401-31403.',
-    safety: 'Container untouched. No IP change.'
-  },
-  nodereset: {
-    icon: '♻️', file: 'NodeReset.bat', level: '🟡 L2', levelTxt: 'Node intervention',
-    when: 'Container stuck/exited, block frozen > 30 min, Docker Engine OK',
-    does: 'Restart Pi container only (testnet2/mainnet/testnet) with 60s grace. Flush DNS, reapply firewall, enable anti-sleep, set Docker High priority.',
-    safety: 'No data loss. No image pull. No IP change.'
+    safety: 'Pi Node untouched. No IP change.'
   },
   netrepair: {
     icon: '🔧', file: 'NetRepair.bat', level: '🟠 L3', levelTxt: 'System network',
@@ -232,21 +204,15 @@ const SCRIPT_DETAILS = {
     does: 'Detect current IPv4 -> lock THAT SAME IP as static, disable IPv6, set Google DNS (8.8.8.8), Private network, firewall rule.',
     safety: 'Locks CURRENT IP only. Never invents a new IP.'
   },
-  dockerrecover: {
-    icon: '🐳', file: 'DockerRecover.bat', level: '🔴 L4', levelTxt: 'Docker / WSL',
-    when: 'Docker Engine "not ready" / WSL2 stuck',
-    does: 'Mode S (Soft): light Docker Desktop restart. Mode Y (Ordered): Docker stop -> confirm dead -> wsl --shutdown -> restart Docker.',
-    safety: 'Ordered shutdown only AFTER Docker confirmed stopped to avoid .vhdx corruption.'
-  },
   maintain: {
     icon: '🧰', file: 'Maintain.bat', level: '🟢 L1 → 🔴 L4', levelTxt: 'Scheduled',
     when: 'Weekly housekeeping (recommend Sun 03:00)',
-    does: 'Sync time (w32tm), clean TEMP/Recycle Bin, docker image prune (no volume prune), TRIM (if CPU<75%), SFC/DISM (Sun week 1 if free >= 15GB).',
-    safety: 'Volume prune is the safe one (not -a). Container data preserved.'
+    does: 'Sync time (w32tm), clean TEMP/Recycle Bin, TRIM (if CPU<75%), SFC/DISM (Sun week 1 if free >= 15GB).',
+    safety: 'Pi Node data is never touched.'
   }
 };
 
-const VERSION = '2.6.63-solohost';
+const VERSION = '2.6.65-solohost';
 let createPiBrowserBridge;
 try { createPiBrowserBridge = require('./pi-browser-bridge').createBridge; } catch (e) { createPiBrowserBridge = null; }
 const GITHUB_REPO = 'cannoi/pinode-telegram-solohost';
@@ -369,7 +335,6 @@ function footerTime() {
 function sourceLabel(t) {
   t = t || {};
   let src = t.source || 'Horizon';
-  if (t.docker_sock && !/docker/i.test(src)) src = 'DockerExec+' + src;
   return src;
 }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -498,11 +463,10 @@ function normalizeHistoryRow(r) {
     const v = r[k];
     if (v != null && v !== '' && isFinite(Number(v))) out[k] = Number(v);
   });
-  ['sync','level','container','docker','health_confidence','network_kind','source','cpu_source','ram_source','disk_source'].forEach(function (k) {
+  ['sync','level','health_confidence','network_kind','source','cpu_source','ram_source','disk_source'].forEach(function (k) {
     if (r[k] != null && r[k] !== '') out[k] = String(r[k]);
   });
   if (r.ports_all_open === true || r.ports_all_open === false) out.ports_all_open = r.ports_all_open;
-  if (r.docker_sock === true || r.docker_sock === false) out.docker_sock = r.docker_sock;
   return out;
 }
 function getTimeWindow(hours) {
@@ -562,30 +526,16 @@ function ledgerVelocity(rows) {
 }
 /* END DATA PIPELINE ==================================================== */
 
-/* HORIZON-ONLY FOOTER (Telegram) ====================================== */
+/* STATUS SOURCE FOOTER ================================================ */
 function horizonFooter(t) {
-  if (!t || (t.docker_sock || t.docker_probe)) return '';
   return [
     '',
     '───────────────',
-    'ℹ️ SOURCE · Horizon only (no docker.sock)',
-    '⚠️ Horizon can lag behind Pi Node Desktop — data may not be 100% exact.',
-    '🖥️ SYSTEM · Node OS (independent of Docker)',
-    '🔓 For best accuracy, enable Optional Docker in SoloHost UI on this PC.'
+    'ℹ️ SOURCE · Horizon + Core + ports',
+    '🖥️ SYSTEM · Node OS'
   ].join('\n');
 }
-const _sockCache = { v: null, at: 0 };
-function hasDockerSock(t) {
-  if (t && (t.docker_sock === true || t.docker_probe === true)) return true;
-  const now = Date.now();
-  if (_sockCache.v !== null && (now - _sockCache.at) < 10000) return _sockCache.v;
-  let v = false;
-  try { v = fs.existsSync('/var/run/docker.sock'); } catch (e) { v = false; }
-  _sockCache.v = v;
-  _sockCache.at = now;
-  return v;
-}
-/* END HORIZON FOOTER ================================================== */
+/* END STATUS SOURCE FOOTER ============================================ */
 
 /* UPDATE CHECKER ====================================================== */
 async function checkForUpdates(force) {
@@ -671,7 +621,7 @@ async function updateLoop() {
 
 function normalizeAny(j, sourceTag) {
   const o = { source: sourceTag || j.source || 'unknown', timestamp: j.timestamp || nowISO() };
-  ['sync','docker','container','confidence'].forEach(function (k) {
+  ['sync','container','confidence'].forEach(function (k) {
     if (j[k] != null && j[k] !== '') o[k] = String(j[k]);
   });
   ['ledger','ledger_age','peer_in','peer_out','cpu','ram','temp','disk'].forEach(function (k) {
@@ -703,13 +653,12 @@ function mergeTelemetry(primary, horizon, portSnap) {
   if (!t.container) t.container = NODE_LABEL;
   const portsAllOpen = t.ports && NODE_PORTS.every(p => t.ports[String(p)] === 'OPEN');
   const portsAllClosed = t.ports && NODE_PORTS.every(p => t.ports[String(p)] === 'CLOSED');
-  const dockerStopped = t.docker && /stop|exit/i.test(t.docker);
   const syncStr = String(displaySync(t) || t.sync || '');
   const syncBad = /not synced|unsynced|error|fail/i.test(syncStr);
   const catching = /catching|joining|booting|behind|slow|ingest lag/i.test(syncStr);
   const coreMissing = t.core_verified === false || /core n\/a|unverified/i.test(syncStr);
   let level = 'ok';
-  if (dockerStopped || portsAllClosed) level = 'critical';
+  if (portsAllClosed) level = 'critical';
   else if (syncBad || (t.ledger_age != null && t.ledger_age > 300)) level = 'warning';
   else if (catching) level = 'soft';
   else if (coreMissing && (primary || horizon)) level = 'soft';
@@ -730,14 +679,11 @@ const HEALTH_CFG = {
 };
 function healthConfidence(t) {
   t = t || {};
-  const hasSock = !!(t.docker_sock || t.docker_probe);
   const hasCore = !!t.core_verified;
   const hasHorizon = !!(t.source && /horizon/i.test(t.source));
   const hasPorts = t.ports_open != null;
   let sources = 0;
-  if (hasSock) sources++; if (hasCore) sources++; if (hasHorizon) sources++; if (hasPorts) sources++;
-  if (hasSock && hasCore) return { level: 'high', sources: sources, score: 100 };
-  if (hasSock) return { level: 'high', sources: sources, score: 85 };
+  if (hasCore) sources++; if (hasHorizon) sources++; if (hasPorts) sources++;
   if (hasCore) return { level: 'medium', sources: sources, score: 70 };
   if (hasHorizon && hasPorts) return { level: 'medium', sources: sources, score: 60 };
   if (hasHorizon) return { level: 'low', sources: sources, score: 40 };
@@ -860,7 +806,7 @@ function dampHealthScore(t, rawHealth) {
 
 async function collectTelemetry() {
   let t = null;
-  try { t = await statusMonitor.getStatus(true, { detailed: false, docker: false }); }
+  try { t = await statusMonitor.getStatus(true, { detailed: false }); }
   catch (e) { try { actionLog('error', 'statusMonitor: ' + (e && e.message)); } catch (e2) {} }
   if (!t || typeof t !== 'object') t = { source: 'none', sync: 'Unknown', level: 'soft', core_verified: false, sources: {} };
   t.sources = t.sources || {};
@@ -876,8 +822,6 @@ async function collectTelemetry() {
     t.status = lf.status;
     t.peers = lf.peers;
     t.ports_ok = lf.ports_ok;
-    t.docker_status = lf.docker_status;
-    t.docker_health = lf.docker_health;
     t.health_raw = lf.health;
     const damped = dampHealthScore(t, lf.health);
     if (damped && damped.health != null) {
@@ -996,9 +940,7 @@ function appendHistory(t) {
     if (t.health_confidence) row.health_confidence = t.health_confidence;
     if (t.ports_open != null) row.ports_open = t.ports_open;
     if (t.ports_all_open != null) row.ports_all_open = t.ports_all_open;
-    if (t.docker_sock != null) row.docker_sock = t.docker_sock;
     if (t.container) row.container = t.container;
-    if (t.docker) row.docker = t.docker;
     if (t.peer_in != null) row.peer_in = t.peer_in;
     if (t.peer_out != null) row.peer_out = t.peer_out;
     if (t.peer_total != null) row.peer_total = t.peer_total;
@@ -1097,9 +1039,8 @@ function alertKeyboard() {
 function scriptActionKeyboard() {
   return { inline_keyboard: [
     [{ text: '🧹 CleanRam', callback_data: 'cmd_script_cleanram' }, { text: '🌐 DnsFlush', callback_data: 'cmd_script_dnsflush' }],
-    [{ text: '🧱 Firewall', callback_data: 'cmd_script_firewall' }, { text: '♻️ NodeReset', callback_data: 'cmd_script_nodereset' }],
-    [{ text: '🔧 NetRepair', callback_data: 'cmd_script_netrepair' }, { text: '📡 LanSetup', callback_data: 'cmd_script_lansetup' }],
-    [{ text: '🐳 DockerRecover', callback_data: 'cmd_script_dockerrecover' }, { text: '🧰 Maintain', callback_data: 'cmd_script_maintain' }],
+    [{ text: '🧱 Firewall', callback_data: 'cmd_script_firewall' }, { text: '🔧 NetRepair', callback_data: 'cmd_script_netrepair' }],
+    [{ text: '📡 LanSetup', callback_data: 'cmd_script_lansetup' }, { text: '🧰 Maintain', callback_data: 'cmd_script_maintain' }],
     [{ text: '🩺 Diag', callback_data: 'cmd_diagnostic' }, { text: '📊 Status', callback_data: 'cmd_status' }]
   ]};
 }
@@ -1149,13 +1090,11 @@ function detectIncidentSignature(t) {
   const peerIn = t.peer_in != null ? Number(t.peer_in) : null;
   const peerOut = t.peer_out != null ? Number(t.peer_out) : null;
   const peerTotal = (peerIn != null || peerOut != null) ? ((peerIn || 0) + (peerOut || 0)) : null;
-  const docker = String(t.docker || '');
   const ram = t.ram != null ? Number(t.ram) : null;
   const cpu = t.cpu != null ? Number(t.cpu) : null;
   const disk = t.disk != null ? Number(t.disk) : null;
   const source = String(t.source || '');
   const synced = /synced|live|horizon ok|good/i.test(sync);
-  if (/stop|exit/i.test(docker)) return { type: 'docker_down', severity: 'critical' };
   if (portsOpen === 0 && source === 'none') return { type: 'network_down', severity: 'critical' };
   if (portsOpen === 0) return { type: 'ports_closed', severity: 'warning' };
   if (age != null && age > 600) return { type: 'sync_stalled', severity: 'warning' };
@@ -1250,10 +1189,9 @@ function smartScriptForIncident(incident, t) {
   if (!incident) return null;
   const type = incident.type;
   switch (type) {
-    case 'docker_down': return { script: 'DockerRecover', note: 'Docker Engine appears down. Try SOFT restart first (Mode S). Ordered WSL (Mode Y) only after Docker confirmed dead.' };
     case 'network_down': return { script: 'NetRepair', note: 'Ports closed AND no telemetry source. 3-phase repair KEEPING the current LAN IP. No ipconfig release.' };
     case 'ports_closed': return { script: 'Firewall', then: 'NetRepair', note: 'PC online but Pi ports 31401-31403 unreachable. Rebuild firewall rules first; if it persists >15 min, escalate to NetRepair.' };
-    case 'sync_stalled': return { script: 'NodeReset', note: 'Ledger age > 5 min while container running. Container may be stuck - NodeReset only AFTER confirming Docker Engine healthy.' };
+    case 'sync_stalled': return { script: 'WAIT', note: 'Ledger age > 5 min. Check /diagnostic. If it stays frozen, restart Pi Node from Pi Desktop itself (SoloHost cannot restart it).' };
     case 'sync_lag': {
       if (incident.firstCoreVersion && t && t.core_version && String(t.core_version) !== String(incident.firstCoreVersion)) {
         return { script: 'WAIT', note: 'Catching up after a Core version change - normal. Watch 10-15 min; DO NOT restart.' };
@@ -1262,7 +1200,7 @@ function smartScriptForIncident(incident, t) {
     }
     case 'peers_zero': return { script: 'DnsFlush', note: 'Ports open, ledger moving, but no peers. DNS flush only - keeps LAN IP unchanged. Wait 10-15 min.' };
     case 'peers_low': return { script: 'DnsFlush', note: 'Peer count is low while synced. Try DNS flush; also check regional ISP outage.' };
-    case 'ram_high': return { script: 'CleanRam', note: 'RAM pressure. CleanRam closes extra apps, clears TEMP/TRIM. Does NOT stop Pi Node or Docker.' };
+    case 'ram_high': return { script: 'CleanRam', note: 'RAM pressure. CleanRam closes extra apps, clears TEMP/TRIM. Does NOT stop Pi Node.' };
     case 'cpu_high': return { script: 'CleanRam', note: 'CPU pressure. Observe first; run CleanRam only if the host has extra heavy apps.' };
     case 'disk_high': return { script: 'Maintain', note: 'Disk nearly full. Weekly cleanup (Maintain.bat) safe while node is otherwise healthy.' };
     default: return null;
@@ -1521,9 +1459,9 @@ function displaySync(t) {
   t = t || {};
   const raw = String(t.sync || '');
   const age = t.ledger_age != null ? Number(t.ledger_age) : null;
-  const sock = !!(t.docker_sock || t.docker_probe || t.core_verified);
+  const verified = !!t.core_verified;
   if (!raw) return raw;
-  if (sock) {
+  if (verified) {
     if (/catching|not\s*synced/i.test(raw) || (age != null && age > 180)) return (age != null && age > 300) ? 'Catching up' : (raw.indexOf('Horizon') === 0 ? 'Catching up' : raw);
     if (/synced|live|horizon ok|core ok|good/i.test(raw) || (age != null && age <= 35)) return 'Synced';
     if (age != null && age <= 120) return 'Syncing';
@@ -1547,14 +1485,7 @@ function formatStatus(t, mode) {
     const ic = /synced|live/i.test(syncStr) ? '🟢' : (/catch|behind|slow|lag/i.test(syncStr) ? '🟡' : '🔄');
     runtime.push('SYNC    · ' + ic + ' ' + displaySync(t));
   }
-  if (t.container) {
-    const ic = /stop|exit/i.test(String(t.docker || '')) ? '🔴' : '🟢';
-    runtime.push('NODE    · ' + ic + ' RUNNING (`' + t.container + '`)');
-  } else if (t.docker) {
-    const ic = /stop|exit/i.test(String(t.docker)) ? '🔴' : '🟢';
-    runtime.push('NODE    · ' + ic + ' ' + t.docker);
-  } else if (t.docker_sock) runtime.push('NODE    · 🟢 sock');
-  else if (t.ports_all_open) runtime.push('NODE    · 🟢 Running');
+  if (t.ports_all_open) runtime.push('NODE    · 🟢 Running');
   else if (t.ports_open === 0) runtime.push('NODE    · 🔴 Ports closed');
   if (netOk) {
     let netKind = '';
@@ -1594,24 +1525,6 @@ function formatStatus(t, mode) {
   const parts = [head, ''];
   if (runtime.length) parts.push(treeBlock('⚙️ RUNTIME', runtime));
   if (sys.length) { parts.push(''); parts.push(treeBlock('📊 SYSTEM', sys)); }
-
-  const dockerLines = [];
-  if (t.docker_sock || t.docker_probe) {
-    if (t.container) dockerLines.push('NODE    · ' + t.container);
-    if (t.container_health) dockerLines.push('HEALTH  · ' + t.container_health);
-    if (t.container_cpu != null) dockerLines.push('CPU     · ' + t.container_cpu + '%');
-    if (t.container_ram_mb != null) {
-      dockerLines.push('RAM     · ' + t.container_ram_mb + ' MB' +
-        (t.container_ram_limit_mb != null ? (' / ' + t.container_ram_limit_mb + ' MB') : ''));
-    } else if (t.container_ram != null) {
-      dockerLines.push('RAM     · ' + t.container_ram + '%');
-    }
-    if (t.restart_count != null) dockerLines.push('RESTARTS· ' + t.restart_count);
-    if (dockerLines.length) {
-      parts.push('');
-      parts.push(treeBlock('🐳 DOCKER (container)', dockerLines));
-    }
-  }
 
   parts.push('');
   parts.push(treeBlock('✅ RESULT', result));
@@ -1694,12 +1607,6 @@ function formatDiagnostic(t) {
     net.push('Ports   · 31401-31403 ' + pic);
   }
   const eng = [];
-  const sockYes = !!(t.docker_sock || t.docker_probe);
-  if (t.docker) {
-    const dic = /stop|exit/i.test(String(t.docker)) ? '🔴' : '🟢';
-    eng.push('Docker    · ' + dic + ' ' + String(t.docker).toUpperCase() + ' (Sock: ' + (sockYes ? 'Yes' : 'No') + ')');
-  } else if (sockYes) eng.push('Docker    · 🟢 Sock (Sock: Yes)');
-  if (t.container) eng.push('Container · ' + t.container);
   if (t.core_version) eng.push('Core      · ' + t.core_version + (t.protocol != null ? ' (Proto ' + t.protocol + ')' : ''));
   if (t.horizon_version) eng.push('Horizon   · ' + t.horizon_version);
   let levelIc = '🟢';
@@ -1753,16 +1660,14 @@ function formatDiagnostic(t) {
 }
 
 const ACTION_CATALOG = [
-  { id: 'CleanRam', file: 'CleanRam.bat', when: 'RAM high or PC sluggish while node is still synced.', does: 'Close extra apps/services, clear TEMP, TRIM, flush DNS. Does not stop Pi Node or Docker.', how: 'Double-click CleanRam.bat. Auto-elevates. Press Y.' },
+  { id: 'CleanRam', file: 'CleanRam.bat', when: 'RAM high or PC sluggish while node is still synced.', does: 'Close extra apps/services, clear TEMP, TRIM, flush DNS. Does not stop Pi Node.', how: 'Double-click CleanRam.bat. Auto-elevates. Press Y.' },
   { id: 'CleanTemp', file: 'CleanTemp.bat', when: 'Gentle cleanup while node is healthy.', does: 'Delete temp older than 6 hours + Recycle Bin.', how: 'Double-click CleanTemp.bat. Auto-elevates. Press Y.' },
   { id: 'DnsFlush', file: 'DnsFlush.bat', when: 'Peers dropped but ports stay open and ledger still moves.', does: 'ipconfig /flushdns and /registerdns only. Keeps LAN IP.', how: 'Double-click DnsFlush.bat. Auto-elevates. Press Y.' },
   { id: 'Firewall', file: 'Firewall.bat', when: 'Local ports 31401-31403 stay closed while the PC is online.', does: 'Recreate Windows Firewall TCP 31401-31410 inbound + outbound remote ports, then test local listen.', how: 'Double-click Firewall.bat. Auto-elevates. Press Y. Then /status.' },
   { id: 'NetRepair', file: 'NetRepair.bat', when: 'Internet/Horizon down for a LONG window. Never after a 1-minute catch-up.', does: 'Keep current LAN IP. DNS/ARP/firewall, then adapter restart, then winsock if still offline.', how: 'Double-click NetRepair.bat. Confirm each phase.' },
   { id: 'LanSetup', file: 'LanSetup.bat', when: 'First setup on a new PC, or modem already forwards to this PC IP.', does: 'Detect current IPv4. Optional lock that same IP as static + Google DNS + firewall.', how: 'Double-click LanSetup.bat. Press Y to lock the current IP.' },
-  { id: 'NodeReset', file: 'NodeReset.bat', when: 'Pi container stuck/exited for a long time. Docker Engine is healthy.', does: 'Restart testnet2/mainnet/testnet only. Then DNS + firewall + anti-sleep. No WSL shutdown. No IP change.', how: 'Double-click NodeReset.bat. Auto-elevates. Press Y.' },
-  { id: 'DockerRecover', file: 'DockerRecover.bat', when: 'Docker Engine itself is down. Not for a short Core catch-up.', does: 'Soft restart Docker Desktop. Ordered WSL only AFTER Docker process is confirmed stopped.', how: 'Double-click DockerRecover.bat. Choose Soft first.' },
-  { id: 'Maintain', file: 'Maintain.bat', when: 'Node is healthy. Sunday quiet hours.', does: 'Weekly v13.2 cleanup, unused docker prune, optional Sunday 03:00 task. No token inside the file.', how: 'Double-click Maintain.bat. Press Y. Optional schedule.' },
-  { id: 'Reboot', file: 'Reboot.bat', when: 'Last resort after NetRepair + DockerRecover failed and the host is wedged.', does: 'Controlled shutdown /r with delay. Cancel: shutdown /a', how: 'Double-click Reboot.bat. Type delay. Press Y. Never auto-suggested for a short sync dip.' }
+  { id: 'Maintain', file: 'Maintain.bat', when: 'Node is healthy. Sunday quiet hours.', does: 'Weekly cleanup (temp, time sync, TRIM), optional Sunday 03:00 task. No token inside the file.', how: 'Double-click Maintain.bat. Press Y. Optional schedule.' },
+  { id: 'Reboot', file: 'Reboot.bat', when: 'Last resort after NetRepair failed and the host is wedged.', does: 'Controlled shutdown /r with delay. Cancel: shutdown /a', how: 'Double-click Reboot.bat. Type delay. Press Y. Never auto-suggested for a short sync dip.' }
 ];
 
 const APP_GUIDE = `
@@ -1770,12 +1675,10 @@ HOW TO USE THIS APP
 Telegram commands: /status /sync /peers /report /diagnostic /analyze /logs /incidents /scripts /donate /help /mute.
 Natural language: "reports at 7am and 6pm", "turn off alerts", "mute for 2 hours", "quiet at night".
 SoloHost window http://127.0.0.1:18780/ : live status + local chat + script downloads.
-Diagnostic framework: 7 steps, 8 SoloHost scripts, 4 safety levels (L1 safest -> L4 strongest).
+Diagnostic framework: 7 steps, SoloHost scripts, 4 safety levels (L1 safest -> L4 strongest).
 Health score: stability-aware damper - noise tolerated but sustained bad sync is punished.
 Update check: every 48h from github.com/cannoi/pinode-telegram-solohost.
-Source note: when docker.sock is OFF, data is Horizon-only and may differ slightly from Pi Node Desktop.
 Host metrics: Node OS CPU/RAM/Disk/Uptime (os.cpus / os.totalmem / fs.statfsSync).
-Docker metrics: container CPU/RAM/health only when docker.sock ON (separate from Host).
 Night/off mute applies to all notifications including recovery, scheduled reports, update notices.
 Reports always show the last 24h rolling window (spans midnight).
 Donate: /donate - Pay with Pi or MB Bank QR.
@@ -1787,14 +1690,12 @@ Telegram or SoloHost UI -> /status /report /analyze use history frames.
 Incident engine: observe -> first alert -> reminder -> chronic.
 Alert only fires when the incident persists 5+ minutes or 5+ samples.
 
-8 SCRIPTS (Safety L1 safest -> L4 strongest)
+6 SCRIPTS (Safety L1 safest -> L3 strongest)
 CleanRam.bat      L1  RAM high / PC sluggish while node synced.
 DnsFlush.bat      L1  Peers dropped, ports OPEN, ledger still moves.
-Firewall.bat      L2  Ports CLOSED locally, container RUNNING.
-NodeReset.bat     L2  Container stuck, block frozen > 30 min.
+Firewall.bat      L2  Ports CLOSED locally while PC is online.
 NetRepair.bat     L3  No internet at all (ping 8.8.8.8 fails).
 LanSetup.bat      L3  First setup OR IP changed, port-forward broke.
-DockerRecover.bat L4  Docker Engine "not ready" / WSL2 stuck (Soft first).
 Maintain.bat      L1->L4  Weekly cleanup (recommend Sun 03:00).
 
 7-STEP DIAGNOSTIC FLOW
@@ -1825,7 +1726,6 @@ function recommendActions(t) {
   const health = t.health != null ? Number(t.health) : null;
   const trend = String(t.trend || 'stable');
   const degrading = trend === 'degrading';
-  const dockerBad = t.docker_health === 'unhealthy' || t.docker_status === 'stopped';
   const ramHigh = ramVal != null && ramVal >= 85;
   const cpuHigh = cpuVal != null && cpuVal >= 90;
   const diskHigh = diskVal != null && diskVal >= 90;
@@ -1836,11 +1736,11 @@ function recommendActions(t) {
     if (!lastFix || lastFix.id !== id) return false;
     return Date.now() - (lastFix.ts || 0) < 6 * 3600 * 1000;
   };
-  if (health != null && health >= 80 && trend === 'stable' && !portsClosed && !dockerBad) {
+  if (health != null && health >= 80 && trend === 'stable' && !portsClosed) {
     why.push('Health ' + health + ' · trend stable. Observe. Repair BATs not needed.');
     return { why: why, items: [], picks: [] };
   }
-  if (!persistent && !degrading && !(ramHigh && degrading) && !dockerBad) {
+  if (!persistent && !degrading && !(ramHigh && degrading)) {
     why.push('No repeated / degrading incident. Wait and watch. Do not run repair BATs yet.');
     return { why: why, items: [], picks: [] };
   }
@@ -1855,9 +1755,6 @@ function recommendActions(t) {
   } else if (peers === 0 && (persistent || degrading) && t.ports_ok !== false) {
     why.push('Peers 0 while ports not closed. DnsFlush only.');
     if (!sameScriptRecently('DnsFlush')) picks.push('DnsFlush');
-  } else if (dockerBad && (persistent || degrading)) {
-    why.push('docker_health/status bad. Soft DockerRecover first. No WSL while Docker lives.');
-    if (!sameScriptRecently('DockerRecover')) picks.push('DockerRecover');
   } else if (ramHigh && (persistent || degrading)) {
     why.push('RAM ' + ramVal + '% and ' + trend + '. CleanRam. Do not restart the node.');
     if (!sameScriptRecently('CleanRam')) picks.push('CleanRam');
@@ -1916,10 +1813,8 @@ function recommendScriptsFromText(text) {
   if (/\bCleanRam\b/i.test(t)) hits.push('cleanram');
   if (/\bDnsFlush\b/i.test(t)) hits.push('dnsflush');
   if (/\bFirewall\b/i.test(t)) hits.push('firewall');
-  if (/\bNodeReset\b/i.test(t)) hits.push('nodereset');
   if (/\bNetRepair\b/i.test(t)) hits.push('netrepair');
   if (/\bLanSetup\b/i.test(t)) hits.push('lansetup');
-  if (/\bDockerRecover\b/i.test(t)) hits.push('dockerrecover');
   if (/\bMaintain\b/i.test(t)) hits.push('maintain');
   return hits;
 }
@@ -1957,15 +1852,9 @@ function formatReport(hours) {
   const lastSync = displaySync(live) || live.sync || last.sync || '';
   metrics.push('🔄 SYNC    · ' + (/synced|live|good/i.test(lastSync) ? '🟢 ' : '🟡 ') + (lastSync || 'n/a'));
   const portsOpen = (live.ports_open != null) ? Number(live.ports_open) : null;
-  let dockLabel, dockIcon;
-  if (live.docker && String(live.docker).length) {
-    dockLabel = String(live.docker);
-    dockIcon = /stop|exit/i.test(dockLabel) ? '🟡 ' : '🟢 ';
-  } else if (live.docker_sock === true) { dockLabel = 'sock'; dockIcon = '🟢 '; }
-  else if (live.container) { dockLabel = 'Running (`' + live.container + '`)'; dockIcon = '🟢 '; }
-  else if (portsOpen != null && portsOpen > 0) { dockLabel = 'Running (via ports)'; dockIcon = '🟢 '; }
-  else { dockLabel = 'N/A'; dockIcon = '⚪ '; }
-  metrics.push('🐳 DOCKER  · ' + dockIcon + dockLabel);
+  let runtimeLabel = 'N/A', runtimeIcon = '⚪ ';
+  if (portsOpen != null && portsOpen > 0) { runtimeLabel = 'Reachable via ports'; runtimeIcon = '🟢 '; }
+  metrics.push('⚙️ RUNTIME · ' + runtimeIcon + runtimeLabel);
   const livePeerIn = live.peer_in != null ? live.peer_in : last.peer_in;
   const livePeerOut = live.peer_out != null ? live.peer_out : last.peer_out;
   if (livePeerIn != null || livePeerOut != null) {
@@ -2017,7 +1906,7 @@ function formatHelp() {
     '📈 /report      - Last 24h rolling window (spans midnight)',
     '🧭 /incidents   - Active + recent incident history',
     '🩺 /diagnostic  - Technical source details',
-    '🔧 /scripts     - 8 SoloHost scripts (with safety levels)',
+    '🔧 /scripts     - 7 SoloHost scripts (with safety levels)',
     '💬 /analyze     - AI technician review (in your language)',
     '📋 /logs        - App activity and errors',
     '💛 /donate      - Support the project',
@@ -2080,7 +1969,6 @@ function preEvalBrief(t) {
   lines.push('Now source=' + (t.source || '?') + ' sync=' + (t.sync || '?') + ' level=' + (t.level || '?'));
   if (t.ledger != null) lines.push('Ledger=' + t.ledger + (t.ledger_age != null ? (' age=' + t.ledger_age + 's') : ''));
   if (t.peer_in != null || t.peer_out != null) lines.push('Peers IN/OUT=' + (t.peer_in != null ? t.peer_in : '?') + '/' + (t.peer_out != null ? t.peer_out : '?'));
-  lines.push('Docker=' + (t.docker || 'n/a') + ' sock=' + (t.docker_sock ? 'yes' : 'no') + ' container=' + (t.container || 'n/a'));
   if (t.ports_open != null) lines.push('Ports open=' + t.ports_open);
   if (t.health != null) lines.push('Health=' + t.health + ' (raw=' + (t.health_raw != null ? t.health_raw : '?') + ', adj=' + (t.health_adjusted != null ? t.health_adjusted : '?') + ', conf=' + (t.health_confidence || '?') + ', trend=' + (t.health_trend || '?') + ')');
   if (t.system) lines.push('Host system (node_os): available=' + !!t.system.available + ' cpu=' + (t.system.cpu_percent != null ? t.system.cpu_percent + '%' : '?') + ' ram=' + (t.system.memory_percent != null ? t.system.memory_percent + '%' : '?') + ' disk=' + (t.system.disk_percent != null ? t.system.disk_percent + '%' : '?'));
@@ -2102,15 +1990,11 @@ function formatScripts() {
     '🟢 L1  · 🌐 DnsFlush.bat',
     '        Peers dropped, ports OPEN, ledger moves',
     '🟡 L2  · 🧱 Firewall.bat',
-    '        Ports CLOSED locally, container RUNNING',
-    '🟡 L2  · ♻️ NodeReset.bat',
-    '        Container stuck, block frozen > 30 min',
+    '        Ports CLOSED locally while PC is online',
     '🟠 L3  · 🔧 NetRepair.bat',
     '        No internet (ping 8.8.8.8 fails)',
     '🟠 L3  · 📡 LanSetup.bat',
     '        First setup OR IP changed, port-forward broke',
-    '🔴 L4  · 🐳 DockerRecover.bat',
-    '        Docker Engine "not ready" / WSL2 stuck',
     '🧰 SCH · Maintain.bat (Sun 03:00)',
     '        Weekly housekeeping', '',
     '───────────────',
@@ -2215,7 +2099,7 @@ function formatWindowsPro() {
   return [
     '💻 WINDOWS PRO · FULL', '───────────────',
     'SoloHost is the lightweight monitor.', 'Windows PRO has more tools:',
-    '• Live host CPU / RAM / temp', '• Docker control and scripts',
+    '• Live host CPU / RAM / temp', '• Maintenance scripts',
     '• Clean RAM / maintenance / reset', '• Deeper diagnostics and scheduler', '',
     'Download:', 'https://github.com/cannoi/pinode-telegram-controller', '',
     'Use SoloHost for alerts on the go;', 'use Windows PRO for full control.'
@@ -2276,7 +2160,6 @@ function detectIntent(q) {
   if (/\bcpu\b|processor|procesador|processeur/.test(s)) return 'CPU';
   if (/\btemp\b|temperature|nhiệt|nóng|temp[eé]rature/.test(s)) return 'TEMP';
   if (/\bdisk\b|storage|ổ cứng|disco|disque/.test(s)) return 'DISK';
-  if (/docker|container/.test(s)) return 'DOCKER';
   if (/\bport\b|31401|31402|31403|cổng|puerto/.test(s)) return 'PORT';
   if (/peer|incoming|outgoing|đồng nghiệp/.test(s)) return 'PEERS';
   if (/sync|ledger|đồng bộ|sincronizaci[oó]n|synchronisation/.test(s)) return 'BLOCK_SYNC';
@@ -2314,7 +2197,6 @@ function evidenceSummary(t) {
   if (t.ledger != null) parts.push('Ledger: ' + Number(t.ledger).toLocaleString('en-US'));
   if (t.ledger_age != null) parts.push('Age: ' + t.ledger_age + 's');
   if (t.peer_in != null || t.peer_out != null) parts.push('Peer IN/OUT: ' + (t.peer_in != null ? t.peer_in : '?') + '/' + (t.peer_out != null ? t.peer_out : '?'));
-  if (t.docker) parts.push('Docker: ' + t.docker);
   if (t.ports_all_open) parts.push('Ports 31401-3: OPEN');
   else if (t.ports_open != null) parts.push('Ports open: ' + t.ports_open + '/3');
   if (t.ram != null) parts.push('RAM: ' + t.ram + '%');
@@ -2325,7 +2207,6 @@ function evidenceSummary(t) {
 }
 function collectIssues(t) {
   const issues = [];
-  if (t.docker && /stop|exit/i.test(String(t.docker))) issues.push('Docker/container not running');
   if (t.ports_open === 0) issues.push('Node ports closed');
   if (t.sync && /not synced|error|fail/i.test(String(t.sync))) issues.push('Unusual sync: ' + t.sync);
   if (t.ledger_age != null && t.ledger_age > 300) issues.push('Ledger age high (' + t.ledger_age + 's)');
@@ -2361,81 +2242,12 @@ function buildFacts(t) {
     protocol: t.protocol != null ? t.protocol : null,
     core_version: t.core_version || null, horizon_version: t.horizon_version || null,
     level: t.level || null, fsm: t.fsm || null, sources_ok: t.sources || null,
-    docker: t.docker || null, docker_sock: t.docker_sock === true, docker_probe: t.docker_probe === true,
     container: t.container || null, cpu: t.cpu != null ? t.cpu : null, ram: t.ram != null ? t.ram : null,
     temp: t.temp != null ? t.temp : null, ports_all_open: t.ports_all_open === true,
     cpu_source: t.cpu_source || null, ram_source: t.ram_source || null, disk_source: t.disk_source || null,
     uptime_seconds: t.uptime_seconds != null ? t.uptime_seconds : null,
     system_available: t.system ? t.system.available === true : false
   };
-}
-
-/* DOCKER CONSENT ====================================================== */
-function dockerPrefPath() { return path.join(DATA, 'state', 'docker-pref.json'); }
-function readDockerPref() { try { return JSON.parse(fs.readFileSync(dockerPrefPath(), 'utf8')); } catch (e) { return { enabled: false }; } }
-function writeDockerPref(obj) { try { fs.mkdirSync(path.dirname(dockerPrefPath()), { recursive: true }); fs.writeFileSync(dockerPrefPath(), JSON.stringify(obj, null, 2)); } catch (e) {} }
-function applyDockerConsentFiles() {
-  const result = { wrote_data: false, wrote_host: false, paths: [] };
-  let tag = 'v2.6.60';
-  try { const m = String(VERSION || '').match(/(\d+\.\d+\.\d+)/); if (m) tag = 'v' + m[1]; } catch (e) {}
-  const _imgEnv = process.env.AUTO_COMPOSE_IMAGE || '';
-  const img = /^ghcr\.io\/cannoi\/pinode-telegram-solohost:[\w.-]+$/.test(_imgEnv)
-    ? _imgEnv
-    : ('ghcr.io/cannoi/pinode-telegram-solohost:' + tag);
-  const composeBody = [
-    '# Generated after Operator consent in Pi Node Telegram Controller',
-    'services:', '  agent:', '    image: ' + img,
-    '    pull_policy: missing',
-    '    labels:', '      pi.ui.primary: "true"',
-    '    ports:', '      - "127.0.0.1:18780:8080"',
-    '    environment:',
-    '      - BOT_TOKEN=${BOT_TOKEN}', '      - CHAT_ID=${CHAT_ID}',
-    '      - GEMINI_API_KEY=${GEMINI_API_KEY}',
-    '      - PI_BROWSER_RELAY=${PI_BROWSER_RELAY}',
-    '      - PI_BROWSER_LABEL=${PI_BROWSER_LABEL}',
-    '      - NODE_HOST=host.docker.internal', '      - HORIZON_PORT=31401',
-    '      - CORE_HTTP_PORT=11626', '      - DOCKER_PROBE=1',
-    '      - AUTO_DOCKER_SOCK=0', '      - TELEMETRY_SEC=60',
-    '      - TZ=Asia/Ho_Chi_Minh',
-    '    volumes:', '      - ./data:/data',
-    '      - ./:/solohost-config:rw',
-    '      - /var/run/docker.sock:/var/run/docker.sock:ro',
-    '    extra_hosts:', '      - "host.docker.internal:host-gateway"',
-    '    restart: unless-stopped', ''
-  ].join('\n');
-  const readme = 'OPTIONAL DOCKER - Operator consent\n=================================\n\n1) Copy docker-compose.yml over the one in this SoloHost app folder.\n2) SoloHost -> Stop -> Start the app.\n3) Telegram: /docker  (should show Socket: YES when mount worked).\n\nThis is NOT default SoloHost permission. You opted in.\n';
-  const bat = '@echo off\r\ncd /d "%~dp0"\r\nif exist docker-compose.yml copy /Y docker-compose.yml docker-compose.yml.bak\r\ncopy /Y "%~dp0docker-compose.yml" "%~dp0..\\docker-compose.yml" 2>nul\r\necho Done.\r\npause\r\n';
-  const ps1 = '# Optional Docker enable - run from app folder after consent\n$ErrorActionPreference = "Continue"\n$here = $PSScriptRoot\n$root = Split-Path $here -Parent\nif ((Split-Path $here -Leaf) -eq "docker-enable") { $root = Split-Path (Split-Path $here -Parent) -Parent }\n$src = Join-Path $here "docker-compose.yml"\n$dst = Join-Path $root "docker-compose.yml"\nif (Test-Path $dst) { Copy-Item $dst ($dst + ".bak") -Force }\nCopy-Item $src $dst -Force\nWrite-Host "Wrote $dst"\nWrite-Host "Stop -> Start the SoloHost app now."\n';
-  try {
-    const dir = path.join(DATA, 'docker-enable');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'docker-compose.yml'), composeBody);
-    fs.writeFileSync(path.join(dir, 'README.txt'), readme);
-    fs.writeFileSync(path.join(dir, 'APPLY.bat'), bat);
-    fs.writeFileSync(path.join(dir, 'APPLY.ps1'), ps1);
-    result.wrote_data = true; result.paths.push(dir);
-  } catch (e) { result.data_error = String(e && e.message); }
-  const hostDir = process.env.SOLOHOST_CONFIG_DIR || '/solohost-config';
-  try {
-    if (fs.existsSync(hostDir)) {
-      const dst = path.join(hostDir, 'docker-compose.yml');
-      try { if (fs.existsSync(dst)) fs.copyFileSync(dst, dst + '.bak'); } catch (e2) {}
-      fs.writeFileSync(dst, composeBody);
-      fs.writeFileSync(path.join(hostDir, 'DOCKER_ENABLE_README.txt'), readme);
-      result.wrote_host = true; result.paths.push(dst);
-    }
-  } catch (e) { result.host_error = String(e && e.message); }
-  try { actionLog('ok', 'docker consent files ' + JSON.stringify(result)); } catch (e) {}
-  return result;
-}
-function dockerTermsText() {
-  return ['OPTIONAL DOCKER ACCESS - TERMS', '==============================', '', 'What this is', 'The app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status. This is OFF by default.', '', 'SoloHost default', 'SoloHost installs this app as a sandbox. docker.sock is NOT a default SoloHost permission.', '', 'Your responsibility (Operator)', 'By agreeing you confirm that:', '1) You understand docker.sock is powerful.', '2) You accept the risk.', '3) You may turn the preference OFF later.', '4) Publisher is not responsible for damage arising from optional elevated access.', '', 'Agree only if you accept these terms.'].join('\n');
-}
-async function formatDockerRules() { return dockerTermsText(); }
-async function formatDockerHelp(tel) {
-  const pref = readDockerPref();
-  const sock = !!(tel && tel.docker_sock);
-  return ['DOCKER OPTIONAL - STATUS', 'Pref: ' + (pref.enabled ? 'ON' : 'OFF') + ' | Sock in container: ' + (sock ? 'YES' : 'NO'), '', 'Read the terms first (button: Terms).', 'If you Agree: app overwrites app-folder docker-compose.yml with sock, then you SoloHost Stop -> Start.', '', 'Normal monitoring works without Docker.'].join('\n');
 }
 
 /* AGGREGATE HELPERS ==================================================== */
@@ -2662,9 +2474,9 @@ const AI_METRIC_WHITELIST = {
   peer_total: 'number', cpu: 'number', ram: 'number', temp: 'number', disk: 'number',
   health: 'number', health_raw: 'number', health_adjusted: 'number',
   ports_open: 'number', ingest_lag: 'number',
-  sync: 'string', level: 'string', container: 'string', docker: 'string',
+  sync: 'string', level: 'string', container: 'string',
   health_confidence: 'string', network_kind: 'string', source: 'string',
-  ports_all_open: 'boolean', docker_sock: 'boolean'
+  ports_all_open: 'boolean'
 };
 const AI_QUERY_LIMITS = {
   maxQueries: 5, maxWindowHours: 168, maxRawRows: 200, defaultWindowHours: 24
@@ -2797,7 +2609,7 @@ function executeDataQuery(q) {
   if (!kind) return {
     ok: false, error: 'unknown_metric', requested: metric,
     allowed_numeric: ['ledger','ledger_age','peer_in','peer_out','peer_total','cpu','ram','temp','disk','health','health_raw','health_adjusted','ports_open','ingest_lag'],
-    allowed_category: ['sync','level','container','docker','health_confidence','network_kind','source','ports_all_open','docker_sock']
+    allowed_category: ['sync','level','health_confidence','network_kind','source','ports_all_open']
   };
   const windowH = parseWindowHours(q.window);
   const agg = String(q.agg || (kind === 'number' ? 'summary' : 'states')).toLowerCase();
@@ -2831,7 +2643,7 @@ function runDataQueries(queries) {
 function buildDSLSpec() {
   return [
     'metric (numeric): ledger, ledger_age, peer_in, peer_out, peer_total, cpu, ram, temp, disk, health, health_raw, health_adjusted, ports_open, ingest_lag',
-    'metric (category): sync, level, container, docker, health_confidence, network_kind, source, ports_all_open, docker_sock',
+    'metric (category): sync, level, health_confidence, network_kind, source, ports_all_open',
     'agg: summary (numeric default), states (category default), velocity (rate/h), hourly (group by hour), raw (last N samples), trend (older vs newer avg)',
     'window: 30m, 6h, 24h, 7d (max 168h)',
     'filter: key=value, key_lt, key_gt, key_le, key_ge, key_contains; separate with commas',
@@ -2976,7 +2788,6 @@ function localAssistantReply(t, intent, userQ) {
     if (!t.ports) return 'Ports not probed yet.';
     return NODE_PORTS.map(function (p) { return p + ': ' + (t.ports[String(p)] || '?'); }).join('\n');
   }
-  if (intent === 'DOCKER') return 'SoloHost does not control host Docker. Container label: ' + (t.container || 'n/a') + '.';
   if (ok) return withHistory('From current data the node looks fine' + (sync ? (' (' + sync + ')') : '') + (ledger ? (', ledger ' + ledger) : '') + '. Brief sync drops are often temporary - keep it online and check /report if it repeats.');
   return withHistory('Something needs attention' + (sync ? (': ' + sync) : '') + '. Check /diagnostic and network/ports.');
 }
@@ -3144,10 +2955,8 @@ function technicianEvaluate(t, userQ, intent) {
   lines.push('2. 🧠 VERIFY');
   if (sync && /catch|behind|syncing/i.test(String(sync)) && ledger && age != null && age <= 300) {
     lines.push('   · Likely natural catch-up. Not a fault yet.');
-  } else if (t && t.ports_open === 0 && t.container) {
-    lines.push('   · Container RUNNING but ports closed - check firewall.');
-  } else if (t && t.ports_open === 0 && !t.container) {
-    lines.push('   · Container NOT running - ports closed is normal.');
+  } else if (t && t.ports_open === 0) {
+    lines.push('   · Ports closed - confirm Pi Node is running in Pi Desktop first, then check firewall.');
   } else if (ok) {
     lines.push('   · No false-positive signal. Continue observing.');
   } else {
@@ -3199,17 +3008,12 @@ function technicianEvaluate(t, userQ, intent) {
 function recommendScriptForTelemetry(t) {
   t = t || {};
   const portsOpen = t.ports_open != null ? Number(t.ports_open) : null;
-  const containerRunning = !!t.container && !/stop|exit/i.test(String(t.docker || ''));
   const ram = t.ram != null ? Number(t.ram) : null;
-  const docker = String(t.docker || '');
   const sync = String(t.sync || '');
   const age = t.ledger_age != null ? Number(t.ledger_age) : null;
   const peerTotal = (t.peer_in != null || t.peer_out != null) ? ((t.peer_in || 0) + (t.peer_out || 0)) : null;
-  if (/not ready|error|fail/i.test(docker)) return SCRIPT_DETAILS.dockerrecover;
-  if (portsOpen === 0 && !containerRunning) return SCRIPT_DETAILS.nodereset;
-  if (portsOpen === 0 && containerRunning) return SCRIPT_DETAILS.firewall;
-  if (age != null && age > 300 && containerRunning) return SCRIPT_DETAILS.nodereset;
-  if (peerTotal === 0 && /synced|live/i.test(sync)) return SCRIPT_DETAILS.dnsflush;
+  if (portsOpen === 0) return SCRIPT_DETAILS.firewall;
+    if (peerTotal === 0 && /synced|live/i.test(sync)) return SCRIPT_DETAILS.dnsflush;
   if (ram != null && ram >= 85) return SCRIPT_DETAILS.cleanram;
   if (t.disk != null && Number(t.disk) >= 90) return SCRIPT_DETAILS.maintain;
   return null;
@@ -3271,8 +3075,7 @@ async function aiAnalyze(t, userQ, opts) {
         'HEALTH SCORE: t.health is smoothed. t.health_raw pre-damper. t.health_adjusted after stability. t.health_confidence = sources. t.health_trend = improving/stable/degrading.',
         'STABILITY: "unstable_short" -> tolerant; "sustained_bad" -> low score intentional.',
         'INCIDENT ENGINE: Reference RECOMMENDED_SCRIPT (or WAIT) exactly.',
-        'SOURCE NOTE: If docker.sock is OFF, data is Horizon-only and may differ from Pi Node Desktop. Be honest about that limitation.',
-        'HOST vs CONTAINER (CRITICAL): system.cpu/ram/disk are Node OS (node_os). container_cpu/container_ram are Docker container. Never mix them.',
+        'METRICS (CRITICAL): system.cpu/ram/disk are Node OS (node_os). SoloHost has no Docker access, so container metrics do not exist - never invent them.',
         '',
         '=== DATA REQUEST PROTOCOL ===',
         '1) NAMED BLOCKS: emit [DATA_REQUEST:block_name]',
@@ -3498,15 +3301,9 @@ async function runCmd(cmd, userText) {
   if (cmd === 'script_cleanram') return tgSend(formatScriptDetail('cleanram'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'script_dnsflush') return tgSend(formatScriptDetail('dnsflush'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'script_firewall') return tgSend(formatScriptDetail('firewall'), { reply_markup: scriptActionKeyboard() });
-  if (cmd === 'script_nodereset') return tgSend(formatScriptDetail('nodereset'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'script_netrepair') return tgSend(formatScriptDetail('netrepair'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'script_lansetup') return tgSend(formatScriptDetail('lansetup'), { reply_markup: scriptActionKeyboard() });
-  if (cmd === 'script_dockerrecover') return tgSend(formatScriptDetail('dockerrecover'), { reply_markup: scriptActionKeyboard() });
   if (cmd === 'script_maintain') return tgSend(formatScriptDetail('maintain'), { reply_markup: scriptActionKeyboard() });
-  if (cmd === 'docker' || cmd === 'dockersock' || cmd === 'docker_confirm' || cmd === 'docker_cancel' || cmd === 'docker_off' || cmd === 'docker_rules' || cmd === 'docker_local' || (typeof cmd === 'string' && cmd.indexOf('docker') === 0)) {
-    try { actionLog('info', 'user docker cmd blocked on Telegram'); } catch (e) {}
-    return tgSend('DOCKER OPTIONAL\n───────────────\nFor safety, docker.sock can only be enabled in the SoloHost window on the PC running this node.\n\n1) Open http://127.0.0.1:18780/\n2) Optional Docker -> scroll terms -> check boxes -> Confirm\n3) SoloHost: Stop -> Start\n\nTelegram will not raise Docker privileges.', { reply_markup: mainKeyboard() });
-  }
   if (cmd === 'start' || cmd === 'help') {
     return tgSend(formatHelp() + '\n\n───────────────\n/status /sync /peers /incidents\n/report /diagnostic /analyze\n/scripts /donate\n───────────────\nTelemetry -> Host -> Horizon -> Ports', { reply_markup: mainKeyboard() });
   }
@@ -3566,7 +3363,7 @@ function getStandardMenu() {
     { command: 'report',     description: 'Last 24h rolling window (spans midnight)' },
     { command: 'incidents',  description: 'Active + recent incident history' },
     { command: 'diagnostic', description: 'Technical source details' },
-    { command: 'scripts',    description: '8 SoloHost scripts + safety levels' },
+    { command: 'scripts',    description: '7 SoloHost scripts + safety levels' },
     { command: 'analyze',    description: 'AI technician review (in your language)' },
     { command: 'logs',       description: 'App activity and errors' },
     { command: 'donate',     description: 'Support the project' },
@@ -3684,7 +3481,6 @@ function loadIndexHtml() {
     path.join(__dirname, 'public', 'index.html'),
     path.join(PUBLIC, 'index.html'),
     '/app/public/index.html',
-    '/solohost-config/public/index.html',
     path.join(DATA, 'public', 'index.html'),
     '/data/public/index.html'
   ];
@@ -3746,7 +3542,7 @@ function setSecHeaders(res, mode) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-XSS-Protection', '0');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  if (mode === 'docker') {
+  if (mode === 'strict') {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   } else if (mode === 'html') {
     res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
@@ -3775,22 +3571,19 @@ function writeBrand(obj) {
   } catch (e) {}
 }
 
-const _indexCache = { html: null, sockOn: null, at: 0 };
-function applyIndexTransform(html, sockOn) {
+const _indexCache = { html: null, src: null, at: 0 };
+function applyIndexTransform(html) {
   const now = Date.now();
-  if (_indexCache.html && _indexCache.sockOn === sockOn && (now - _indexCache.at) < 3000) {
+  if (_indexCache.html && _indexCache.src === html && (now - _indexCache.at) < 3000) {
     return _indexCache.html;
   }
   let out = String(html || '');
+  // Strip any legacy Docker-probe wording. SoloHost is always Horizon + ports only.
   out = out.replace(/Optional Docker\s*probe[^<\n]{0,260}/gi, '');
   out = out.replace(/<div[^>]*id=["']pn-horizon-notice["'][\s\S]*?<\/div>/gi, '');
   out = out.replace(/Horizon-only mode[^<\n]{0,320}/gi, '');
-  if (sockOn) {
-    out = out.replace(/<p[^>]*id=["']pn-horizon-note["'][\s\S]*?<\/p>/gi, '');
-    out = out.replace(/<div[^>]*id=["']pn-horizon-note["'][\s\S]*?<\/div>/gi, '');
-  }
   _indexCache.html = out;
-  _indexCache.sockOn = sockOn;
+  _indexCache.src = html;
   _indexCache.at = now;
   return out;
 }
@@ -3895,7 +3688,7 @@ const srv = http.createServer(async (req, res) => {
           if (!rateLimit('status-detailed:' + (req.socket.remoteAddress || ''), 10, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
           if (_detailedCache.data && Date.now() - _detailedCache.at < 3000) tel = _detailedCache.data;
           else {
-            tel = await statusMonitor.getStatus(true, { detailed: true, docker: true });
+            tel = await statusMonitor.getStatus(true, { detailed: true });
             _detailedCache.data = tel; _detailedCache.at = Date.now();
           }
         }
@@ -3946,7 +3739,7 @@ const srv = http.createServer(async (req, res) => {
         dsl: {
           spec: buildDSLSpec().split('\n'),
           metrics_numeric: ['ledger','ledger_age','peer_in','peer_out','peer_total','cpu','ram','temp','disk','health','health_raw','health_adjusted','ports_open','ingest_lag'],
-          metrics_category: ['sync','level','container','docker','health_confidence','network_kind','source','ports_all_open','docker_sock'],
+          metrics_category: ['sync','level','health_confidence','network_kind','source','ports_all_open'],
           aggregations: ['summary','states','velocity','hourly','raw','trend'],
           limits: AI_QUERY_LIMITS
         }
@@ -4015,11 +3808,7 @@ const srv = http.createServer(async (req, res) => {
         let hm = null;
         let src = null;
         const candidates = [
-          './host-metrics',
-          '/solohost-config/host-metrics.js',
-          '/solohost-config/host-metrics',
-          '/data/host-metrics.js',
-          path.join(DATA, 'host-metrics.js')
+          './host-metrics'
         ];
         for (let i = 0; i < candidates.length; i++) {
           try {
@@ -4042,7 +3831,7 @@ const srv = http.createServer(async (req, res) => {
       if (!isLocalReq(req) && !rateLimit('selftest:' + (req.socket.remoteAddress || ''), 5, 60000)) { res.statusCode = 429; res.end('rate limit'); return; }
       const checks = [];
       const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail: detail || '' });
-      ok('version', VERSION === '2.6.63-solohost', VERSION);
+      ok('version', VERSION === '2.6.65-solohost', VERSION);
       ok('telegram_loop_independent', true, 'separate loops');
       ok('telemetry_sec', TELEMETRY_SEC >= 30, String(TELEMETRY_SEC));
       ok('no_datalive', true, 'Horizon removed');
@@ -4061,11 +3850,11 @@ const srv = http.createServer(async (req, res) => {
       ok('readhist_cache_active', typeof invalidateReadHistory === 'function' && _readHistCache.ttlMs > 0, 'ttl=' + _readHistCache.ttlMs);
       ok('rollup_cache_fn', typeof ensureRollupLoaded === 'function', 'ensureRollupLoaded');
       ok('diag_prompt_loaded', typeof PI_NODE_DIAGNOSTIC_PROMPT === 'string' && PI_NODE_DIAGNOSTIC_PROMPT.length > 400, 'len=' + PI_NODE_DIAGNOSTIC_PROMPT.length);
-      ok('script_details_count', Object.keys(SCRIPT_DETAILS).length === 8, 'count=' + Object.keys(SCRIPT_DETAILS).length);
+      ok('script_details_count', Object.keys(SCRIPT_DETAILS).length === 6, 'count=' + Object.keys(SCRIPT_DETAILS).length);
       ok('script_kb_builder', typeof scriptActionKeyboard === 'function', 'scriptActionKeyboard');
       ok('script_card_builder', typeof formatScriptDetail === 'function', 'formatScriptDetail');
       ok('script_card_cleanram', (formatScriptDetail('cleanram') || '').indexOf('CleanRam.bat') >= 0, 'ok');
-      ok('script_rec_from_text', typeof recommendScriptsFromText === 'function' && recommendScriptsFromText('Run NodeReset now').indexOf('nodereset') >= 0, 'ok');
+      ok('script_rec_from_text', typeof recommendScriptsFromText === 'function' && recommendScriptsFromText('Run Firewall now').indexOf('firewall') >= 0, 'ok');
       ok('script_fallback_map', typeof recommendScriptForTelemetry === 'function', 'ok');
       ok('quickaction_detector', typeof isQuickActionText === 'function' && isQuickActionText('Review my node') === true && isQuickActionText('hello world') === false, 'ok');
       ok('lang_skip_current_option', typeof detectUserPreferredLang === 'function', 'ok');
@@ -4093,16 +3882,11 @@ const srv = http.createServer(async (req, res) => {
       ok('github_repo_const', GITHUB_REPO === 'cannoi/pinode-telegram-solohost', GITHUB_REPO);
       ok('update_interval_48h', UPDATE_CHECK_INTERVAL_MS === 48 * 3600 * 1000, String(UPDATE_CHECK_INTERVAL_MS));
       ok('horizon_footer_fn', typeof horizonFooter === 'function', 'horizonFooter');
-      ok('horizon_footer_on_when_off', (horizonFooter({ docker_sock: false }) || '').indexOf('Horizon only') >= 0, 'on');
-      ok('horizon_footer_off_when_on', horizonFooter({ docker_sock: true }) === '', 'off');
-      ok('has_docker_sock_fn', typeof hasDockerSock === 'function', 'hasDockerSock');
       ok('index_transform_fn', typeof applyIndexTransform === 'function', 'applyIndexTransform');
-      const hOff = applyIndexTransform('<html><body><div>x</div></body></html>', false);
-      ok('index_transform_injects_note', hOff.indexOf('pn-horizon-note') >= 0, 'inject');
-      ok('index_transform_has_placer', hOff.indexOf('MutationObserver') >= 0, 'placer');
-      const hOn = applyIndexTransform('<html><body><div>Optional Docker probe (advanced) is configured only on this PC.</div></body></html>', true);
+      const hOff = applyIndexTransform('<html><body><div>x</div></body></html>');
+      ok('index_transform_no_socket_ui', hOff.indexOf('var/run/docker') < 0, 'clean');
+      const hOn = applyIndexTransform('<html><body><div>Optional Docker probe (advanced) is configured only on this PC.</div></body></html>');
       ok('index_transform_strips_legacy', hOn.indexOf('Optional Docker') < 0, 'stripped');
-      ok('index_transform_off_hides_note', hOn.indexOf('pn-horizon-note') < 0, 'hidden');
       ok('ai_data_providers', Object.keys(AI_DATA_PROVIDERS).length >= 10, 'count=' + Object.keys(AI_DATA_PROVIDERS).length);
       ok('ai_parse_request', typeof parseDataRequests === 'function', 'parseDataRequests');
       ok('dsl_parse_fn', typeof parseDataQueries === 'function' && typeof executeDataQuery === 'function', 'loaded');
@@ -4123,8 +3907,8 @@ const srv = http.createServer(async (req, res) => {
       const gate = alertsMuted();
       ok('mute_off_recognized', gate.muted === true, gate.why);
       state.alertMode = prevMode || 'on';
-      const hc1 = healthConfidence({ docker_sock: true, core_verified: true });
-      ok('health_conf_high_sock_core', hc1.level === 'high', hc1.level);
+      const hc1 = healthConfidence({ core_verified: true });
+      ok('health_conf_core', hc1.level === 'medium' || hc1.level === 'high', hc1.level);
       const hc3 = healthConfidence({});
       ok('health_conf_none_no_source', hc3.level === 'none', hc3.level);
       const stab1 = applyStabilityAdjustment(70, { samples: 10, flipRate: 0.30, badRatio: 0.10, longerBadRatio: 0.05, unstableShort: true, sustainedBad: false });
@@ -4133,10 +3917,6 @@ const srv = http.createServer(async (req, res) => {
       ok('stability_keeps_low_sustained_bad', stab2 <= 40, 'raw 40 -> adj ' + Math.round(stab2));
       const i1 = detectIncidentSignature({ ports_open: 0 });
       ok('incident_ports_closed', i1 && i1.type === 'ports_closed', i1 && i1.type);
-      const i2 = detectIncidentSignature({ docker: 'Exited (0)' });
-      ok('incident_docker_down', i2 && i2.type === 'docker_down', i2 && i2.type);
-      const s1 = smartScriptForIncident({ type: 'docker_down' }, {});
-      ok('script_docker_down', s1 && s1.script === 'DockerRecover', s1 && s1.script);
       const d1 = decideIncidentAction({ firstSeen: Date.now() - 1000, samples: 1, stage: 0, alertsSent: 0 }, {});
       ok('decision_observe_early', d1 && d1.action === 'watch', d1 && d1.action);
       const d2 = decideIncidentAction({ firstSeen: Date.now() - 6 * 60000, samples: 6, stage: 0, alertsSent: 0 }, {});
@@ -4164,7 +3944,6 @@ const srv = http.createServer(async (req, res) => {
       const l2 = detectUserLang('Hello, how is my node?');
       ok('lang_detect_en', l2 === 'English', l2);
       ok('telemetry_dedupe_flag', typeof _pendingTelemetry !== 'undefined', 'ok');
-      ok('sock_cache_present', typeof _sockCache === 'object' && _sockCache.v === null, 'ok');
       // host-metrics is OPTIONAL — never fail whole selftest if missing.
       try {
         const hm = require('./host-metrics');
@@ -4217,7 +3996,7 @@ const srv = http.createServer(async (req, res) => {
         }
         if (!ans) ans = await aiAnalyze(tel, msg);
         pushChatPersistent('assistant', ans);
-        const payload = { ok: true, reply: ans, version: VERSION, source: tel && tel.source, horizonOnly: !hasDockerSock(tel), systemAvailable: !!(tel && tel.system && tel.system.available) };
+        const payload = { ok: true, reply: ans, version: VERSION, source: tel && tel.source, horizonOnly: true, systemAvailable: !!(tel && tel.system && tel.system.available) };
         if (c0 === 'donate') {
           payload.images = [];
           try {
@@ -4236,96 +4015,6 @@ const srv = http.createServer(async (req, res) => {
       return;
     }
 
-    if (u === '/docker' || u === '/docker/' || u.indexOf('/docker/confirm') === 0 || u.indexOf('/docker/off') === 0) {
-      setSecHeaders(res, 'docker');
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      const pref = readDockerPref();
-      if (u.indexOf('/docker/confirm') === 0) {
-        writeDockerPref({ enabled: true, at: new Date().toISOString(), by: 'local_ui', consent: true });
-        const applied = applyDockerConsentFiles();
-        try { actionLog('ok', 'docker pref ON via local UI'); } catch (e) {}
-        const extra = applied && applied.wrote_host
-          ? '<p><b>docker-compose.yml</b> updated in app folder.</p>'
-          : '<p>Files ready under <code>data/docker-enable/</code>. Copy <code>docker-compose.yml</code> to app root if needed.</p>';
-        res.end('<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:2rem auto;line-height:1.5">'
-          + '<h2>✅ Docker preference ON</h2>'
-          + extra
-          + '<p><b>Next step (required):</b> In SoloHost, press <b>Stop</b>, then press <b>Start</b> to apply the socket mount.</p>'
-          + '<p>After restart, /status will show <code>Sock: Yes</code> when the socket is live.</p>'
-          + '<p><a href="/docker">Back</a> · <a href="/">Controller home</a></p></body></html>');
-        return;
-      }
-      if (u.indexOf('/docker/off') === 0) {
-        writeDockerPref({ enabled: false, at: new Date().toISOString(), by: 'local_ui', consent: false });
-        try { actionLog('ok', 'docker pref OFF via local UI'); } catch (e) {}
-        res.end('<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:2rem auto;line-height:1.5">'
-          + '<h2>🔕 Docker preference OFF</h2>'
-          + '<p>Sandbox default. No socket access.</p>'
-          + '<p>If the socket volume is still in docker-compose.yml, remove it, then <b>Stop → Start</b> to fully return to sandbox mode.</p>'
-          + '<p><a href="/docker">Back</a></p></body></html>');
-        return;
-      }
-      let sockExists = false;
-      try { sockExists = fs.existsSync('/var/run/docker.sock'); } catch (e) {}
-      res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docker optional</title>'
-        + '<style>body{font-family:system-ui,sans-serif;max-width:680px;margin:1.5rem auto;padding:0 1rem;line-height:1.55;color:#222}'
-        + '.box{border:1px solid #ccc;border-radius:8px;padding:1rem;margin:1rem 0;background:#f8f8f8}'
-        + '.btn{display:inline-block;margin:.3rem .4rem .3rem 0;padding:.7rem 1.1rem;border-radius:6px;text-decoration:none;color:#fff;font-weight:600}'
-        + '.yes{background:#0a7}.no{background:#555} code{background:#eee;padding:.1rem .35rem;border-radius:4px}'
-        + '.ok{color:#0a7;font-weight:600}.warn{color:#b58900;font-weight:600}</style></head><body>'
-        + '<h1>🔓 Optional Docker — enable for better accuracy</h1>'
-        + '<div class="box"><p><b>Why enable it?</b> With the Docker socket, this app can read the real Pi Node container state and Core version. Without it, data comes from Horizon only and may lag or differ from Pi Node Desktop.</p>'
-        + '<p><b>Current status:</b> '
-        + 'Preference <span class="' + (pref.enabled ? 'ok' : 'warn') + '">' + (pref.enabled ? 'ON' : 'OFF') + '</span> · '
-        + 'Socket in container <span class="' + (sockExists ? 'ok' : 'warn') + '">' + (sockExists ? 'YES' : 'NO') + '</span></p></div>'
-        + '<div class="box"><p><b>SoloHost default</b> ships this app as a sandbox. The Docker socket is <u>not</u> included by default. Enabling it is an <b>Operator opt-in</b>.</p>'
-        + '<p><b>After you click Agree:</b></p>'
-        + '<ol><li>App writes a ready <code>docker-compose.yml</code> (with socket).</li>'
-        + '<li>If the app folder is writable, it is filled automatically.</li>'
-        + '<li>Otherwise use files in <code>data/docker-enable/</code>.</li>'
-        + '<li><b>Stop → Start</b> this SoloHost app so the new mount takes effect.</li></ol>'
-        + '<p>Not required for normal monitoring.</p></div>'
-        + '<p><a class="btn yes" href="/docker/confirm">✅ Agree — enable &amp; prepare files</a>'
-        + '<a class="btn no" href="/docker/off">🔕 Disable</a></p>'
-        + '<p><a href="/">Controller home</a></p></body></html>');
-      return;
-    }
-    if (u === '/api/docker') {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      if (!rateLimit('dockerapi:' + (req.socket.remoteAddress || ''), 20, 60000)) { res.statusCode = 429; res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
-      if (req.method === 'GET') {
-        let sock = false;
-        try { sock = fs.existsSync('/var/run/docker.sock'); } catch (e) {}
-        const pref = readDockerPref();
-        res.end(JSON.stringify({ ok: true, enabled: !!pref.enabled, consent: !!pref.consent, sock: sock, by: pref.by || null, at: pref.at || null }));
-        return;
-      }
-      if (req.method === 'POST') {
-        if (!isLocalReq(req)) { res.statusCode = 403; res.end(JSON.stringify({ ok: false, error: 'forbidden' })); return; }
-        let body = '';
-        req.on('data', function (c) { body += c; if (body.length > 8000) { req.destroy(); return; } });
-        req.on('end', function () {
-          try {
-            const j = safeParse(body) || {};
-            const on = !!j.enabled;
-            if (on && !j.consent) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: 'consent_required' })); return; }
-            if (on && j.read_full !== true && j.terms_version !== 'docker-optional-v1') { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: 'terms_must_be_accepted' })); return; }
-            writeDockerPref({ enabled: on, consent: on ? true : false, consent_version: on ? 'docker-optional-v1' : null, consent_text: on ? 'Operator accepted terms' : null, at: new Date().toISOString(), by: 'solohost_ui' });
-            let applied = { wrote_host: false, wrote_data: false };
-            if (on) applied = applyDockerConsentFiles() || applied;
-            try { actionLog('ok', 'docker pref ' + (on ? 'ON' : 'OFF') + ' via /api/docker'); } catch (e) {}
-            res.end(JSON.stringify({ ok: true, enabled: on, wrote_host: !!(applied && applied.wrote_host), wrote_data: !!(applied && applied.wrote_data), hint: on ? 'SoloHost: Stop -> Start.' : 'Sandbox default.' }));
-          } catch (e) {
-            log('api/docker error: ' + (e && e.message), 'error');
-            res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: 'bad_request' }));
-          }
-        });
-        return;
-      }
-      res.statusCode = 405;
-      res.end(JSON.stringify({ ok: false, error: 'method_not_allowed' }));
-      return;
-    }
     if (u === '/api/discover') {
       if (!isLocalReq(req)) { res.statusCode = 403; res.end('forbidden'); return; }
       if (!rateLimit('discover:' + (req.socket.remoteAddress || ''), 8, 60000)) { res.statusCode = 429; res.end(JSON.stringify({ ok: false, error: 'rate_limit' })); return; }
@@ -4363,8 +4052,7 @@ const srv = http.createServer(async (req, res) => {
         aiDslMetrics: Object.keys(AI_METRIC_WHITELIST).length,
         diagScripts: Object.keys(SCRIPT_DETAILS).length,
         readHistCacheTtlMs: _readHistCache.ttlMs,
-        hasDockerSock: hasDockerSock(tel),
-        horizonOnly: !hasDockerSock(tel),
+        horizonOnly: true,
         systemAvailable: !!(tel && tel.system && tel.system.available),
         systemSource: tel && tel.system ? tel.system.source : null,
         updateLastSeenId: state.updateLastSeenId || null,
@@ -4383,9 +4071,7 @@ const srv = http.createServer(async (req, res) => {
     if (u === '/' || u === '/index.html') {
       setSecHeaders(res, 'html');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      const tel = cache || {};
-      const showNotice = !hasDockerSock(tel);
-      res.end(applyIndexTransform(getIndexHtml(), !showNotice));
+      res.end(applyIndexTransform(getIndexHtml()));
       return;
     }
     if (u.startsWith('/scripts/')) {
@@ -4434,27 +4120,11 @@ setInterval(pruneHistory, 3600 * 1000);
 try { process.on('SIGTERM', function () { try { flushRollups(); } catch (e) {} }); } catch (e) {}
 srv.listen(PORT, '0.0.0.0', () => {
   log('SoloHost Controller v' + VERSION + ' :' + PORT);
-  try {
-    const pf = path.join(DATA, 'state', 'pending-sock-restart.json');
-    if (fs.existsSync(pf)) {
-      const pend = JSON.parse(fs.readFileSync(pf, 'utf8'));
-      if (pend && pend.need_ui_restart && BOT_TOKEN && CHAT_ID) {
-        setTimeout(async function () {
-          try {
-            await tgSend('🔄 Docker probe\nCompose updated.\nIf /status still shows sock: no - Stop then Start the app once.');
-            pend.need_ui_restart = false; pend.notified = true;
-            fs.writeFileSync(pf, JSON.stringify(pend));
-          } catch (e) {}
-        }, 4000);
-      }
-    }
-  } catch (e) {}
   log('telemetry=' + TELEMETRY_SEC + 's base · adaptive polling enabled (30-60s)');
-  log('Diag framework v3.0 · 8 scripts · 4 safety levels · NLU active');
+  log('Diag framework v3.0 · 6 scripts · 3 safety levels · NLU active');
   log('Health damper active · readHistory cache(' + _readHistCache.ttlMs + 'ms) + rollup RAM cache');
   log('AI data providers: ' + Object.keys(AI_DATA_PROVIDERS).length + ' blocks · DSL ' + Object.keys(AI_METRIC_WHITELIST).length + ' metrics');
   log('Menu sync 14 cmds · Update checker 48h · repo ' + GITHUB_REPO_URL);
-  log('Horizon-only notice shown under Peers (auto-hides when docker.sock is ON)');
   log('Host metrics via Node OS (os.cpus / os.totalmem / fs.statfsSync)');
   log('Telegram long-poll independent of telemetry');
 });

@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Pi Browser Bridge v2.6.61-HISTORY-LOG
- * - Log mọi hoạt động ra console (xem qua docker logs)
+ * - Log mọi hoạt động ra console (xem qua log của app)
  * - Prefix [bridge] để dễ grep
  */
 const https = require('https');

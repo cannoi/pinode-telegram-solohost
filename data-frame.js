@@ -1,5 +1,5 @@
 'use strict';
-/** Unified Pi Node telemetry frame — one schema for Horizon, Core, Docker, history, AI */
+/** Unified Pi Node telemetry frame — one schema for Horizon, Core, ports, history, AI */
 const FRAME_VERSION = 1;
 
 function num(v) {
@@ -62,8 +62,6 @@ function toFrame(src) {
     ports: src.ports || null,
     ports_open: num(src.ports_open),
     ports_all_open: src.ports_all_open === true,
-    docker: src.docker || null,
-    docker_sock: src.docker_sock === true,
     container: src.container || null,
     cpu: num(src.cpu),
     ram: num(src.ram),

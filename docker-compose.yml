@@ -1,9 +1,9 @@
-# SoloHost Official — sandbox; no docker.sock until Operator consents and Stop→Start
+# SoloHost Official — sandbox runtime
 # Pi Browser bridge: HTTP polling via Cloudflare Worker
 
 services:
   agent:
-    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.63
+    image: ghcr.io/cannoi/pinode-telegram-solohost:v2.6.65
     pull_policy: missing
 
     labels:
@@ -25,10 +25,6 @@ services:
       - HORIZON_PORT=31401
       - CORE_HTTP_PORT=11626
 
-      # Docker is optional and OFF by default
-      - DOCKER_PROBE=0
-      - AUTO_DOCKER_SOCK=0
-
       # Monitoring interval
       - TELEMETRY_SEC=60
 
@@ -37,7 +33,6 @@ services:
 
     volumes:
       - ./data:/data
-      - ./:/solohost-config:rw
       # Never mount ./public over /app/public
       # An empty host directory would hide index.html.
 

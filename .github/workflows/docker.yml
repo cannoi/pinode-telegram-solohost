@@ -1,0 +1,117 @@
+name: Build SoloHost image
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=0.1.0
+            type=raw,value=${{ github.sha }}
+            type=ref,event=tag
+            type=sha,prefix=
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Smoke test image
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="ghcr.io/${{ github.repository }}"
+          REPO="${REPO,,}"
+          IMAGE="$REPO:${{ github.sha }}"
+          if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "Expected immutable release image tag was not found locally: $IMAGE"
+            docker images
+            exit 1
+          fi
+          echo "Smoke-testing the exact release image: $IMAGE"
+          # Do not assume port 8080. Many valid apps listen on 3000/4173/5173/etc.
+          # Prefer image EXPOSE values, then probe a small universal web-port set.
+          mapfile -t EXPOSED < <(docker image inspect "${IMAGE}" --format '{{range $p, $_ := .Config.ExposedPorts}}{{println $p}}{{end}}' 2>/dev/null | sed -E 's#/.*$##' | sed '/^$/d' | sort -u)
+          COMMON=(3000 3001 4173 5000 5173 6080 8000 8080 8081 8501)
+          PORTS=()
+          add_port() {
+            local p="$1"
+            [[ "$p" =~ ^[0-9]+$ ]] || return 0
+            local existing
+            for existing in "${PORTS[@]}"; do [[ "$existing" == "$p" ]] && return 0; done
+            PORTS+=("$p")
+          }
+          for p in "${EXPOSED[@]}"; do add_port "$p"; done
+          for p in "${COMMON[@]}"; do add_port "$p"; done
+          if [[ "${#PORTS[@]}" -eq 0 ]]; then PORTS=(8080); fi
+          if [[ "${#PORTS[@]}" -gt 10 ]]; then PORTS=("${PORTS[@]:0:10}"); fi
+
+          RUN_ARGS=()
+          i=0
+          for p in "${PORTS[@]}"; do
+            RUN_ARGS+=( -p "127.0.0.1:$((18080+i)):$p" )
+            i=$((i+1))
+          done
+          echo "Smoke-testing the image with its declared default runtime user."
+          docker run -d --rm --name paf-smoke -e NODE_ENV=production -e PORT="${PORTS[0]}" "${RUN_ARGS[@]}" "${IMAGE}" >/dev/null
+          trap 'docker logs paf-smoke 2>/dev/null || true; docker stop paf-smoke >/dev/null 2>&1 || true' EXIT
+
+          for i in {1..45}; do
+            j=0
+            for p in "${PORTS[@]}"; do
+              host_port=$((18080+j))
+              if curl -fsS --max-time 3 "http://127.0.0.1:${host_port}/health" >/dev/null 2>&1 || curl -fsS --max-time 3 "http://127.0.0.1:${host_port}/" >/dev/null 2>&1; then
+                echo "Smoke test passed on container port ${p}."
+                exit 0
+              fi
+              j=$((j+1))
+            done
+            if ! docker inspect -f '{{.State.Running}}' paf-smoke 2>/dev/null | grep -q true; then
+              echo 'Container exited before smoke test passed.'
+              docker logs paf-smoke 2>/dev/null || true
+              exit 1
+            fi
+            sleep 2
+          done
+          echo 'Container did not become reachable on any detected/common web port within 90 seconds.'
+          docker logs paf-smoke 2>/dev/null || true
+          exit 1
+
+      - name: Push tested image
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            echo "Pushing tested image: $tag"
+            docker image push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"

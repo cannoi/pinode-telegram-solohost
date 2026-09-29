@@ -6,7 +6,7 @@
 set -e
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-TAG="$(tr -d '[:space:]' < VERSION 2>/dev/null || echo 2.6.59-solohost)"
+TAG="$(tr -d '[:space:]' < VERSION 2>/dev/null || echo 2.6.65-solohost)"
 VER="$(echo "$TAG" | sed 's/-solohost//')"
 IMAGE="${IMAGE:-ghcr.io/cannoi/pinode-telegram-solohost}"
 echo "Building $IMAGE:v$VER from $ROOT"

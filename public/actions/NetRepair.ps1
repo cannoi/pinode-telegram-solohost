@@ -1,6 +1,6 @@
 # Pi Node Network repair - KEEP current LAN IP
-# Params kept for controller compatibility. This script never resets Docker.
-param([switch]$SkipDockerReset,[switch]$NetworkOnly)
+# Params kept for controller compatibility.
+param([switch]$NetworkOnly)
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
@@ -105,5 +105,5 @@ if ($isAdmin) {
 
 $ipEnd = (Get-NetIPAddress -InterfaceAlias $iface -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress
 WL "[OK] Done. Final LAN IP=$ipEnd  (modem forward must target this address)"
-WL 'Skipped on purpose: ipconfig /release /renew, netsh int ip reset, static IP rewrite, docker reset.'
+WL 'Skipped on purpose: ipconfig /release /renew, netsh int ip reset, static IP rewrite.'
 exit 0

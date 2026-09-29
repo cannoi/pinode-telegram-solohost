@@ -39,7 +39,7 @@ echo ============================================================
 echo  CLEAN TEMP
 echo ============================================================
 echo  Will do: delete user/system temp older than 6 hours, Recycle Bin.
-echo  Will NOT: change IP, stop Docker, prune images/containers.
+echo  Will NOT: change IP or stop Pi Node.
 echo ============================================================
 echo.
 choice /C YN /N /M "Run this script? [Y/N] "

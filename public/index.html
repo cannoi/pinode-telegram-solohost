@@ -123,7 +123,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .btn-ok{background:var(--win);color:#fff}
 .btn-no{background:rgba(255,255,255,.18);color:#fff}
 </style>
-</head>
+<style>.paf-made-by{position:fixed;right:8px;bottom:8px;width:min(72px,12vw);max-width:12vw;height:auto;object-fit:contain;opacity:.5;background:transparent;padding:0;border:0;box-shadow:none;filter:none;pointer-events:none;z-index:30}</style></head>
 <body>
 
 <!-- ============================================================
@@ -154,7 +154,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="hero">
     <div class="ring"><img id="appLogo" src="/brand-logo" alt="" onerror="this.src='/avatar.jpg'"></div>
     <h1><span id="appTitle">Pi Node Controller PRO</span> <span class="bellwrap"><button type="button" class="bell" id="bell">🔔</button><span class="badge" id="badge">0</span></span></h1>
-    <p class="sub" id="appSub">SoloHost · v2.6.63</p>
+    <p class="sub" id="appSub">SoloHost · v2.6.65</p>
     <div class="bgbar">
       <button type="button" data-bg="cave" id="bgCave">🌄 Cave</button>
       <button type="button" data-bg="classic" id="bgClassic">🖼️ Classic</button>
@@ -165,7 +165,7 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
   <div class="panel" id="alertPanel"></div>
   <div class="card"><h2>Live status</h2>
     <div id="s">…</div>
-    <p class="hz-note hint" id="pn-horizon-note">ℹ️ Data may lag Pi Desktop. 🔓 <button type="button" class="link" id="dkTip">Optional Docker…</button></p>
+    <p class="hz-note hint" id="pn-horizon-note">ℹ️ Data may lag Pi Desktop. Horizon + ports are enough for daily checks.</p>
   </div>
   <div class="card" id="pairCard">
     <h2>Pi Browser · Connect</h2>
@@ -187,8 +187,6 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
       <button type="button" data-dl="/actions/Firewall.bat">🧱 Firewall</button>
       <button type="button" data-dl="/actions/NetRepair.bat">🔧 NetRepair</button>
       <button type="button" data-dl="/actions/LanSetup.bat">📌 LanSetup</button>
-      <button type="button" data-dl="/actions/NodeReset.bat">♻️ NodeReset</button>
-      <button type="button" data-dl="/actions/DockerRecover.bat">🐳 Docker</button>
       <button type="button" data-dl="/actions/Maintain.bat">🗓️ Maintain</button>
     </div>
     <div id="chatbox"></div>
@@ -207,85 +205,19 @@ box-shadow:0 8px 28px rgba(0,0,0,.18)}
       <button id="send" type="button">Send</button>
     </div>
   </div>
-  <p class="foot">Telegram for remote status · Docker only via this SoloHost UI</p>
+  <p class="foot">Telegram for remote status · Horizon monitor</p>
 </div>
 
-<div class="modal" id="dkModal" role="dialog" aria-modal="true">
-  <div class="box">
-    <h3>Optional Docker Access — Terms</h3>
-    <div class="terms" id="termsBox"></div>
-    <div class="footbar">
-      <label><input type="checkbox" id="dkRead" disabled> I have scrolled to the end and read the full terms</label>
-      <label><input type="checkbox" id="dkAgree" disabled> I accept the terms and understand this is my Operator choice on this machine</label>
-      <button type="button" class="btn btn-ok" id="dkConfirm" disabled>Confirm — write compose</button>
-      <button type="button" class="btn btn-no" id="dkCancel">Cancel</button>
-    </div>
-  </div>
-</div>
 
 <script>
-const TERMS = `OPTIONAL DOCKER ACCESS — TERMS
-
-What this is
-This SoloHost app can optionally use the Docker engine socket on YOUR computer to read Pi Node container status (for example Core info via docker exec). This is OFF by default.
-
-SoloHost default permissions
-Sandbox: CPU and memory, one localhost port, the app data folder, outbound network. docker.sock is NOT a default SoloHost permission and is NOT required for normal monitoring (Horizon, ports, reports, AI chat).
-
-What you grant if you Confirm
-• The app may overwrite docker-compose.yml in this app folder to mount /var/run/docker.sock read-only.
-• The app may list containers and run limited read/exec commands for node status.
-• A higher privilege level than the default sandbox.
-
-What we do not claim
-• No access to your Pi wallet or keys.
-• No guarantee of host security after you enable elevated access.
-• The publisher does not operate your Docker daemon.
-
-Your responsibility (Operator)
-Under SoloHost Terms you decide permissions on your machine. By confirming you accept:
-1) docker.sock is powerful and may expose Docker on this PC.
-2) Risk of optional diagnostics is yours.
-3) You can disable later and remove the socket volume, then Stop → Start.
-4) Pi Network, SoloHost, and the publisher are not responsible for damage, data loss, or misuse from elevated access you enable.
-
-Purpose of the app
-Provide the best monitoring help within clear limits. Docker access is optional, user-controlled, and never required for core features.
-
-After Confirm
-SoloHost UI: press Stop, then Start the app again so the new compose applies.
-
-Confirm only if you accept these terms in full.`;
 
 function $(id){ return document.getElementById(id); }
 function on(el, ev, fn){ if (el) el.addEventListener(ev, fn); }
 
 const box=$('chatbox');
-const termsBox=$('termsBox');
-if(termsBox) termsBox.textContent=TERMS;
 
 function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;if(box){box.appendChild(d);box.scrollTop=box.scrollHeight;}}
-
-function setupTermsScroll(){
-  const read=$('dkRead');
-  const agree=$('dkAgree');
-  const conf=$('dkConfirm');
-  if(!read||!agree||!conf) return;
-  function refresh(){conf.disabled=!(read.checked&&agree.checked);}
-  read.onchange=refresh;agree.onchange=refresh;
-  if(termsBox){
-    termsBox.onscroll=function(){
-      const el=termsBox;
-      if(el.scrollTop+el.clientHeight>=el.scrollHeight-8){
-        read.disabled=false;
-      }
-    };
-    setTimeout(function(){
-      if(termsBox.scrollHeight<=termsBox.clientHeight+4) read.disabled=false;
-    },400);
-  }
-}
 
 /* ============================================================
  * SYSTEM RESOURCES bar
@@ -367,8 +299,8 @@ async function loadStatus(){
   try{
     const t=await fetch('/api/status').then(r=>r.json());
     let syncVal = t.sync ?? '—';
-    const sockOn = t.docker_sock===true||t.docker_probe===true||t.core_verified===true;
-    if(sockOn){
+    const verified = t.core_verified===true;
+    if(verified){
       const ageN = t.ledger_age!=null ? Number(t.ledger_age) : null;
       if(/catching|not\s*synced/i.test(String(syncVal)) || (ageN!=null && ageN>180)) syncVal = 'Catching up';
       else if(/horizon live|horizon ok|synced|good/i.test(String(syncVal)) || (ageN!=null && ageN<=35)) syncVal = 'Synced';
@@ -377,7 +309,7 @@ async function loadStatus(){
     const ageVal = t.ledger_age!=null ? t.ledger_age+'s' : '—';
     const peersVal = t.peers!=null ? String(t.peers) : ((t.peer_in!=null||t.peer_out!=null)?String((t.peer_in??0)+(t.peer_out??0)):'—');
 
-    const rawH = (t.core_health!=null && t.docker_sock) ? t.core_health : t.health;
+    const rawH = t.core_health!=null ? t.core_health : t.health;
     const health = rawH!=null ? Math.min(100, Math.max(0, Number(rawH))) : 0;
 
     let color = '#16c60c';
@@ -426,19 +358,7 @@ async function loadStatus(){
 
     const note=$('pn-horizon-note');
     if(note){
-      const sock=t.docker_sock===true||t.docker_probe===true||t.hasDockerSock===true;
-      if(sock){
-        note.hidden=true;
-        try{ sessionStorage.removeItem('dkAcceptedMsg'); }catch(e){}
-      } else if(sessionStorage.getItem('dkAcceptedMsg')==='1'){
-        note.hidden=false;
-        note.innerHTML='✅ Terms accepted. docker-compose.yml updated.<br>SoloHost: press <b style="color:#ffd24a">Stop</b>, then <b style="color:#5dff9a">Start</b> the app again.';
-      } else {
-        note.hidden=false;
-        if(!note.querySelector('#dkTip')){
-          note.innerHTML='ℹ️ Data may lag Pi Desktop. 🔓 <button type="button" class="link" id="dkTip">Optional Docker…</button>';
-        }
-      }
+      note.hidden=false;
     }
   }catch(e){ const sEl=$('s'); if(sEl) sEl.textContent='Status error'; }
 }
@@ -466,44 +386,6 @@ async function send(){
   }catch(e){ if(box) box.lastChild.textContent='Chat error'; }
 }
 
-on($('dkTip'),'click',function(){
-  const read=$('dkRead'), agree=$('dkAgree'), conf=$('dkConfirm'), modal=$('dkModal');
-  if(!read||!agree||!conf||!modal) return;
-  read.checked=false;
-  agree.checked=false;
-  read.disabled=true;
-  agree.disabled=false;
-  conf.disabled=true;
-  modal.classList.add('on');
-  if(termsBox) termsBox.scrollTop=0;
-  setupTermsScroll();
-});
-on($('dkCancel'),'click',function(){
-  const modal=$('dkModal'); if(modal) modal.classList.remove('on');
-});
-on($('dkConfirm'),'click',async function(){
-  const conf=$('dkConfirm'), modal=$('dkModal');
-  if(!conf||conf.disabled)return;
-  if(modal) modal.classList.remove('on');
-  add('bot','…');
-  try{
-    const r=await fetch('/api/docker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,consent:true,terms_version:'docker-optional-v1',read_full:true})});
-    const j=await r.json();
-    if(!j.ok){ if(box) box.lastChild.textContent=j.error||'Failed';return; }
-    try{ sessionStorage.setItem('dkAcceptedMsg','1'); }catch(e){}
-    const note=$('pn-horizon-note');
-    if(note){
-      note.hidden=false;
-      note.innerHTML='✅ Terms accepted. docker-compose.yml updated.<br>SoloHost: press <b style="color:#ffd24a">Stop</b>, then <b style="color:#5dff9a">Start</b> the app again.';
-    }
-    if(box) box.lastChild.textContent='Terms accepted. Press Stop, then Start.';
-  }catch(e){ if(box) box.lastChild.textContent='Network error'; }
-});
-on($('dkAgree'),'change',function(){
-  const read=$('dkRead'), agree=$('dkAgree'), conf=$('dkConfirm');
-  if(!read||!agree||!conf) return;
-  conf.disabled=!(read.checked&&agree.checked);
-});
 
 const ACT={
  '/actions/CleanRAM.bat':'🧹 CleanRAM\nWhat: Frees RAM. Closes extra apps and temp files.\nWhen: PC is slow and the node is still synced.',
@@ -512,8 +394,6 @@ const ACT={
  '/actions/Firewall.bat':'🧱 Firewall\nWhat: Open TCP 31401-31410 on Windows Firewall.\nWhen: Local Pi ports stay closed.',
  '/actions/NetRepair.bat':'🔧 NetRepair\nWhat: Repair internet while keeping the current LAN IP.\nWhen: Horizon or internet is down for a long time.',
  '/actions/LanSetup.bat':'📌 LanSetup\nWhat: Lock the current LAN IP as static + open Pi ports.\nWhen: First setup on this PC.',
- '/actions/NodeReset.bat':'♻️ NodeReset\nWhat: Restart the Pi container only.\nWhen: The container is stuck and Docker Engine is healthy.',
- '/actions/DockerRecover.bat':'🐳 DockerRecover\nWhat: Restart Docker Desktop safely.\nWhen: Docker Engine itself is down.',
  '/actions/Maintain.bat':'🗓️ Maintain\nWhat: Weekly cleanup and optional Sunday task.\nWhen: Node is healthy.'
 };
 on($('abar'),'click',function(e){
@@ -692,5 +572,5 @@ function bindActivate(el, fn){
 loadBrand();
 
 </script>
-</body>
+<img class="paf-made-by" src="/made-by.png" alt="Made with App Builder — Pi SoloHost"></body>
 </html>

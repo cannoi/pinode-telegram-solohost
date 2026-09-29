@@ -1,5 +1,4 @@
 /**
- * Balanced Horizon-only sync label (no docker.sock / Core HTTP unverified).
  *
  * Why not "Synced":
  *   Core and Horizon ingest stay within a few ledgers while BOTH are still

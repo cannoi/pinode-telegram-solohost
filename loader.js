@@ -1,38 +1,22 @@
 'use strict';
+// Thin supervisor: runs the baked-in app.js only (no code loaded from /data).
 const { spawn } = require('child_process');
 const path = require('path');
-const fs = require('fs');
 
-const DATA = process.env.DATA_DIR || '/data';
-const BAKED = path.join(__dirname, 'app.js');
-const BUNDLE = path.join(DATA, 'bundle', 'app.js');
-
+const APP = path.join(__dirname, 'app.js');
 function log(m) { console.log('[loader] ' + m); }
-
-function appPath() {
-  try {
-    if (fs.existsSync(BUNDLE) && fs.statSync(BUNDLE).size > 800) return BUNDLE;
-  } catch (e) {}
-  return BAKED;
-}
 
 let child = null, stopping = false;
 
 function startApp() {
-  const p = appPath();
-  log('start ' + p);
-  child = spawn(process.execPath, [p], { stdio: 'inherit', env: process.env });
+  log('start ' + APP);
+  child = spawn(process.execPath, [APP], { stdio: 'inherit', env: process.env });
   child.on('exit', function (code) {
     child = null;
     if (stopping) return;
-    log('exit ' + code + ' → restart 3s');
+    log('exit ' + code + ' -> restart 3s');
     setTimeout(startApp, 3000);
   });
-}
-
-function boot() {
-  try { require('./auto-compose'); } catch (e) {}
-  startApp();
 }
 
 process.on('SIGTERM', function () {
@@ -41,4 +25,4 @@ process.on('SIGTERM', function () {
   setTimeout(function () { process.exit(0); }, 800);
 });
 
-boot();
+startApp();

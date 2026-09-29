@@ -44,72 +44,6 @@ function portsOkFrom(t) {
   return 'unknown';
 }
 
-function dockerStatusFrom(t) {
-  if (!t) return 'unknown';
-  if (t.docker_status) return String(t.docker_status);
-  if (t.docker_sock !== true && !t.docker_probe) return 'unknown';
-  const d = String(t.docker || '');
-  if (/running|up/i.test(d)) return 'running';
-  if (/exit|stop|dead/i.test(d)) return 'stopped';
-  if (t.docker_sock === true) return 'available';
-  return 'unknown';
-}
-
-function dockerHealthFrom(t) {
-  if (!t) return 'unknown';
-  if (t.docker_health) return String(t.docker_health);
-  const st = dockerStatusFrom(t);
-  if (st === 'unknown') return 'unknown';
-  if (st === 'running' || st === 'available') return 'healthy';
-  if (st === 'stopped') return 'unhealthy';
-  return 'unknown';
-}
-
-/** Core health: only when docker.sock is on and Core/container fields exist. */
-function scoreCoreHealth(t) {
-  t = t || {};
-  if (t.docker_sock !== true && t.docker_probe !== true) return null;
-  if (!t.core_verified && !t.core_state && !t.container_health && t.peer_in == null && t.peer_out == null) {
-    return null;
-  }
-  let score = 72;
-  const st = String(t.core_state || t.sync || '');
-  if (/synced/i.test(st) && !/not\s*synced/i.test(st)) score += 16;
-  else if (/catching/i.test(st)) score -= 10;
-  else if (/stop|error|fail/i.test(st)) score -= 24;
-  const age = num(t.ledger_age);
-  if (age != null) {
-    if (age <= 20) score += 8;
-    else if (age <= 60) score += 2;
-    else if (age <= 180) score -= 10;
-    else score -= 22;
-  }
-  const pin = num(t.peer_in);
-  const pout = num(t.peer_out);
-  if (pin != null || pout != null) {
-    const tot = (pin || 0) + (pout || 0);
-    if (tot >= 12) score += 6;
-    else if (tot >= 6) score += 2;
-    else if (tot >= 2) score -= 4;
-    else score -= 14;
-  }
-  const ch = String(t.container_health || t.docker_health || '');
-  if (/healthy/i.test(ch)) score += 6;
-  else if (/unhealthy/i.test(ch)) score -= 16;
-  const lag = num(t.ingest_lag);
-  if (lag != null) {
-    if (lag <= 5) score += 4;
-    else if (lag > 50) score -= 10;
-  }
-  // [2.6.58] Only container_cpu/container_ram feed core health.
-  // Never fall back to t.cpu/t.ram — those are Node OS metrics now.
-  const cpu = hostMetric(t.container_cpu);
-  const ram = hostMetric(t.container_ram);
-  if (cpu != null && cpu >= 95) score -= 8;
-  if (ram != null && ram >= 92) score -= 10;
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
-
 function scoreHealth(t) {
   t = t || {};
   let score = 70;
@@ -140,9 +74,6 @@ function scoreHealth(t) {
   const pok = portsOkFrom(t);
   if (pok === true) { used++; score += 8; }
   else if (pok === false) { used++; score -= 22; }
-  const dh = dockerHealthFrom(t);
-  if (dh === 'healthy') { used++; score += 4; }
-  else if (dh === 'unhealthy') { used++; score -= 10; }
   // RAM / CPU / Disk — from Node OS. 0 is valid, negative/null = skip.
   const ram = hostMetric(t.ram);
   if (ram != null) {
@@ -202,10 +133,8 @@ function liveFrame(t, prevRows) {
   t = t || {};
   const peers = num(t.peer_total != null ? t.peer_total : (t.peer_in != null && t.peer_out != null ? t.peer_in + t.peer_out : t.peers));
   const pok = portsOkFrom(t);
-  const ds = dockerStatusFrom(t);
-  const dh = dockerHealthFrom(t);
   const health = scoreHealth(t);
-  const coreHealth = scoreCoreHealth(t);
+  const coreHealth = t.core_verified ? health : null;
   const frame = {
     ts: t.ts || new Date().toISOString(),
     status: t.level || t.status || null,
@@ -217,8 +146,6 @@ function liveFrame(t, prevRows) {
     cpu: hostMetric(t.cpu),
     ram: hostMetric(t.ram),
     disk: hostMetric(t.disk),
-    docker_status: ds,
-    docker_health: dh,
     health: health,
     core_health: coreHealth,
     health_source: coreHealth != null ? 'core' : 'horizon',
@@ -243,8 +170,6 @@ function historyRow(t) {
     cpu: f.cpu,
     ram: f.ram,
     disk: f.disk,
-    docker_status: f.docker_status,
-    docker_health: f.docker_health,
     source: f.source,
     status: f.status
   };
@@ -263,8 +188,6 @@ function aiContext(t, extra) {
     cpu: f.cpu,
     ram: f.ram,
     disk: f.disk,
-    docker_status: f.docker_status,
-    docker_health: f.docker_health,
     health: f.core_health != null ? f.core_health : f.health,
     horizon_health: f.health,
     core_health: f.core_health,
@@ -272,11 +195,10 @@ function aiContext(t, extra) {
     trend: f.trend,
     source: f.source
   };
-  const extraKeys = ['ledger_per_min','container_health','container_cpu','container_cpu_docker','container_cpu_cores','container_cpus','container_ram','container_ram_mb','container_ram_limit_mb','blkio','net_io','restart_count','oom','pid','peer_in','peer_out'];
+  const extraKeys = ['ledger_per_min','peer_in','peer_out'];
   extraKeys.forEach(function (k) {
     if (t[k] != null && t[k] !== '' && t[k] !== 0) out[k] = t[k];
   });
-  if (t.restart_count === 0) out.restart_count = 0;
   Object.keys(out).forEach(function (k) {
     if (out[k] == null) delete out[k];
   });
@@ -286,6 +208,6 @@ function aiContext(t, extra) {
 }
 
 module.exports = {
-  num, hostMetric, portsOkFrom, dockerStatusFrom, dockerHealthFrom,
-  scoreHealth, scoreCoreHealth, trendFrom, liveFrame, historyRow, aiContext
+  num, hostMetric, portsOkFrom,
+  scoreHealth, trendFrom, liveFrame, historyRow, aiContext
 };
